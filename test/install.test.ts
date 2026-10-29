@@ -106,9 +106,9 @@ before(() => {
 after(() => rmSync(dir, { recursive: true, force: true }))
 
 describe("tsverify, installed from its tarball", () => {
-  it("ships what it builds and the packs' source, and none of its own source or tests", () => {
+  it("ships what it builds, the packs' source and its license, and none of its own source or tests", () => {
     const files = sync("tar", ["-tzf", path.join(dir, `tsverify-${manifest.version}.tgz`)], dir).trim().split("\n")
-    const outside = files.filter((f) => !/^package\/(dist\/.*\.(js|d\.ts)|packs\/[^/]+\.ts|package\.json|README\.md)$/.test(f))
+    const outside = files.filter((f) => !/^package\/(dist\/.*\.(js|d\.ts)|packs\/[^/]+\.ts|package\.json|README\.md|LICENSE)$/.test(f))
     assert.deepEqual(outside, [])
     assert.ok(files.includes("package/dist/src/cli.js") && files.includes("package/packs/lodash.ts"))
   })
