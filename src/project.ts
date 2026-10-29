@@ -60,7 +60,7 @@ export const exportedConst = (project: Project, file: string, name: string): ts.
   throw new Error(`no \`export const ${name}\` in ${file}`)
 }
 
-const CONTRACT_MODULE = path.resolve(import.meta.dirname, "contract.ts")
+export const CONTRACT_MODULE = path.resolve(import.meta.dirname, "contract.ts")
 const EFFECT_CONTRACT_MODULE = path.resolve(import.meta.dirname, "adapters/effect/contract.ts")
 
 export interface ContractSource {
@@ -119,11 +119,11 @@ export const readContract = (project: Project, file: string, name: string): Cont
   return { name, kind: helper, target, requires, ensures }
 }
 
-const unwrap = (e: ts.Expression): ts.Expression =>
+export const unwrap = (e: ts.Expression): ts.Expression =>
   ts.isParenthesizedExpression(e) || ts.isSatisfiesExpression(e) ? unwrap(e.expression) : e
 
 /** Whether `e` resolves to the export `name` of `file`. */
-const declared = (checker: ts.TypeChecker, e: ts.Expression, file: string, name: string): boolean => {
+export const declared = (checker: ts.TypeChecker, e: ts.Expression, file: string, name: string): boolean => {
   let sym = checker.getSymbolAtLocation(ts.isPropertyAccessExpression(e) ? e.name : e)
   if (sym !== undefined && sym.flags & ts.SymbolFlags.Alias) sym = checker.getAliasedSymbol(sym)
   const decl = sym?.declarations?.[0]
@@ -144,7 +144,7 @@ const targetOf = (checker: ts.TypeChecker, e: ts.Expression): ts.Node => {
 }
 
 /** A function written in place, or an identifier resolving to a function declaration or a `const` holding one. */
-const functionOf = (checker: ts.TypeChecker, e: ts.Expression): FunctionNode => {
+export const functionOf = (checker: ts.TypeChecker, e: ts.Expression): FunctionNode => {
   const x = unwrap(e)
   if (ts.isArrowFunction(x) || ts.isFunctionExpression(x)) return x
   if (ts.isIdentifier(x)) {

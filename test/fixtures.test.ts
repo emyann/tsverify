@@ -65,10 +65,9 @@ describe("a refused construct leaves its contract unverified", () => {
     ["global", /`Math` is a binding the verifier cannot see/],
     ["stringLength", /UTF-16 code units/],
   ]
-  it("recursion: the recursive call is an unknown function of its arguments, said in the notes", async () => {
+  it("recursion: the recursive call is refused, saying what to declare instead", async () => {
     const v = await verify(z3, project, fixture("refused"), "recursion")
-    assert.equal(v.unsupported, undefined)
-    assert.ok(v.notes.some((n) => /`countdown` was not read \(recursion is not modeled\)/.test(n)), v.notes.join("\n"))
+    assert.match(v.unsupported ?? "(verified)", /`countdown` is not read \(recursion is not modeled\): declare what the verifier may assume of it, `assume\(countdown, /)
   })
   it("unnarrowed: a member of a value the checker has not shown present", async () => {
     const v = await verify(z3, project, fixture("ill-typed"), "unnarrowed")

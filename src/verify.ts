@@ -16,10 +16,11 @@ import { effectAdapter } from "./adapters/effect/index.ts"
 import { tsAdapter } from "./adapters/ts.ts"
 import { emptyTrace, runBody } from "./computation.ts"
 import { TooLong, fromModel, literal, pin } from "./concrete.ts"
-import { emptyEnv, type Lowering, lowerCall, lowering, num } from "./lower.ts"
+import { emptyEnv, inSpec, type Lowering, lowerCall, lowering, num, type Trust, trustOf } from "./lower.ts"
 import { strictEq, truthy } from "./ops.ts"
 import { type ContractSource, type Project, readContract } from "./project.ts"
 import { symbolicOf } from "./symbolic.ts"
+import { PURITY_TRUSTS, readAssumptions, type Trusted } from "./trust.ts"
 import { Universe } from "./universe.ts"
 import { type Ctx, type FunctionNode, Unsupported, type Val } from "./value.ts"
 
@@ -56,6 +57,8 @@ export interface CoverResult {
   readonly value: string
   readonly status: "reachable" | "unreachable" | "bounded" | "unknown"
   readonly args?: ReadonlyArray<unknown>
+  /** Set when the witness leans on declared functions, as a law's counterexample may. */
+  readonly abstract?: ReadonlyArray<string>
 }
 
 export interface Verification {
@@ -64,6 +67,11 @@ export interface Verification {
   readonly cover: ReadonlyArray<CoverResult>
   /** What the model of JavaScript assumed on the way, each kind once. */
   readonly notes: ReadonlyArray<string>
+  /**
+   * The declarations the verification leaned on (`assume(...)`): what it took without proof. A proof holds of the
+   * program only if each of these holds of the function it names.
+   */
+  readonly trusted: ReadonlyArray<Trusted>
   /** Set when the function or `requires` could not be lowered: no law is checked then. */
   readonly unsupported?: string
 }
@@ -99,15 +107,22 @@ const ALWAYS = [
 ]
 
 /** Lowers the contract's function and precondition on one side (`bound` set: the search side). */
-export const lowerSide = (z3: Ctx, project: Project, source: ContractSource, bound?: number, adapters = ADAPTERS): Lowered => {
+export const lowerSide = (
+  z3: Ctx,
+  project: Project,
+  source: ContractSource,
+  bound?: number,
+  adapters = ADAPTERS,
+  trust: Trust = trustOf(readAssumptions(project)),
+): Lowered => {
   const u = new Universe(z3, bound)
-  const L = lowering({ u, checker: project.checker }, adapters)
+  const L = lowering({ u, checker: project.checker }, adapters, trust)
   const symbolicArgs = (fn: FunctionNode) => {
     const params = fn.parameters.map((p, i) => (ts.isIdentifier(p.name) ? p.name.text : `arg${i}`))
     return { params, args: fn.parameters.map((p, i) => symbolicOf(L, project.checker.getTypeAtLocation(p), [params[i]!], [], p)) }
   }
   const preOf = (args: ReadonlyArray<Val>) =>
-    source.requires === undefined ? z3.Bool.val(true) : truthy(u, lowerCall(L, source.requires, emptyEnv, args, source.requires))
+    source.requires === undefined ? z3.Bool.val(true) : inSpec(L, () => truthy(u, lowerCall(L, source.requires!, emptyEnv, args, source.requires!)))
   if (source.kind === "function") {
     const t = source.target
     if (!(ts.isArrowFunction(t) || ts.isFunctionExpression(t) || ts.isFunctionDeclaration(t)))
@@ -123,19 +138,23 @@ export const lowerSide = (z3: Ctx, project: Project, source: ContractSource, bou
 }
 
 const lawOn = (side: Lowered, law: ContractSource["ensures"][number]): Bool<"main"> =>
-  truthy(side.u, lowerCall(side.L, law.law, emptyEnv, side.trace === undefined ? [...side.args, side.result] : [...side.args, side.result, side.trace], law.law))
+  inSpec(side.L, () =>
+    truthy(side.u, lowerCall(side.L, law.law, emptyEnv, side.trace === undefined ? [...side.args, side.result] : [...side.args, side.result, side.trace], law.law)),
+  )
 
 export const verify = async (z3: Ctx, project: Project, file: string, name: string, opts: Options = {}): Promise<Verification> => {
   const source = readContract(project, file, name)
   const bound = opts.bound ?? 4
   let proof: Lowered
   let search: Lowered
+  let trust: Trust
   try {
-    proof = lowerSide(z3, project, source)
-    search = lowerSide(z3, project, source, bound)
+    trust = trustOf(readAssumptions(project))
+    proof = lowerSide(z3, project, source, undefined, ADAPTERS, trust)
+    search = lowerSide(z3, project, source, bound, ADAPTERS, trust)
   } catch (e) {
     if (!(e instanceof Unsupported)) throw e
-    return { contract: name, laws: [], cover: [], notes: ALWAYS, unsupported: e.message }
+    return { contract: name, laws: [], cover: [], notes: ALWAYS, trusted: [], unsupported: e.message }
   }
 
   const laws: Array<LawResult> = []
@@ -208,8 +227,24 @@ export const verify = async (z3: Ctx, project: Project, file: string, name: stri
       cover.push(c)
       opts.progress?.(`cover ${value}: ${c.status}`)
     }
-  return { contract: name, laws, cover, notes: [...ALWAYS, ...proof.u.notes] }
+  const trusted = trustedOf(trust)
+  const notes = [...ALWAYS, ...proof.u.notes]
+  if (trusted.some((t) => t.purity === "checked")) notes.push(`A purity check takes on trust that ${PURITY_TRUSTS.join("; that ")}.`)
+  return { contract: name, laws, cover, notes, trusted }
 }
+
+/** The trusted base of a verification: each declaration it leaned on, with how far its purity was checked. */
+const trustedOf = (trust: Trust): Array<Trusted> =>
+  [...trust.used].map((a) => {
+    const p = trust.purity.get(a)
+    return {
+      name: a.name,
+      declared: a.views.map((v) => v.where),
+      purity: !a.pure ? "impure" : p?.pure === true ? "checked" : "unchecked",
+      laws: [...new Set(a.views.flatMap((v) => v.ensures.map((l) => l.name)))],
+      ...(p?.pure === true ? { read: p.read } : {}),
+    }
+  })
 
 /**
  * The ends a computation can come to, as cover goals: success, and a failure for each `_tag` its declared failure
@@ -280,6 +315,8 @@ const witness = (side: Lowered, model: Model<"main">): Witness => {
   try {
     const roots = new Set([...side.u.leaves.values()].map((l) => l.segments[0]!))
     for (const p of side.params) roots.delete(p)
+    // A declared function's result inside a quantifier is one per element: a function of the index, not a value to show.
+    for (const l of side.u.leaves.values()) if (l.arity > l.segments.filter((s) => s === "[]").length) roots.delete(l.segments[0]!)
     const world = Object.fromEntries([...roots].sort().map((r) => [r, fromModel(side.u, model, r)]))
     return {
       args: side.params.map((p) => fromModel(side.u, model, p)),

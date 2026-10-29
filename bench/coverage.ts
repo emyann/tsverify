@@ -2,12 +2,20 @@
 // TypeScript project, lowered with symbolic arguments (no solving), counted as
 // read or refused, and the refusals grouped by reason.
 //
-//   node bench/coverage.ts <tsconfig.json> [--json out.json]
+//   node bench/coverage.ts <tsconfig.json> [--modular] [--json out.json]
+//
+// By default a function is read with every function it calls inlined, and a
+// callee the verifier cannot read refuses it. With `--modular`, each function is
+// read on its own: a callee of the program that the purity check finds pure is
+// taken as declared `assume(callee, { pure: true })`, which is what a spec would
+// write to read the caller without reading the callee.
 import path from "node:path"
 import { writeFileSync } from "node:fs"
 import ts from "typescript"
-import { emptyEnv, lowerCall, lowering } from "../src/lower.ts"
-import { loadProject } from "../src/project.ts"
+import { emptyEnv, lowerCall, lowering, trustOf } from "../src/lower.ts"
+import { loadProject, unwrap } from "../src/project.ts"
+import { purityOf } from "../src/purity.ts"
+import type { AssumedFn, Assumptions } from "../src/trust.ts"
 import { symbolicOf } from "../src/symbolic.ts"
 import { Universe } from "../src/universe.ts"
 import { type FunctionNode, Unsupported } from "../src/value.ts"
@@ -15,6 +23,7 @@ import { ADAPTERS, withZ3 } from "../src/verify.ts"
 
 const tsconfig = path.resolve(process.argv[2] ?? "tsconfig.json")
 const jsonOut = process.argv.includes("--json") ? process.argv[process.argv.indexOf("--json") + 1] : undefined
+const modular = process.argv.includes("--modular")
 const parsed = ts.parseJsonConfigFileContent(ts.readConfigFile(tsconfig, ts.sys.readFile).config, ts.sys, path.dirname(tsconfig))
 const files = parsed.fileNames.filter((f) => !/\.test\.tsx?$|\/test\//.test(f) && !f.endsWith(".d.ts"))
 const project = loadProject(files, tsconfig)
@@ -57,6 +66,38 @@ const returnsEffect = (fn: FunctionNode): boolean => {
   return /^(Effect|Stream|Layer)\b|Effect\.Effect</.test(name)
 }
 
+/** Every function of the program the purity check finds pure, declared `pure: true` with no law, as a spec would. */
+const declaredPure = (): Assumptions => {
+  const { checker } = project
+  const memo = new Map<ts.Symbol, AssumedFn | undefined>()
+  const bodyOf = (sym: ts.Symbol): FunctionNode | undefined => {
+    const d = sym.valueDeclaration
+    if (d === undefined || d.getSourceFile().isDeclarationFile || d.getSourceFile().fileName.includes("/node_modules/")) return undefined
+    if (ts.isFunctionDeclaration(d) && d.body !== undefined) return d
+    if (ts.isVariableDeclaration(d) && d.initializer !== undefined && (d.parent.flags & ts.NodeFlags.Const) !== 0) {
+      const init = unwrap(d.initializer)
+      if (ts.isArrowFunction(init) || ts.isFunctionExpression(init)) return init
+    }
+    return undefined
+  }
+  const of = (callee: ts.Expression): AssumedFn | undefined => {
+    let sym = checker.getSymbolAtLocation(ts.isPropertyAccessExpression(callee) ? callee.name : callee)
+    if (sym !== undefined && sym.flags & ts.SymbolFlags.Alias) sym = checker.getAliasedSymbol(sym)
+    if (sym === undefined) return undefined
+    if (memo.has(sym)) return memo.get(sym)
+    memo.set(sym, undefined)
+    const body = bodyOf(sym)
+    const sig = body === undefined ? undefined : checker.getSignatureFromDeclaration(body)
+    let a: AssumedFn | undefined
+    if (body !== undefined && sig !== undefined && sig.typeParameters === undefined && purityOf(checker, body, of).pure)
+      a = { symbol: sym, name: sym.name, body, pure: true, views: [{ where: "(probe)", params: sig.getParameters().map((p) => checker.getTypeOfSymbol(p)), ensures: [] }] }
+    memo.set(sym, a)
+    return a
+  }
+  return { all: [], of }
+}
+const trust = modular ? trustOf(declaredPure()) : undefined
+
 await withZ3(async (z3) => {
   const fns = project.program.getSourceFiles().filter((sf) => files.includes(sf.fileName)).flatMap(exported)
   const reasons = new Map<string, { count: number; effect: number; example: string }>()
@@ -68,7 +109,7 @@ await withZ3(async (z3) => {
     const effect = returnsEffect(f.node)
     if (effect) effects++
     const u = new Universe(z3)
-    const L = lowering({ u, checker: project.checker }, ADAPTERS)
+    const L = lowering({ u, checker: project.checker }, ADAPTERS, trust)
     try {
       const args = f.node.parameters.map((p, i) =>
         symbolicOf(L, project.checker.getTypeAtLocation(p), [ts.isIdentifier(p.name) ? p.name.text : `arg${i}`], [], p),
@@ -89,7 +130,7 @@ await withZ3(async (z3) => {
     }
   }
   const pct = (a: number, b: number) => `${b === 0 ? 0 : Math.round((100 * a) / b)}%`
-  console.log(`${path.relative(process.cwd(), tsconfig)}: ${fns.length} exported functions in ${files.length} files`)
+  console.log(`${path.relative(process.cwd(), tsconfig)}: ${fns.length} exported functions in ${files.length} files${modular ? ", each read on its own (--modular)" : ""}`)
   console.log(`  read: ${read} (${pct(read, fns.length)})`)
   console.log(`  returning an Effect, Stream or Layer: ${effects}, of which read: ${readEffect}`)
   console.log(`  not returning one: ${fns.length - effects}, of which read: ${read - readEffect} (${pct(read - readEffect, fns.length - effects)})`)

@@ -10,6 +10,15 @@
 // on arrays `.length`, `.at(k)` for a literal k, `.filter(p).length`, `.some(p)`,
 // `.every(p)`, `.includes(x)` for strings and booleans.
 //
+// A function it does not read — a package's, or one of the program's whose body
+// it cannot lower — is refused unless an `assume(...)` is in force for it; one
+// that is in force replaces the function, read or not (`trust.ts`).
+//
+// Code runs in one of two modes, as in Verus: `exec`, the program, and `spec`,
+// the laws and `requires` and whatever they call. Spec code runs no
+// computation, calls no operation and calls nothing declared `pure: false`. A
+// binding keeps the mode of the code that wrote it, however late it is read.
+//
 // Refused with a source span: arithmetic on `number` (its rounding is not
 // modeled) and bigint `/` `%` (they truncate; Z3's do not), `==`, assignments
 // and loops, casts and non-null assertions (each is a claim the verifier would
@@ -25,8 +34,29 @@ import type { Arith, Bool } from "z3-solver"
 import type { Adapter } from "./adapter.ts"
 import { computationCall } from "./computation.ts"
 import { type Order, compare, isNullish, ite, nullishOr, strictEq, truthy } from "./ops.ts"
+import { type Purity, purityOf } from "./purity.ts"
 import { type Typing, symbolicOf } from "./symbolic.ts"
+import { type AssumedFn, type Assumptions, coveringViews } from "./trust.ts"
 import { type Env, type FunctionNode, NUM, type Thunk, Unsupported, type Val, exactRational, identity, lazy, lazyRecord } from "./value.ts"
+
+/** What a verification trusts, shared by its two sides: the declarations in force, and what came of using them. */
+export interface Trust {
+  readonly assumptions: Assumptions
+  /** Each declared-pure function's purity, checked once. */
+  readonly purity: Map<AssumedFn, Purity>
+  /** The declarations a lowering leaned on. */
+  readonly used: Set<AssumedFn>
+}
+
+export const trustOf = (assumptions: Assumptions): Trust => ({ assumptions, purity: new Map(), used: new Set() })
+
+const NO_TRUST: Assumptions = { all: [], of: () => undefined }
+
+/** `exec`: the program. `spec`: a law, a `requires`, and what they call. */
+export type Mode = "exec" | "spec"
+
+/** A function the verifier would have to read and cannot: what to declare instead is in the message. */
+export class Unread extends Unsupported {}
 
 export interface Lowering extends Typing {
   /** The functions being inlined, innermost last: a guard against recursion. */
@@ -35,18 +65,51 @@ export interface Lowering extends Typing {
   readonly constants: Map<ts.Declaration, Val>
   /** The libraries' adapters, asked in order. */
   readonly adapters: ReadonlyArray<Adapter>
-  /** Results of opaque calls and template strings, by callee and arguments' identities: the same call, the same value. */
+  /** Results of declared pure functions and template strings, by callee and arguments' identities: the same call, the same value. */
   readonly opaque: Map<string, Val>
+  readonly trust: Trust
+  /** The mode of the code being lowered now. */
+  mode: Mode
+  /** The declarations whose laws are being assumed now: a law that calls its own function is refused. */
+  readonly assuming: Array<AssumedFn>
 }
 
 /** A fresh lowering over a universe. */
-export const lowering = (typing: Typing, adapters: ReadonlyArray<Adapter>): Lowering => ({
+export const lowering = (typing: Typing, adapters: ReadonlyArray<Adapter>, trust: Trust = trustOf(NO_TRUST)): Lowering => ({
   ...typing,
   adapters,
   stack: [],
   constants: new Map(),
   opaque: new Map(),
+  trust,
+  mode: "exec",
+  assuming: [],
 })
+
+/** Runs `f` as spec code. */
+export const inSpec = <A>(L: Lowering, f: () => A): A => {
+  const prev = L.mode
+  L.mode = "spec"
+  try {
+    return f()
+  } finally {
+    L.mode = prev
+  }
+}
+
+/** A binding evaluated when first read, in the mode of the code that wrote it. */
+export const later = (L: Lowering, f: () => Val): Thunk => {
+  const mode = L.mode
+  return lazy(() => {
+    const prev = L.mode
+    L.mode = mode
+    try {
+      return f()
+    } finally {
+      L.mode = prev
+    }
+  })
+}
 
 const K = ts.SyntaxKind
 const EMPTY: Env = new Map()
@@ -82,7 +145,7 @@ export const bindParameters = (L: Lowering, fn: FunctionNode, env: Env, args: Re
       given !== undefined
         ? () => given
         : p.initializer !== undefined
-          ? lazy(() => lowerExpr(L, p.initializer!, scope))
+          ? later(L, () => lowerExpr(L, p.initializer!, scope))
           : () => ({ kind: "nullish", which: "undefined" })
     bind(L, p.name, value, scope)
   })
@@ -100,7 +163,7 @@ export const bind = (L: Lowering, name: ts.BindingName, value: Thunk, scope: Map
     if (el.dotDotDotToken !== undefined || el.initializer !== undefined)
       throw new Unsupported("rest and default values in destructuring are not modeled", el)
     const key = el.propertyName === undefined ? (el.name as ts.Identifier).text : propertyKey(el.propertyName)
-    bind(L, el.name, lazy(() => member(L, value(), key, el)), scope)
+    bind(L, el.name, later(L, () => member(L, value(), key, el)), scope)
   }
 }
 
@@ -126,7 +189,7 @@ const lowerStatements = (
     for (const d of s.declarationList.declarations) {
       if (d.initializer === undefined) throw new Unsupported("a `const` with no value", d)
       const init = d.initializer
-      bind(L, d.name, lazy(() => lowerExpr(L, init, scope)), scope)
+      bind(L, d.name, later(L, () => lowerExpr(L, init, scope)), scope)
     }
     return lowerStatements(L, stmts, i + 1, scope, rest)
   }
@@ -195,8 +258,8 @@ export const lowerExpr = (L: Lowering, e: ts.Expression, env: Env): Val => {
   if (ts.isObjectLiteralExpression(e)) {
     const fields = new Map<string, Thunk>()
     for (const p of e.properties) {
-      if (ts.isPropertyAssignment(p)) fields.set(propertyKey(p.name), lazy(() => lowerExpr(L, p.initializer, env)))
-      else if (ts.isShorthandPropertyAssignment(p)) fields.set(p.name.text, lazy(() => identifier(L, p.name, env)))
+      if (ts.isPropertyAssignment(p)) fields.set(propertyKey(p.name), later(L, () => lowerExpr(L, p.initializer, env)))
+      else if (ts.isShorthandPropertyAssignment(p)) fields.set(p.name.text, later(L, () => identifier(L, p.name, env)))
       else throw new Unsupported("spreads, methods and accessors in an object literal are not modeled", p)
     }
     return lazyRecord((name) => fields.get(name)?.())
@@ -204,7 +267,7 @@ export const lowerExpr = (L: Lowering, e: ts.Expression, env: Env): Val => {
   if (ts.isArrayLiteralExpression(e)) {
     if (e.elements.some((x) => ts.isSpreadElement(x) || ts.isOmittedExpression(x)))
       throw new Unsupported("spreads and holes in an array literal are not modeled", e)
-    const items = e.elements.map((x) => lazy(() => lowerExpr(L, x, env)))
+    const items = e.elements.map((x) => later(L, () => lowerExpr(L, x, env)))
     return {
       kind: "array",
       length: z3.Int.val(items.length),
@@ -254,11 +317,12 @@ const template = (L: Lowering, e: ts.TemplateExpression, env: Env): Val => {
       throw err
     }
   })
-  const key = ids.every((i) => i !== undefined) ? `template:${e.getSourceFile().fileName}:${e.pos}(${ids.join(",")})` : undefined
+  const indices = L.u.openBounds()
+  const key = ids.every((i) => i !== undefined) ? `template:${e.getSourceFile().fileName}:${e.pos}(${ids.join(",")})[${indices.map((i) => i.sexpr()).join(",")}]` : undefined
   const known = key === undefined ? undefined : L.opaque.get(key)
   if (known !== undefined) return known
-  const term = L.u.leaf([L.u.fresh("template"), "$"], "str", []) as never as ReturnType<typeof z3.String.val>
-  if (text.length > 0) L.u.assume(z3.Not(term.eq(z3.String.val(""))))
+  const term = L.u.leaf([L.u.fresh("template"), "$"], "str", indices) as never as ReturnType<typeof z3.String.val>
+  if (text.length > 0) L.u.assume(z3.Not(term.eq(z3.String.val(""))), indices)
   const v: Val = { kind: "str", term }
   if (key !== undefined) L.opaque.set(key, v)
   L.u.notes.add("A template string is an unknown string of its parts: equal parts, equal strings; non-empty when its literal text is.")
@@ -290,10 +354,13 @@ const identifier = (L: Lowering, e: ts.Identifier, env: Env): Val => {
   const bound = env.get(e.text)
   if (bound !== undefined) return bound()
   let sym = L.checker.getSymbolAtLocation(e)
+  const imported = sym !== undefined && (sym.flags & ts.SymbolFlags.Alias) !== 0
   if (sym !== undefined && sym.flags & ts.SymbolFlags.Alias) sym = L.checker.getAliasedSymbol(sym)
   if (sym?.name === "undefined" && sym.declarations === undefined) return { kind: "nullish", which: "undefined" }
   if (sym?.name === "undefined" && sym.declarations?.every((d) => d.getSourceFile().isDeclarationFile))
     return { kind: "nullish", which: "undefined" }
+  const declared = L.trust.assumptions.of(e)
+  if (declared !== undefined) return assumedFn(L, declared)
   const decl = sym?.valueDeclaration
   if (decl !== undefined && !decl.getSourceFile().isDeclarationFile && !decl.getSourceFile().fileName.includes("/node_modules/")) {
     if (ts.isFunctionDeclaration(decl)) return { kind: "fn", node: decl, env: EMPTY }
@@ -306,7 +373,9 @@ const identifier = (L: Lowering, e: ts.Identifier, env: Env): Val => {
       return v
     }
   }
-  throw new Unsupported(`\`${e.text}\` is a binding the verifier cannot see (a \`let\`, a global or a package's)`, e)
+  if (imported && decl !== undefined && (decl.getSourceFile().isDeclarationFile || decl.getSourceFile().fileName.includes("/node_modules/")))
+    throw new Unread(`\`${e.text}\` is a package's, which the verifier does not read: declare what it may assume of it, \`assume(${e.text}, { pure: true, ensures: { ... } })\`, in the spec or a pack the spec imports`, e)
+  throw new Unsupported(`\`${e.text}\` is a binding the verifier cannot see (a \`let\` or a global)`, e)
 }
 
 const isModuleConst = (d: ts.VariableDeclaration): boolean =>
@@ -371,6 +440,8 @@ const call = (L: Lowering, e: ts.CallExpression, env: Env): Val => {
       const f = a.expr?.(L, callee, env)
       if (f !== undefined) return callValue(L, f, e, env)
     }
+    const declared = L.trust.assumptions.of(callee)
+    if (declared !== undefined) return callValue(L, assumedFn(L, declared), e, env)
     const receiver = lowerExpr(L, callee.expression, env)
     return optionally(L, receiver, callee, callee.expression, (r) => {
       if (r.kind === "array") return arrayMethod(L, r, callee.name.text, e, env)
@@ -383,37 +454,97 @@ const call = (L: Lowering, e: ts.CallExpression, env: Env): Val => {
 
 const callValue = (L: Lowering, f: Val, e: ts.CallExpression, env: Env): Val => {
   if (e.arguments.some(ts.isSpreadElement)) throw new Unsupported("spread arguments are not modeled", e)
-  if (f.kind === "builtin") return f.call(e.arguments.map((a) => lowerExpr(L, a, env)), e)
+  if (f.kind === "builtin") {
+    const v = f.call(e.arguments.map((a) => lowerExpr(L, a, env)), e)
+    if (L.mode === "spec" && v.kind === "comp")
+      throw new Unsupported(`spec code calls no operation: \`${f.name}\` is one. A law reads the calls a computation made from the trace it is given`, e)
+    return v
+  }
   if (f.kind !== "fn") throw new Unsupported(`calling a ${f.kind}`, e)
   const args = e.arguments.map((a) => lowerExpr(L, a, env))
   for (const a of L.adapters) {
     const c = a.computation?.(L, f.node)
-    if (c !== undefined) return computationCall(L, c.node, c.style, f.env, args, e)
+    if (c === undefined) continue
+    if (L.mode === "spec")
+      throw new Unsupported(`spec code runs no computation: \`${nameOf(c.node)}\` is one. A law reads a computation's outcome and calls from the arguments it is given`, e)
+    return computationCall(L, c.node, c.style, f.env, args, e)
   }
   if (f.env !== EMPTY) return lowerCall(L, f.node, f.env, args, e)
-  // A function of the program: inlined, or, when its body cannot be read, an unknown pure function of its arguments.
+  // A function of the program: inlined; when its body cannot be read, refused with what to declare instead.
   try {
     return lowerCall(L, f.node, f.env, args, e)
   } catch (err) {
-    if (!(err instanceof Unsupported)) throw err
-    return opaqueCall(L, f.node, args, err.message, e)
+    if (!(err instanceof Unsupported) || err instanceof Unread) throw err
+    const name = nameOf(f.node)
+    throw new Unread(
+      `\`${name}\` is not read (${err.message.replace(/^\S+:\d+:\d+: /, "")}): declare what the verifier may assume of it, \`assume(${name}, { pure: true, ensures: { ... } })\` in the spec, or write its body in the subset the verifier reads`,
+      e,
+    )
   }
 }
 
-/** The result of a pure function the verifier does not read: unknown but for its type, the same for the same arguments. */
-const opaqueCall = (L: Lowering, fn: FunctionNode, args: ReadonlyArray<Val>, why: string, at: ts.Node): Val => {
-  const name = fn.name?.getText() ?? (ts.isVariableDeclaration(fn.parent) ? fn.parent.name.getText() : "a function")
+const nameOf = (fn: FunctionNode): string =>
+  fn.name?.getText() ?? (ts.isVariableDeclaration(fn.parent) ? fn.parent.name.getText() : "a function")
+
+/** A declared function as a value: calling it is `assumedCall`. */
+const assumedFn = (L: Lowering, a: AssumedFn): Val => ({ kind: "builtin", name: a.name, call: (args, at) => assumedCall(L, a, args, at) })
+
+/**
+ * A call to a declared function: an unknown result of the call's type, the same for the same arguments when the
+ * function is pure, of which every law of every view covering the call is assumed.
+ */
+const assumedCall = (L: Lowering, a: AssumedFn, args: ReadonlyArray<Val>, at: ts.Node): Val => {
+  const { u, checker } = L
+  if (L.mode === "spec" && !a.pure)
+    throw new Unsupported(`spec code is deterministic, and \`${a.name}\` is declared \`pure: false\`: call it from the program and pass its result to the law`, at)
+  if (L.assuming.includes(a)) throw new Unsupported(`a law of \`${a.name}\`'s assumption calls \`${a.name}\` itself`, at)
+  if (!ts.isCallExpression(at)) throw new Unsupported(`\`${a.name}\` is used as a value; a declared function is modeled where it is called`, at)
+  if (a.pure && a.body !== undefined) {
+    let p = L.trust.purity.get(a)
+    if (p === undefined) {
+      p = purityOf(checker, a.body, L.trust.assumptions.of)
+      L.trust.purity.set(a, p)
+    }
+    if (!p.pure)
+      throw new Unsupported(`\`${a.name}\` is declared pure and is not: ${p.why}. Declare it \`pure: false\`, or change it so it changes only what it allocates`, at)
+  }
+  const views = coveringViews(checker, a, at.arguments)
+  if (views.length === 0) {
+    const given = at.arguments.map((x) => checker.typeToString(checker.getTypeAtLocation(x))).join(", ")
+    const declared = a.views.map((v) => `(${v.params.map((t) => checker.typeToString(t)).join(", ")}) at ${v.where}`).join("; ")
+    throw new Unsupported(`\`${a.name}\` is called with (${given}), which no declaration covers: ${declared}. Add an \`assume\` whose view takes these types`, at)
+  }
+  // Inside a quantifier the result depends on the bound index, as the arguments may: one constant for every element
+  // would claim the function constant over them.
+  const indices = u.openBounds()
   const ids = args.map(identity)
-  const key = ids.every((i) => i !== undefined) ? `call:${fn.getSourceFile().fileName}:${fn.pos}(${ids.join(",")})` : undefined
+  const key =
+    a.pure && ids.every((i) => i !== undefined)
+      ? `assumed:${a.views[0]!.where}(${ids.join(",")})[${indices.map((i) => i.sexpr()).join(",")}]`
+      : undefined
   const known = key === undefined ? undefined : L.opaque.get(key)
   if (known !== undefined) return known
-  const sig = L.checker.getSignatureFromDeclaration(fn)
-  if (sig === undefined) throw new Unsupported(`\`${name}\` has no signature to read its result's type from`, at)
-  const v = symbolicOf(L, L.checker.getReturnTypeOfSignature(sig), [L.u.fresh(name)], [], at)
-  if (key !== undefined) L.opaque.set(key, v)
-  L.u.opaqueCalls.add(name)
-  L.u.notes.add(`\`${name}\` was not read (${why.replace(/^\S+:\d+:\d+: /, "")}): it is an unknown pure function of its arguments${key === undefined ? ", and here of arguments without identity, so each call is its own" : ""}.`)
-  return v
+  const result = symbolicOf(L, checker.getTypeAtLocation(at), [u.fresh(a.name.replace(/\s.*/, ""))], indices, at)
+  if (key !== undefined) L.opaque.set(key, result)
+  L.trust.used.add(a)
+  u.opaqueCalls.add(a.name)
+  L.assuming.push(a)
+  try {
+    inSpec(L, () => {
+      for (const v of views)
+        for (const law of v.ensures) {
+          try {
+            u.assume(truthy(u, lowerCall(L, law.law, EMPTY, [...args, result], law.law)), indices)
+          } catch (err) {
+            if (!(err instanceof Unsupported)) throw err
+            throw new Unsupported(`the law \`${law.name}\` of \`${a.name}\` (${v.where}) cannot be read: ${err.message}`, at)
+          }
+        }
+    })
+  } finally {
+    L.assuming.pop()
+  }
+  return result
 }
 
 /** A whole-number literal argument, such as the -1 of `.at(-1)`. */

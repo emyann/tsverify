@@ -1,10 +1,20 @@
 // One stop request, two programs, the same five laws.
-import { computation } from "../../src/contract.ts"
+import { assume, computation } from "../../src/contract.ts"
 import { computation as effectComputation } from "../../src/adapters/effect/contract.ts"
+import { fold, verbTakes } from "../../../hkb-v2/packages/agent-runtime/src/core/domain.ts"
 import type { JournalShape } from "../../../hkb-v2/packages/agent-runtime/src/core/engine/journal.ts"
 import { requestStop } from "../../../hkb-v2/packages/agent-runtime/src/core/engine/filing.ts"
 import { requestStop as requestStopAsync, type JournalError, type JournalPort, type StopRefused } from "./stop.async.ts"
 import { acceptedWritesOneStop, readFailurePassesThrough, readsFirst, refusedExactlyWhenTheGuardSays, refusedWritesNothing } from "./laws.ts"
+
+/**
+ * The journal's fold, which the verifier does not read (it loops): pure, which the verifier checks from its source, and
+ * nothing else. The laws below hold whatever state it folds to.
+ */
+export const foldIsPure = assume(fold, { pure: true })
+
+/** Whether a verb's guard takes a state: a lookup the verifier does not read (`.find` on a table). Pure, checked. */
+export const verbTakesIsPure = assume(verbTakes, { pure: true })
 
 /** Nemia's verb, read in place: `Effect.fn('requestStop')(function* (taskId) { ... })`. */
 export const effectStop = effectComputation<{ journal: Pick<JournalShape, "read" | "append"> }>()(requestStop, {

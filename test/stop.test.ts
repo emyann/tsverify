@@ -55,8 +55,14 @@ describe("requestStop and its async twin, under the same five laws", () => {
         v.cover.map((c) => [c.value, c.status]).sort(),
         ends.map((e) => [e, "reachable"]).sort(),
       )
-      // What was not read is said, by name.
-      assert.ok(v.notes.some((n) => n.startsWith("`fold` was not read")))
+      // What was not read is declared, and the report names each declaration it leaned on, its purity checked.
+      assert.deepEqual(
+        v.trusted.map((t) => [t.name, t.purity, t.laws]),
+        [
+          ["fold", "checked", []],
+          ["verbTakes", "checked", []],
+        ],
+      )
     })
 })
 

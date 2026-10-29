@@ -8,6 +8,13 @@
 //   of `Ops` (an object of the interfaces it is given). `E` is what it may fail
 //   with. An Effect program takes the Effect adapter's `computation` instead,
 //   which reads both from the Effect's type.
+// - `assume(fn, { pure, ensures? })`: what the verifier takes on trust about a
+//   function it does not read — a package's, or one of the program's whose
+//   body it cannot lower. Verus's `assume_specification`.
+//
+// Spec code — every `requires`, every law, and what they call — is pure and
+// deterministic: it runs no computation, calls no operation and calls nothing
+// declared `pure: false`. The verifier refuses the rest.
 
 export interface Contract<A extends ReadonlyArray<unknown>, R> {
   readonly fn: (...args: A) => R
@@ -52,6 +59,45 @@ export interface ComputationContract<Args extends ReadonlyArray<unknown>, A, E, 
   readonly requires?: (...args: Args) => boolean
   readonly ensures: Readonly<Record<string, (...args: [...Args, Outcome<A, E>, ReadonlyArray<AsyncCallsOf<Ops>>]) => boolean>>
 }
+
+/**
+ * What is assumed, without proof, of a function the verifier does not read.
+ *
+ * - `pure: true`: the same arguments give the same result, and a call changes nothing anyone can see. Where the
+ *   program has the function's source, the verifier checks this; for a package's function it is trusted.
+ * - `pure: false`: each call may give a different result (the clock, a random number), and still changes nothing the
+ *   program reads. Spec code may not call it.
+ * - `ensures`: laws over the arguments and the result, assumed at every call.
+ *
+ * The type arguments are the view the laws are written for: `assume<[xs: ReadonlyArray<string>], string[]>(uniq, …)`
+ * says what `uniq` does on arrays of strings, and `tsc` checks that `uniq` can be called so. The verifier applies it
+ * only at calls whose arguments the view's parameters accept.
+ */
+export interface Assumption<A extends ReadonlyArray<unknown>, R> {
+  readonly fn: (...args: A) => R
+  readonly pure: boolean
+  readonly ensures?: Readonly<Record<string, (...args: [...A, R]) => boolean>>
+}
+
+export const assume = <A extends ReadonlyArray<unknown>, R>(
+  fn: (...args: A) => R,
+  spec: Omit<Assumption<A, R>, "fn">,
+): Assumption<A, R> => ({ fn, ...spec })
+
+/**
+ * Runs the real function on each input and asks each law of the assumption: the laws broken, with the input that
+ * broke them. An assumption is trusted by the verifier; this is how a pack of them is tested against the library.
+ */
+export const brokenOn = <A extends ReadonlyArray<unknown>, R>(
+  a: Assumption<A, R>,
+  inputs: ReadonlyArray<A>,
+): Array<{ readonly law: string; readonly input: A; readonly result: R }> =>
+  inputs.flatMap((input) => {
+    const result = a.fn(...input)
+    return Object.entries(a.ensures ?? {})
+      .filter(([, law]) => !law(...input, result))
+      .map(([law]) => ({ law, input, result }))
+  })
 
 export const computation =
   <Ops, E = unknown>() =>

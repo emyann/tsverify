@@ -115,12 +115,80 @@ thrown. `pilots/stop/laws.ts` states five laws once, over the outcome and the ca
   wrong kind, writing to another task, writing twice, refusing only an empty id, and reading another task. Each one planted
   in the twin also breaks a law when the planted code is run.
 
-`fold` (a loop) and `verbTakes` (`.find`) are read as **opaque**: unknown pure functions of their arguments, the same result
-for the same arguments. The report names them and why. That makes the proofs modular: the verb's orchestration is proved
-whatever the helpers compute, and the helpers' own laws are a separate proof, as `lifecycleOf`'s are.
+The verifier does not read `fold` (a loop) or `verbTakes` (`.find` on a table). The spec declares both pure,
+`assume(fold, { pure: true })`, and the verifier checks that from their source (see *Modes and trust*). The proofs are
+modular: the verb's orchestration is proved whatever the helpers compute, and the helpers' own laws are a separate proof,
+as `lifecycleOf`'s are. The report lists both under what it trusted.
 
-A counterexample that leans on an opaque function is reported as *abstract*: it holds of the code with that function
-unknown, and may not hold of the real one.
+## Modes and trust, after Verus
+
+Verus sorts code into three modes. The same three are here, in TypeScript:
+
+| Verus | Here | Rule |
+|---|---|---|
+| `spec`: pure, deterministic, ghost | the laws and `requires` in `*.spec.ts`, and whatever they call | runs no computation, calls no operation, reads no clock, calls nothing declared `pure: false` |
+| `proof`: lemmas, invariants, ghost state | not built: typed no-op hints, `invariant(() => ...)` | |
+| `exec`: the compiled code | the program | |
+| `assume_specification`, `external_body` | `assume(fn, { pure, ensures? })` | trusted without proof, listed in every report |
+| `vstd` | a pack (`packs/lodash.ts`) a spec imports | tested against the real library |
+
+**A function the verifier does not read is refused unless declared.** Before, it became an unknown pure function, with a
+note. Its purity was assumed, never checked. Now the refusal says what to write:
+
+```
+`total` is not read (only `const` bindings are modeled): declare what the verifier may assume of it,
+`assume(total, { pure: true, ensures: { ... } })` in the spec, or write its body in the subset the verifier reads
+```
+
+**`assume(fn, { pure, ensures })`** (`src/contract.ts`) declares a function of the program or of a package:
+- `pure: true`: the same arguments give the same result, and a call changes nothing anyone sees. Where the program has
+  the source, **the verifier checks it** (`src/purity.ts`). For a package's function it is trusted.
+- `pure: false`: a fresh result per call (the clock, a random number). Spec code may not call it.
+- `ensures`: laws over the arguments and the result, assumed at every call, inside quantifiers per element.
+- The type arguments are the **view** the laws are written for. `assume<[xs: ReadonlyArray<string>], string[]>(uniq, ...)`
+  says what `uniq` does on strings, and `tsc` checks `uniq` can be called so. A call on numbers is refused: no declaration
+  covers it.
+
+A declaration is in force when its module is in the program: the spec declares it, or imports a pack that does. It replaces
+the function's body, read or not.
+
+**The purity check** refuses:
+- an effect: `await`, `yield`, `this`, the clock, `Math.random`, the console, a module's `let`, a function it was given, a
+  method or a package function it does not know;
+- a change to an object it did not allocate: its arguments, a module's constants;
+- a cast or a type predicate, either of which would hide a value's type.
+
+It accepts a function that changes only what it allocated, as `fold` builds its state. The hard part is aliasing: a fresh
+object can hold the caller's value, and a change made through it reaches the caller. The check records the type of every
+value of the caller's it stores into a fresh one, and refuses a change to an object of a type that value could reach
+(type-based alias analysis). `test/purity.test.ts` holds 12 impure functions, each refused for its reason, and 6 pure ones
+accepted, `fold` among them.
+
+**Every report lists what it trusted.** The CLI prints it:
+
+```
+  trusted (declared, not proved):
+    - fold: pure, checked from source (read fold, fileInto, foldInto, endAttempt) — pilots/stop/stop.spec.ts:14
+    - verbTakes: pure, checked from source (read verbTakes, stoppable, awaitsWord, waitsForInput) — pilots/stop/stop.spec.ts:17
+```
+
+A counterexample that leans on a declared function is marked as such: it holds of the function as declared, and may not
+hold of the real one.
+
+### A package: lodash
+
+`pilots/lodash/labels.ts` calls lodash's `uniq` and `clamp`. `packs/lodash.ts` declares what they do on strings and on
+numbers. `test/lodash.test.ts` shows:
+- **`progress` is proved within its total, from `clamp`'s declared laws.**
+- **`labelCount` is proved "none" exactly when it has no labels.**
+- **"Several only with two different labels" is true of lodash and not provable from the pack.** The pack says nothing of
+  duplicates, so to the verifier `uniq(["a", "a"])` may be `["a", "a"]`. The counterexample says it leans on `uniq`, and
+  running the real function on it gives "one". The fix is a stronger pack, not a weaker law.
+- **The pack is tested against lodash.** `brokenOn(assumption, inputs)` runs the real function and asks each law. A naive
+  `clamp` law ("within its bounds") is caught on `NaN` and on reversed bounds.
+
+No plugin per library: a library needs a pack only for the functions a verified program calls, and nothing at all when its
+calls are inside code the verifier does not read.
 
 ## Effect as an adapter
 
@@ -146,7 +214,10 @@ The core never names a library. What no adapter reads is refused where the code 
 
 | File | Role |
 |---|---|
-| `src/contract.ts` | `contract(fn, laws)`, what a spec author writes |
+| `src/contract.ts` | `contract(fn, laws)`, `computation`, `assume(fn, { pure, ensures })`, what a spec author writes |
+| `src/trust.ts` | the declarations in force, read from source, and the report's trusted base |
+| `src/purity.ts` | the purity check of a declared function's source |
+| `packs/` | declarations of a library's functions, tested against the library |
 | `src/project.ts` | the program (a file's text can be replaced or added in memory), diagnostics, a contract read from source |
 | `src/symbolic.ts` | any value of a TypeScript type, built lazily: a field becomes an unknown only when read |
 | `src/lower.ts` | pure TypeScript to symbolic values, with JavaScript's semantics |
@@ -179,7 +250,7 @@ handled so poorly that queries timed out at 30 s. With the real-valued model, th
 - `+ - *` on bigints, `+` on strings;
 - property access and optional chains;
 - object and array literals;
-- calls (inlined), closures;
+- calls (inlined), closures, and calls to declared functions;
 - `.length`, `.at(k)`, `.filter(p).length`, `.some`, `.every` and `.includes` on arrays.
 
 **Refused, with a file:line:**
@@ -189,7 +260,8 @@ handled so poorly that queries timed out at 30 s. With the real-valued model, th
 - `==`;
 - `let`, loops and mutation;
 - recursion;
-- globals and packages;
+- globals, and functions it cannot read (a package's, or the program's) unless declared;
+- in spec code, computations, operations, the clock and functions declared `pure: false`;
 - element access `a[i]`, string length, template strings.
 
 **Checked against the code.** The translator is the part everything else trusts, so the tests check it against the real
@@ -227,13 +299,26 @@ Phase 0's findings about Effect 4.0.6 still hold (`spike/dump-representations.ts
 - **One code base.** The pilot is one function family. The benchmark's bugs were planted by the same person who wrote the
   laws, and the property-testing generator was tuned by that person too.
 - **No certificate yet.** A result is not bound to hashes of the code, spec and tool versions, as the handoff asked.
+- **A declaration is trusted.** A law of `assume` is never proved, and a package's purity never checked. A pack is only
+  as good as its tests against the library.
+- **The purity check trusts three things,** and every report that leans on it says so: a property read runs no getter, a
+  module constant is never changed by other code, and the function terminates. Its alias analysis relies on types, which
+  is why it refuses casts and type predicates.
+- **A declaration is in force across the whole program**, wherever it is written. Two specs in one program share them.
 - **The tool itself is plain TypeScript, not Effect.**
 
 ## How much of a real code base it reads
 
-`npm run coverage -- <tsconfig>` lowers every exported function of a project. On hkb-v2:
-- **Today:** 507 of 2,261 functions (22%). That counts functions read with some helpers opaque.
-- **Before this round:** 212 (10%).
+`npm run coverage -- <tsconfig>` lowers every exported function of a project. On hkb-v2's runtime, orchestrator and api
+(2,261 functions):
+- **Every callee inlined, nothing declared:** 387 (17%).
+- **Each function on its own (`--modular`), every callee the purity check accepts taken as declared `pure`:** 420 (19%).
+  That is what a spec gets by writing one declaration per helper.
+- **Before this round:** 507 (22%), but that counted helpers whose purity was assumed and never checked.
+- **Before the round before:** 212 (10%).
+
+Of the exported and module-level functions, the purity check accepts 307 of 953 in the runtime and 1,316 of 3,338 in the
+orchestrator. Most of the rest call something impure (an Effect, a package, a method it cannot see into).
 
 The first refusals left, most frequent first:
 - package functions no adapter models;
@@ -250,7 +335,8 @@ which the Effect adapter does not read yet. The probe does not count `Effect.fn`
 
 - The Effect adapter's next forms: `Effect.gen`, `pipe`, `map`, `flatMap`, `catchTag`, `catch`.
 - Contracts on operations, assumed by every caller and proved by each implementation (a layer, a class).
-- Loops, with invariants as typed no-op calls (`invariant(() => ...)`).
+- Proof mode: loops, with invariants as typed no-op calls (`invariant(() => ...)`), and lemmas.
+- Packs for what hkb-v2 calls most, each tested against its library; a check of a package's purity from its JavaScript.
 - Pin `inFlight`'s finding with the code owner: the domain says `spawnedAt` is never empty, or the code says `!== null`.
 - Add the five laws the gap witnesses point to, then rerun the benchmark.
 - A second real target with different shapes: `decide`'s `observe` (durations, numbers) or a verb guard.

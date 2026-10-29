@@ -5,8 +5,8 @@
 //   declares fields with initializers: a record of those fields and `message`.
 import ts from "typescript"
 import { type Adapter, packageExport } from "../adapter.ts"
-import { emptyEnv, lowerExpr } from "../lower.ts"
-import { Unsupported, type Val, lazy, lazyRecord } from "../value.ts"
+import { emptyEnv, later, lowerExpr } from "../lower.ts"
+import { Unsupported, type Val, lazyRecord } from "../value.ts"
 
 const isLib = (checker: ts.TypeChecker, node: ts.Node, name: string): boolean => {
   const x = packageExport(checker, node)
@@ -24,7 +24,11 @@ export const tsAdapter: Adapter = {
       L.u.assume(cls.eq(0)) // a time is finite
       return { kind: "num", cls, real: L.u.leaf([base, "$"], "num", []) as never }
     }
+    const clock = () => {
+      if (L.mode === "spec") throw new Unsupported("spec code is deterministic and does not read the clock: read the time in the program and pass it to the law", e)
+    }
     if (ts.isNewExpression(e) && ts.isIdentifier(e.expression) && isLib(L.checker, e.expression, "Date")) {
+      clock()
       if ((e.arguments?.length ?? 0) > 0) throw new Unsupported("`new Date(x)` is not modeled; `new Date()` is", e)
       L.u.notes.add("The time (`new Date()`, `Date.now()`) is an unknown value per call: any time is covered.")
       const builtin = (name: string, v: () => Val): Val => ({ kind: "builtin", name, call: () => v() })
@@ -39,6 +43,7 @@ export const tsAdapter: Adapter = {
       ts.isIdentifier(e.expression.expression) &&
       isLib(L.checker, e.expression.expression, "Date")
     ) {
+      clock()
       L.u.notes.add("The time (`new Date()`, `Date.now()`) is an unknown value per call: any time is covered.")
       return freshNum("date.now")
     }
@@ -60,7 +65,7 @@ const errorOf = (L: Parameters<NonNullable<Adapter["expr"]>>[0], e: ts.NewExpres
     if (ts.isPropertyDeclaration(m) && m.initializer !== undefined && ts.isIdentifier(m.name)) {
       if (m.modifiers?.some((x) => x.kind === ts.SyntaxKind.StaticKeyword)) continue
       const init = m.initializer
-      fields.set(m.name.text, lazy(() => lowerExpr(L, init, emptyEnv)))
+      fields.set(m.name.text, later(L, () => lowerExpr(L, init, emptyEnv)))
     } else throw new Unsupported("an `Error` subclass is modeled when its members are fields with initializers", m)
   }
   const args = (e.arguments ?? []).map((a) => lowerExpr(L, a, env))

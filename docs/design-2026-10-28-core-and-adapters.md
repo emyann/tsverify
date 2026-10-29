@@ -1,6 +1,6 @@
 # A TypeScript verifier with Effect as an adapter
 
-**Date:** 28 October 2026. **Status:** the core and both adapters are built for the subset `requestStop` needs, and the proof below holds (`test/stop.test.ts`). Operation contracts, loops and the wider Effect forms are not built. It supersedes the handoff's framing of an "Effect verifier".
+**Date:** 28 October 2026. **Status:** the core and both adapters are built for the subset `requestStop` needs, and the proof below holds (`test/stop.test.ts`). Spec and exec modes and declarations of unread functions are built, after Verus (*Modes and trust*). Operation contracts, proof mode (loops, invariants, lemmas) and the wider Effect forms are not built. It supersedes the handoff's framing of an "Effect verifier".
 
 ## The answer in one paragraph
 
@@ -79,9 +79,9 @@ every adapter.
 | Callee | Treatment | Sound because |
 |---|---|---|
 | A function it can read | Inlined (today) | It is the code |
-| A pure function it cannot or should not read (`fold` with its loop) | Opaque and deterministic: the same arguments give the same unknown result | Any implementation satisfies what is proved |
+| A function it cannot or should not read (`fold` with its loop) | Refused unless declared: `assume(fold, { pure: true, ensures })`. Then deterministic, the same arguments giving the same unknown result, of which the laws are assumed | Any implementation that keeps the declaration satisfies what is proved; purity is checked where the source is, the laws are trusted |
 | An operation (service method, interface method, `impure` extern) | A fresh outcome per call, constrained by the operation's contract when it has one, and recorded in the trace | Any behaviour the contract allows is covered |
-| A library function (`Math.max`, `Option.getOrElse`) | A model, written once per library version and tested against the real library | The model is checked like the translator is |
+| A library function (`uniq`, `Math.max`) | A declaration in a pack the spec imports, tested against the real library; an adapter's model where the library's meaning is the point (`Effect.fail`) | The pack and the model are tested like the translator is |
 
 Opaque calls make proofs modular. A computation's laws (orchestration: what is called, in what order, what fails) are proved
 with its pure helpers left opaque. The helpers' laws are proved separately, as `lifecycleOf`'s were. A model that leans on
@@ -189,10 +189,39 @@ What it needs that does not exist yet:
 - `new` of a tagged error class;
 - `Date` as an operation.
 
+## Modes and trust, after Verus
+
+Verus classifies code as `spec` (pure, deterministic, ghost), `proof` (lemmas, ghost state) or `exec` (compiled), and calls
+into code it does not verify through specifications it trusts without proof: `assume_specification` for a function it did
+not write, `external_body` for one whose body it skips, and `vstd`'s specifications of Rust's standard library. Its guide
+lists every such mechanism as part of the trusted base.
+
+The design takes the same shape:
+- **spec** is the laws and `requires`, and whatever they call. The lowering carries a mode; a binding keeps the mode of the
+  code that wrote it. Spec code runs no computation, calls no operation, reads no clock and calls nothing declared
+  `pure: false`.
+- **exec** is the program.
+- **proof** is not built: typed no-op hints (`invariant(() => ...)`, `assert`, lemmas), the owner's choice over `//@`
+  comments.
+- **`assume(fn, { pure, ensures })`** is `assume_specification`. Its type arguments are the view its laws are written for,
+  which `tsc` checks against the function's own signature. A call no view covers is refused.
+- **A pack** is `vstd`: a module of declarations a spec imports. `packs/lodash.ts` is the first.
+- **Every report lists its trusted base:** each declaration a verification leaned on, its laws, and whether its purity was
+  checked.
+
+Where TypeScript differs:
+- **No mode checker in the language.** The verifier enforces the modes as it lowers, and the hints will cost a call at
+  run time instead of being erased.
+- **Aliasing.** Rust's ownership gives Verus `old(x)` and `final(x)` for `&mut`. TypeScript objects alias freely. The
+  purity check (`src/purity.ts`) handles it by types: it records the type of every value of the caller's stored into a
+  fresh object, and refuses a change to an object of a type such a value could reach. It refuses casts and type
+  predicates, which would defeat that.
+- **Undeclared calls.** Verus refuses them. So does this design now. Before, an unread function was silently an unknown
+  pure function. That made 120 of hkb-v2's functions look read whose helpers' purity nobody had checked.
+
 ## Open questions for the owner
 
-1. **Proof hints in the code.** `//@ invariant …` comments, as LemmaScript does, are erased for free but checked only by our
-   parser. A no-op typed call such as `invariant(() => i <= xs.length)` is checked by `tsc` but costs a call at run time.
+1. **Proof hints in the code.** Settled: typed no-op calls, checked by `tsc`.
 2. **Laws over the trace.** As shown, laws filter `calls` by `op` name. A typed helper per operation set (`calls.of(journal)`)
    would make a misspelt op a type error.
 3. **The repository's name**, now that it is not Effect's.

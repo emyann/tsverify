@@ -40,8 +40,9 @@ export class Universe {
    */
   abstracted = false
   /**
-   * The functions read as unknown pure functions (their bodies refused). A model that leans on one is a
-   * counterexample of the code with those functions unknown, not of the real code: it is reported as abstract.
+   * The declared functions whose results are unknowns, constrained only by their declared laws. A model that leans on
+   * one is a counterexample of the code with those functions so, not necessarily of the real code: it is reported as
+   * abstract.
    */
   readonly opaqueCalls = new Set<string>()
   private readonly scopes: Array<Scope> = [{ bound: undefined, items: [] }]
@@ -88,6 +89,11 @@ export class Universe {
       }
     }
     this.scopes[0]!.items.push(fact)
+  }
+
+  /** The indices the open quantifier scopes bind, outermost first. */
+  openBounds(): Array<Arith<"main">> {
+    return this.scopes.slice(1).map((s) => s.bound!)
   }
 
   /** Runs `f` in a scope binding `bound`; returns its result and the facts that scope collected. */

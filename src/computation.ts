@@ -10,10 +10,10 @@
 import ts from "typescript"
 import type { Arith } from "z3-solver"
 import type { Style } from "./adapter.ts"
-import { bind, bindParameters, cond, lowerExpr, type Lowering } from "./lower.ts"
+import { bind, bindParameters, cond, later, lowerExpr, type Lowering } from "./lower.ts"
 import { ite } from "./ops.ts"
 import { symbolicOf } from "./symbolic.ts"
-import { type Env, type FunctionNode, type Ran, Unsupported, type Val, lazy, lazyRecord } from "./value.ts"
+import { type Env, type FunctionNode, type Ran, Unsupported, type Val, lazyRecord } from "./value.ts"
 
 const K = ts.SyntaxKind
 
@@ -198,7 +198,7 @@ const statements = (
       if (operand === undefined) {
         const init = d.initializer
         const inner = new Map(scope)
-        bindName(L, d.name, lazy(() => lowerExpr(L, init, inner)), inner)
+        bindName(L, d.name, later(L, () => lowerExpr(L, init, inner)), inner)
         return bindFrom(k + 1, inner, t)
       }
       return after(L, step(L, style, operand, scope, t), d, (value, t2) => {
