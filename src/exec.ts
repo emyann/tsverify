@@ -237,7 +237,7 @@ const bindName = (L: Lowering, st: State, name: ts.BindingName, thunk: Thunk, ow
       L,
       out,
       el.name,
-      later(L, () => member(L, thunk(), key, el, type)),
+      later(L, () => member(L, thunk(), key, el, type, L.checker.getTypeAtLocation(el))),
       false,
       L.checker.getTypeAtLocation(el),
     )

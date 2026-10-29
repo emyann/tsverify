@@ -10,6 +10,7 @@ part as a harmless one.
 - `boolean`, `string` (its UTF-16 code units, as JavaScript's: an emoji is two), `bigint` (exact), `number` (see
   *Numbers*), `null` and `undefined`;
 - unions of literals (`"open" | "closed"`), optional fields, and values that may be missing (`T | undefined`);
+- unions of records, a check of the tag narrowing each as the type checker does (*Narrowing*, below);
 - records and arrays of any length, read lazily: a field becomes an unknown only when something reads it; a tuple the
   code builds, though not one it is given;
 - functions and closures, and computations (async functions, Effect programs);
@@ -52,6 +53,15 @@ that succeeded before it. A report lists each under `divisions:`, proved, or wit
 is reported as its division, not as a law broken. In a law or a `requires`, a division by `0n` makes it throw, so it does
 not hold there: guard it, `b === 0n || …`.
 
+### Narrowing
+
+A check of a value's tag narrows it, as the type checker narrows it. A union whose members give one field different
+kinds, `{ type: "add"; n: bigint } | { type: "name"; n: string }`, is held as one record per member, so `ev.n` is the
+bigint once `ev.type === "add"`, and a counterexample is always one of the members. A call is narrowed by its `op` the
+same way, wherever it stands: once `c.op === "set"`, `c.args[1]` is the `set`'s second argument, inside
+`calls.every((c) => c.op !== "set" || …)` too, where on some runs the call at that place is a `get` of one argument.
+A read takes the paths on which the value can have the type the checker gives the read; no run reaches it on the others.
+
 ## What it refuses, and what to write instead
 
 Each refusal names the place, `file:line:column`, and the reason.
@@ -67,6 +77,7 @@ Each refusal names the place, `file:line:column`, and the reason.
 | an element at a computed index, `xs[i]` or `xs.at(i)` | not modeled | `.find`, `.some`, `.every`, or a `for…of` over the elements |
 | `.includes(x)` of a `number` | it finds `NaN`, which `===` does not | `.some((y) => y === x)` |
 | a member of a value the type checker has not shown present | it may be missing | a check first, or `?.` |
+| a field of a union whose kind differs by member, read before its tag is checked | it is no one value | a check of the tag first: `ev.type === "add" && ev.n > 0n` |
 | recursion | not modeled | `assume(f, { pure: true, ensures })` |
 | a package's function | the verifier does not read packages | `assume`, in the spec or a pack |
 | a change to an argument, a second name for part of an object, a moved value, a change while borrowed | aliasing is kept out of the solver | build a new value and return it |
@@ -190,6 +201,9 @@ since the verifier reads its laws, so a project's `tsc` checks it with the proje
 
 - **The arguments are taken to have their TypeScript types.** That holds for typed callers. At the edge of a program,
   where values come from outside, they need checking first: that is where a schema comes in.
+- **A read the type checker has narrowed is taken on its word.** Where a check of a tag (`c.op === "set"`) narrows a
+  value, the paths the checker rules out are taken not to reach the read. Casts and `!`, which could make it wrong, are
+  refused.
 - **The code is taken to throw only where it says so**, by a `throw`, a failure, or a division by `0n` (checked). An
   exception from anywhere else, a call or a binding never read, is not seen.
 - **A spread copies each property its value's type requires**: the value is taken to be plain data, its properties its

@@ -38,6 +38,7 @@ import type { Adapter } from "./adapter.ts"
 import { computationCall } from "./computation.ts"
 import { type LemmaUse, type Obligation, runFunction } from "./exec.ts"
 import { type Order, compare, isNullish, ite, nullishOr, strictEq, truthy } from "./ops.ts"
+import { narrowedField } from "./narrow.ts"
 import { type Purity, purityOf } from "./purity.ts"
 import { type Typing, symbolicOf } from "./symbolic.ts"
 import { type AssumedFn, type Assumptions, coveringViews } from "./trust.ts"
@@ -440,6 +441,8 @@ const elementAccess = (L: Lowering, e: ts.ElementAccessExpression, env: Env): Va
   const obj = lowerExpr(L, e.expression, env)
   return optionally(L, obj, e, e.expression, (v) => {
     if (v.kind === "record") {
+      const narrowed = narrowedField(L, v, String(k), L.checker.getTypeAtLocation(e.expression), L.checker.getTypeAtLocation(e), e)
+      if (narrowed !== undefined) return narrowed
       const f = v.field(String(k))
       if (f === undefined) throw new Unsupported(`no element ${k}`, e)
       return f
@@ -536,7 +539,7 @@ const propertyAccess = (L: Lowering, e: ts.PropertyAccessExpression, env: Env): 
   const t = L.checker.getTypeAtLocation(e.expression)
   if (t.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) throw new Unsupported("a property of an `any` or `unknown`", e)
   const obj = lowerExpr(L, e.expression, env)
-  return optionally(L, obj, e, e.expression, (v) => member(L, v, e.name.text, e, t))
+  return optionally(L, obj, e, e.expression, (v) => member(L, v, e.name.text, e, t, L.checker.getTypeAtLocation(e)))
 }
 
 /**
@@ -567,9 +570,14 @@ const optionally = (L: Lowering, obj: Val, e: ts.Node, objExpr: ts.Expression, f
   return ite(L.u, isNullish(L.u, obj), { kind: "nullish", which: "undefined" }, inner, e)
 }
 
-/** `obj.name`. A field the object lacks reads as undefined where its type declares it (an optional field left out). */
-export const member = (L: Lowering, obj: Val, name: string, at: ts.Node, objType?: ts.Type): Val => {
+/**
+ * `obj.name`. Where the type checker has narrowed `obj` (`c.op === "set"`), the read takes the paths it leaves
+ * (`narrowedField`). A field the object lacks reads as undefined where its type declares it (an optional field left out).
+ */
+export const member = (L: Lowering, obj: Val, name: string, at: ts.Node, objType?: ts.Type, type?: ts.Type): Val => {
   if (obj.kind === "record") {
+    const narrowed = objType === undefined || type === undefined ? undefined : narrowedField(L, obj, name, objType, type, at)
+    if (narrowed !== undefined) return narrowed
     const v = obj.field(name)
     if (v !== undefined) return v
     const declared = objType === undefined ? undefined : L.checker.getPropertyOfType(L.checker.getNonNullableType(objType), name)

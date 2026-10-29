@@ -2,10 +2,6 @@
 
 In rough order:
 
-- A value read after a check of its tag, where it differs by path: a law that reads `calls.at(-1)` once it has checked
-  `op === "put"`, when the last call is a `get` on one path and a `put` on another. Today a law reads a call at a place
-  that holds the same operation on every path (`calls.at(1)`), and not `c.args[1]` inside
-  `calls.every((c) => c.op !== "set" || …)`, where `c` may be a call with one argument.
 - The next Effect forms, by how often they stop real code: `Effect.exit`, `mapError`, `catchCause`, `suspend`;
   destructuring with rest or defaults; `let` in a computation's body.
 - A loop of steps read through invariants over the trace, as a fold's loop is read through its own, so a law of such a

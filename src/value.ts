@@ -65,6 +65,8 @@ export type Val =
       readonly field: (name: string) => Val | undefined
       readonly id?: string
       readonly has?: (name: string) => Bool | undefined
+      /** Two paths' records merged, `cond ? a : b`: what each holds, for a read the type checker has narrowed. */
+      readonly split?: { readonly cond: Bool; readonly a: Val; readonly b: Val }
     }
   /**
    * An array: its length, and its element at an index (built on demand; may refuse). `size` is its length when
@@ -138,7 +140,12 @@ export const lazy = (f: () => Val): Thunk => {
 }
 
 /** A record whose fields are built on first read and kept. */
-export const lazyRecord = (build: (name: string) => Val | undefined, id?: string, has?: (name: string) => Bool | undefined): Val => {
+export const lazyRecord = (
+  build: (name: string) => Val | undefined,
+  id?: string,
+  has?: (name: string) => Bool | undefined,
+  split?: { readonly cond: Bool; readonly a: Val; readonly b: Val },
+): Val => {
   const memo = new Map<string, Val | undefined>()
   return {
     kind: "record",
@@ -148,6 +155,7 @@ export const lazyRecord = (build: (name: string) => Val | undefined, id?: string
     },
     ...(id === undefined ? {} : { id }),
     ...(has === undefined ? {} : { has }),
+    ...(split === undefined ? {} : { split }),
   }
 }
 

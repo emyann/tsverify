@@ -73,6 +73,11 @@ const read = (u: Universe, model: Model, n: Node, indices: ReadonlyArray<number>
     }
   }
   if (n.children.has("$")) return leafAt("$")
+  // A union held one record per member: the one its selector names.
+  if (n.children.has("~variant")) {
+    const chosen = n.children.get(`|${String(leafAt("~variant"))}`)
+    return chosen === undefined ? {} : read(u, model, chosen, indices)
+  }
   if (n.children.has("?null") || n.children.has("?undef")) {
     if (leafAt("?null") === true) return null
     if (leafAt("?undef") === true) return undefined
@@ -110,6 +115,23 @@ const write = (u: Universe, n: Node, indices: ReadonlyArray<number>, value: unkn
       out.push((term(u, n.children.get("~cls")!.leaf!, indices) as Arith).eq(cls))
       if (cls === NUM.finite) out.push((t as Arith).eq(z3.Real.val(exactRational(x))))
     } else out.push(t.eq(literal(u, value)))
+    return
+  }
+  const selector = leafAt("~variant")
+  if (selector !== undefined) {
+    // Whichever member holds the value: a member whose fields cannot hold it gives no constraint.
+    const options: Array<Bool> = []
+    for (const [seg, child] of n.children) {
+      if (!seg.startsWith("|")) continue
+      const parts: Array<Bool> = []
+      try {
+        write(u, child, indices, value, parts)
+      } catch {
+        continue
+      }
+      options.push(z3.And((term(u, selector, indices) as Arith).eq(Number(seg.slice(1))), ...parts))
+    }
+    out.push(options.length === 0 ? z3.Bool.val(false) : z3.Or(...options))
     return
   }
   const isNull = leafAt("?null")

@@ -172,8 +172,9 @@ export const ite = (u: Universe, c: Bool, a: Val, b: Val, at: ts.Node): Val => {
   if (a.kind === "num" && b.kind === "num") return { kind: "num", cls: z3.If(c, a.cls, b.cls), real: z3.If(c, a.real, b.real) }
   if (a.kind === "int" && b.kind === "int" && a.origin === b.origin)
     return { kind: "int", origin: a.origin, term: z3.If(c, a.term, b.term) }
-  if (a.kind === "record" && b.kind === "record")
-    // A field one side lacks belongs to a variant the other is not: the type checker lets it be read only where it exists.
+  if (a.kind === "record" && b.kind === "record") {
+    // A field one side lacks belongs to a variant the other is not: the type checker lets it be read only where it
+    // exists. A read it has narrowed further takes each side apart (`narrowedField`).
     return lazyRecord(
       (name) => {
         const fa = a.field(name)
@@ -193,7 +194,9 @@ export const ite = (u: Universe, c: Bool, a: Val, b: Val, at: ts.Node): Val => {
             return ha === undefined || hb === undefined ? undefined : ha === hb ? ha : z3.If(c, ha, hb)
           }
         : undefined,
+      { cond: c, a, b },
     )
+  }
   if (a.kind === "array" && b.kind === "array") {
     const maxSize = a.maxSize !== undefined && b.maxSize !== undefined ? Math.max(a.maxSize, b.maxSize) : undefined
     return {

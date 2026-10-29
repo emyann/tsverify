@@ -209,10 +209,10 @@ src/rename.ts
 The other choice was to change the code, `{ ...user, id, name }`, and keep the first law. Either way a person decides
 which behaviour is meant; the verifier's part is to show that the two differ, and on what.
 
-**Read a call where it is the same operation on every path.** `calls.at(1)` is the write on every run that succeeds. "The
-last call", `calls.at(-1)`, is a `get` on a run that fails and a `put` on one that succeeds, and a law that reads its
-arguments after checking `op === "put"` is refused today: the verifier does not yet narrow a value by such a check where
-the value differs by path.
+**A check of `op` narrows a call wherever it stands.** "The last call", `calls.at(-1)`, is a `get` on a run that fails
+and a `put` on one that succeeds; once a law has checked `last.op === "put"`, `last.args[0]` is the user written. Over
+every call it is the same: `calls.every((c) => c.op !== "put" || c.args[0].name === name)` reads each `put`'s argument,
+and no run reads a `get`'s there.
 
 The Effect adapter reads an Effect program the same way, its operations the methods of the services it requires:
 [Effect programs](effect.md).

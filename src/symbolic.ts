@@ -10,6 +10,7 @@
 import ts from "typescript"
 import type { Arith } from "z3-solver"
 import { operation } from "./computation.ts"
+import { ite } from "./ops.ts"
 import type { Lowering } from "./lower.ts"
 import { MAX_LENGTH, type Universe } from "./universe.ts"
 import { NUM, Unsupported, type Val, exactRational, jsString, lazyRecord, termId } from "./value.ts"
@@ -64,6 +65,27 @@ export const symbolicOf = (
     if (canNull && canUndefined) t.u.assume(z3.Not(z3.And(isNull, isUndefined)), indices)
     return { kind: "maybe", isNull, isUndefined, value: value?.() }
   }
+}
+
+/** The types the members of a union give field `name`, each member that has it. */
+const fieldTypes = (t: Lowering, members: ReadonlyArray<ts.Type>, name: string): Array<ts.Type> =>
+  members.flatMap((m) => {
+    const p = t.checker.getPropertyOfType(m, name)
+    return p === undefined ? [] : membersOf(t.checker.getTypeOfSymbol(p))
+  })
+
+/** Whether one value holds every type of `types`, as `present` reads a union: one primitive kind, or records. */
+const oneKind = (t: Lowering, types: ReadonlyArray<ts.Type>): boolean => {
+  const rest = [...new Set(types)].filter((m) => !(m.flags & (F.Null | F.Undefined | F.Void)))
+  if (rest.length <= 1 || types.some((m) => m.flags & F.Unknown)) return true
+  const all = (flags: ts.TypeFlags) => rest.every((m) => m.flags & flags)
+  if (all(F.BooleanLike) || all(F.StringLike) || all(F.NumberLike) || all(F.BigIntLike)) return true
+  return rest.every(
+    (m) =>
+      ((m.flags & F.Object) !== 0 || (m.isIntersection() && m.types.every((x) => (x.flags & F.Object) !== 0))) &&
+      !t.checker.isArrayType(m) &&
+      m.getCallSignatures().length === 0,
+  )
 }
 
 /** A value of a union with no null or undefined left in it. */
@@ -123,6 +145,15 @@ const present = (
       m.getCallSignatures().length === 0
     if (!members.every(objectLike))
       throw new Unsupported(`${path}: a union of ${members.map((m) => checker.typeToString(m)).join(" | ")} is not modeled`, at)
+    // A field of one name whose kind differs by member (`{ type: "add"; n: bigint } | { type: "name"; n: string }`) is
+    // no one value: the union is then one record per member, and a selector says which it is. A read the checker has
+    // narrowed to some members takes theirs (`narrowedField`), and a member's tag is tied to its own fields.
+    if (members.some((m) => checker.getPropertiesOfType(m).some((p) => !oneKind(t, fieldTypes(t, members, p.name))))) {
+      const selector = u.leaf([...segments, "~variant"], "int", indices) as never as ReturnType<typeof z3.Int.val>
+      u.assume(z3.And(selector.ge(0), selector.lt(members.length)), indices)
+      const variants = members.map((m, k) => present(t, [m], [...segments, `|${k}`], indices, at, `${path}|${k}`))
+      return variants.reduceRight((rest, v, k) => ite(u, selector.eq(k), v, rest, at))
+    }
     return lazyRecord((name) => {
       const props = members.flatMap((m) => {
         const p = checker.getPropertyOfType(m, name)
