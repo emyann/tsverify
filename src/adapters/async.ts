@@ -17,7 +17,8 @@ export const asyncAdapter: Adapter = {
   operation: (L, returns) => {
     const success = promiseOf(L.checker, returns)
     if (success === undefined) return undefined
+    // A promise may reject with anything: `unknown`, carried and never read, unless `Rejects<A, E>` says what.
     const rejects = L.checker.getPropertyOfType(returns, "~rejects")
-    return { success, failure: rejects === undefined ? undefined : L.checker.getNonNullableType(L.checker.getTypeOfSymbol(rejects)) }
+    return { success, failure: rejects === undefined ? L.checker.getUnknownType() : L.checker.getNonNullableType(L.checker.getTypeOfSymbol(rejects)) }
   },
 }

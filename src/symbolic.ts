@@ -100,6 +100,11 @@ const present = (
     // model it finds is a real input; the proof side keeps every real, a superset of the doubles.
     if (u.bound !== undefined)
       u.assume(z3.And(z3.IsInt(real.mul(1024)), real.ge(-(2 ** 40)), real.le(2 ** 40)), indices)
+    // A real no double holds is no input: a model there is not a counterexample, and the search side is asked instead.
+    else if (!members.every((m) => m.isNumberLiteral())) {
+      u.abstracted = true
+      u.approximations.add("a `number` is any real on the proof side, a double or not")
+    }
     if (members.every((m) => m.isNumberLiteral()))
       u.assume(
         z3.And(cls.eq(NUM.finite), z3.Or(...members.map((m) => real.eq(z3.Real.val(exactRational((m as ts.NumberLiteralType).value)))))),

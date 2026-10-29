@@ -39,6 +39,8 @@ export class Universe {
    * evidence. Never set on the search side, which is exact.
    */
   abstracted = false
+  /** What each over-approximation was, and what a spec author can write to do without it: a bounded law's reason. */
+  readonly approximations = new Set<string>()
   /**
    * Set, with why, when the proof side ran a loop of unknown length only so many times: its inputs are those that run
    * it no longer. Its models are still real runs; its `unsat` is no proof.
