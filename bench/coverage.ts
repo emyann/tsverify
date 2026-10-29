@@ -135,6 +135,7 @@ await withZ3(async (z3) => {
   }
   const reasons = new Map<string, { count: number; effect: number; example: string }>()
   let read = 0
+  const readNames: Array<string> = []
   let readEffect = 0
   let effects = 0
   const crashes: Array<string> = []
@@ -153,6 +154,7 @@ await withZ3(async (z3) => {
       if (c !== undefined) runBody(L, c.node, c.style, emptyEnv, args, emptyTrace(L), c.node)
       else run(L, lowerCall(L, fn, emptyEnv, args, fn))
       read++
+      readNames.push(`${path.relative(path.dirname(tsconfig), f.file)} ${f.name}`)
       if (effect) readEffect++
     } catch (e) {
       if (!(e instanceof Unsupported)) {
@@ -176,5 +178,5 @@ await withZ3(async (z3) => {
   for (const [r, e] of [...reasons].sort((a, b) => b[1].count - a[1].count).slice(0, 18))
     console.log(`    ${String(e.count).padStart(4)} ${String(e.effect).padStart(4)}  ${r}  — ${e.example}`)
   if (jsonOut !== undefined)
-    writeFileSync(jsonOut, `${JSON.stringify({ tsconfig, functions: fns.length, read, effects, readEffect, crashes, reasons: Object.fromEntries(reasons) }, null, 2)}\n`)
+    writeFileSync(jsonOut, `${JSON.stringify({ tsconfig, functions: fns.length, read, readNames, effects, readEffect, crashes, reasons: Object.fromEntries(reasons) }, null, 2)}\n`)
 })

@@ -14,7 +14,7 @@ types) and `lodash-es` 4.18.1 (the lodash pack).
 ```sh
 npm run verify      # every contract of every *.spec.ts below here, a line per law, then a total (~12 s)
 npm run verify -- examples/account                                   # one folder, or one file
-npm test            # 146 tests, ~40 s
+npm test            # 175 tests, ~30 s
 npm run verify -- examples/order/order.spec.ts status                # a state machine, its doc comment as laws
 npm run verify -- examples/account/account.spec.ts folded            # a loop, through its invariants
 npm run verify -- examples/account/withdraw.spec.ts effectWithdraw   # an Effect program
@@ -205,6 +205,31 @@ of `Effect.sync`. `effects.spec.ts` gives them 13 laws. `test/effects.test.ts` s
   `catchTag` that lets an unreadable ledger through and one left out, a `flatMap` that writes twice the amount, and a
   `catch` that swallows a failed write.
 
+### Code that may throw, steps inside expressions, loops of steps
+
+`examples/account/imports.ts` takes text written elsewhere. `amountOf` parses what a person typed under `Effect.try`, its
+`catch` building a typed error; `depositTyped` runs it as a step inside the arguments of another, `deposit(accountId,
+id, yield* amountOf(text))`; `importDeposits` parses an export under `Effect.try` with `catch: (err) => err`, so its error
+is `unknown`, then appends each deposit in a loop of steps; `openWith` appends two entries in a loop over an array it
+built. `imports.async.ts` writes the same things as plain async TypeScript: an `await` inside an expression, a loop of
+`await`s. The core reads both the same way: only `Effect.try` is the Effect adapter's. `test/imports.test.ts` shows:
+- **Proved:** `depositTyped`'s 5 laws (an unreadable amount is refused before the ledger is read, and names the text),
+  `openWith`'s 3 (a loop over an array of known length is run in full on both sides) and the async `balanceOf`'s 3.
+- **Bounded, saying why:** the 8 laws of the two loops over an array of unknown length. On the proof side such a loop runs
+  at most 4 times, the inputs kept to those that run it no longer, so what it finds is a real run and what it proves is
+  not a proof; the report names the loop.
+- **One failure, undistinguished,** where the error is `unknown`: a law can say where `importDeposits` failed, not with
+  what. A value of type `unknown` is carried and never read: a law that compares it is refused.
+- **The laws hold on 192 runs of each** against a stand-in ledger, and **a bug planted in each form is caught**: a
+  `catch` that names no text and one that refuses instead; a ledger read moved inside the step's operand; a loop that
+  writes to another account, writes every entry, or passes over a failed write; an opening dropped from the known array;
+  and, async, a second read inside the expression, a copy into the source and a copy of every entry.
+
+`fixtures/steps.ts` holds the edge cases: a step inside `&&`, `??` and `?:` runs only on the paths that evaluate its side;
+two steps in one call run left to right; a step after `?.` is refused. It keeps `readsWhatItDrops`, which an earlier
+version proved calls nothing: a step whose value nothing read was never run. `fixtures/state.ts` keeps `shorthand`, which
+it proved returns `0n` when it returns `1n`: a closure kept for later read `{ n }` as `n` was where it was written.
+
 ### A package: lodash
 
 `examples/lodash/labels.ts` calls lodash's `uniq` and `clamp`. `packs/lodash.ts` declares what they do on strings and on
@@ -290,11 +315,15 @@ An adapter (`src/adapter.ts`) tells the core which forms are which:
 |---|---|
 | `src/adapters/ts.ts` | `new Date()`, `Date.now()` (a fresh time per call); `Error` subclasses with field initializers |
 | `src/adapters/async.ts` | async functions as computations; `await` steps; methods returning a promise as operations; `Rejects<A, E>` for what a promise rejects with |
-| `src/adapters/effect/` | `Effect.fn(...)(function* ...)` and `fnUntraced`; `Effect.gen`, and a function that returns an Effect; `yield*`; `Context.Service` keys as services; methods returning an Effect as operations; `Effect.succeed`, `fail`, `void`, `sync`; `map`, `flatMap`, `catch`, `catchTag`, effect first or last; `x.pipe(f, g)` and `pipe(x, f, g)`; `Schema.TaggedError` and `Data.TaggedError` construction; a `computation` helper typed from the Effect |
+| `src/adapters/effect/` | `Effect.fn(...)(function* ...)` and `fnUntraced`; `Effect.gen`, and a function that returns an Effect; `yield*`; `Context.Service` keys as services; methods returning an Effect as operations; `Effect.succeed`, `fail`, `void`, `sync`; `Effect.try` and `tryPromise`, the code they run not read (any value of its type, or what `catch` makes of a thrown `unknown`); `map`, `flatMap`, `catch`, `catchTag`, effect first or last; `x.pipe(f, g)` and `pipe(x, f, g)`; `Schema.TaggedError` and `Data.TaggedError` construction; a `computation` helper typed from the Effect |
+
+A computation's body, in the core, whatever marks its steps: `const`, a step as a statement, `return`, `throw` (async),
+`if`, blocks, `for (const x of xs)` over an array, and steps anywhere inside an expression, run in the order JavaScript
+evaluates them and only on the paths that reach them.
 
 The core never names a library. What no adapter reads is refused where the code uses it, naming the function: for Effect
-today, `Effect.try`, `forEach`, `exit`, `mapError`, `catchCause`, concurrency, resources and defects; and, in a
-generator's body, loops and a `yield*` inside an expression.
+today, `forEach`, `exit`, `mapError`, `catchCause`, `die`, concurrency, resources and defects; for promises, `.then` and
+`.catch`; and, in a computation's body, `let`, `try`, `switch`, `for`, `while` and `break`.
 
 ## How it works
 
@@ -345,6 +374,7 @@ handled so poorly that queries timed out at 30 s. With the real-valued model, th
 
 **Supported:**
 - primitives, `null` and `undefined`, optional fields, string-literal unions;
+- a value of type `unknown`, carried and returned but never read (its truth, `===`, `??` and its fields are refused);
 - `const`, `if` with early returns, `?:`, `&&`, `||`, `!`, `??`, `===`, `!==`, comparisons;
 - `let`, assignment, `switch`, `for…of`, `for` and `while`, and changes to what the function allocated (see *Proof mode*);
 - `+ - *` on bigints, `+` on strings, template strings (an unknown string of their parts);
@@ -388,6 +418,10 @@ verifier were caught that way while building it.
   module constant is never changed by other code, and the function terminates. Its alias analysis relies on types, which
   is why it refuses casts and type predicates.
 - **A declaration is in force across the whole program**, wherever it is written. Two specs in one program share them.
+- **A loop of steps over an array of unknown length bounds its whole contract.** The proof side runs it at most 4 times,
+  so no law of that contract is proved, not even one the loop has no part in; each is bounded at best.
+- **What `Effect.try` runs is not read, nor recorded.** Its success is any value of its type; the trace holds operations
+  only, so a law sees the try through the outcome alone.
 - **A loop is assumed to end.** An invariant proves what holds *if* the loop ends (partial correctness); `for…of` over an
   array always does, but a `while` loop's termination is not proved.
 - **Proof calls run.** `invariant`, `assert` and a lemma's call are no-ops, but they are calls, and their arguments are
@@ -409,8 +443,11 @@ one declaration per helper. The refusals are the verifier's to-do list for that 
 
 ## Next
 
-- The Effect adapter's next forms, by how often they stop real code: `Effect.try`; loops and a `yield*` inside an expression
-  in a generator's body; `Effect.exit`, `forEach`, `mapError`, `catchCause`, `suspend`.
+- The next forms, by how often they stop real code: `instanceof` on a value of type `unknown` and `Effect.die`, which a
+  `catch` after `Effect.try` uses to keep the errors it knows and die of the rest; `Effect.exit`, `forEach`, `mapError`,
+  `catchCause`, `suspend`; destructuring with rest or defaults; `let` in a computation's body.
+- A loop of steps read through invariants over the trace, as a fold's loop is read through its own, so a law of such a
+  contract can be proved and not only bounded.
 - Contracts on operations, assumed by every caller and proved by each implementation (a layer, a class).
 - Invariants in the spec, attached to a loop by its position, for code that cannot carry them.
 - Termination: a `decreases` measure for `while` loops and recursion, as Verus has.

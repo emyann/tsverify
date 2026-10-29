@@ -40,6 +40,11 @@ export class Universe {
    */
   abstracted = false
   /**
+   * Set, with why, when the proof side ran a loop of unknown length only so many times: its inputs are those that run
+   * it no longer. Its models are still real runs; its `unsat` is no proof.
+   */
+  truncated: string | undefined = undefined
+  /**
    * The declared functions whose results are unknowns, constrained only by their declared laws. A model that leans on
    * one is a counterexample of the code with those functions so, not necessarily of the real code: it is reported as
    * abstract.

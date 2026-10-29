@@ -274,8 +274,10 @@ export const judge = async (z3: Ctx, project: Project, file: string, proof: Lowe
       continue
     }
     const proved = await solve(proof, [proof.pre, z3.Not(onProof)], opts)
+    // A proof that holds only of the inputs a truncated loop keeps to is no proof; read after the law, which may run it.
+    const untrusted = leaning ?? (proof.u.truncated === undefined ? undefined : `proved only of the inputs that run no loop longer: ${proof.u.truncated}; no counterexample with arrays of at most ${bound} elements`)
     let r: Omit<LawResult, "name" | "ms">
-    if (proved.status === "unsat" && leaning === undefined) {
+    if (proved.status === "unsat" && untrusted === undefined) {
       // A proof of a law no result could break is a proof of nothing about the function.
       const onAny = source.kind === "lemma" ? undefined : lawOnAnyResult(proof, law)
       const breakable = onAny === undefined ? undefined : await solve(proof, [proof.pre, z3.Not(onAny)], opts)
@@ -291,7 +293,7 @@ export const judge = async (z3: Ctx, project: Project, file: string, proof: Lowe
         found.status === "sat"
           ? { status: "counterexample", ...found.witness }
           : found.status === "unsat"
-            ? { status: "bounded", reason: proved.status === "unsat" ? leaning! : `not proved (${why(proved)}); no counterexample with arrays of at most ${bound} elements` }
+            ? { status: "bounded", reason: proved.status === "unsat" ? untrusted! : `not proved (${why(proved)}); no counterexample with arrays of at most ${bound} elements` }
             : { status: "unknown", reason: `proof: ${why(proved)}; search: ${found.reason}` }
     }
     laws.push({ name: law.name, ...r, ms: performance.now() - started })
@@ -357,7 +359,7 @@ export const judge = async (z3: Ctx, project: Project, file: string, proof: Lowe
       cover.push(c)
       opts.progress?.(`cover ${value}: ${c.status}`)
     }
-  const coverOut = leaning === undefined ? cover : cover.map((c) => (c.status === "unreachable" ? { ...c, status: "bounded" as const } : c))
+  const coverOut = leaning === undefined && proof.u.truncated === undefined ? cover : cover.map((c) => (c.status === "unreachable" ? { ...c, status: "bounded" as const } : c))
   const trusted = trustedOf(trust)
   const notes = [...ALWAYS, ...new Set([...proof.u.notes, ...search.u.notes])]
   if (trusted.some((t) => t.purity === "checked")) notes.push(`A purity check takes on trust that ${PURITY_TRUSTS.join("; that ")}.`)
@@ -398,7 +400,7 @@ const obligationsOf = async (
     const head = { kind: o.kind, text: o.text, at: o.at, phase: o.phase }
     const onProof = broken(proof, key)
     const proved = onProof === undefined ? undefined : await solve(proof, [proof.pre, onProof], opts, [])
-    if (proved?.status === "unsat") {
+    if (proved?.status === "unsat" && proof.u.truncated === undefined) {
       out.push({ ...head, status: "proved" })
       continue
     }
@@ -416,7 +418,7 @@ const obligationsOf = async (
         reason:
           o.phase === "kept"
             ? `true of every input with arrays of at most ${bound} elements, and not proved kept by an iteration from any state it allows: strengthen it with what else the loop keeps`
-            : `not proved (${proved === undefined ? "the proof side does not meet it" : why(proved)}); no counterexample with arrays of at most ${bound} elements`,
+            : `not proved (${proved === undefined ? "the proof side does not meet it" : proved.status === "unsat" ? proof.u.truncated : why(proved)}); no counterexample with arrays of at most ${bound} elements`,
       })
     else out.push({ ...head, status: "unknown", reason: found?.status === "unknown" ? found.reason : "not met on either side" })
     opts.progress?.(`${o.kind} ${o.at}: ${out.at(-1)!.status}`)

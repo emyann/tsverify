@@ -187,6 +187,8 @@ export const propertyKey = (name: ts.PropertyName): string => {
 /** A condition's truth, read as JavaScript reads it: `a && b` is truthy when both are. */
 export const cond = (L: Lowering, e: ts.Expression, env: Env): Bool<"main"> => {
   const z3 = L.u.z3
+  const stepped = ranStep(e, env)
+  if (stepped !== undefined) return truthy(L.u, stepped())
   if (ts.isParenthesizedExpression(e)) return cond(L, e.expression, env)
   if (ts.isPrefixUnaryExpression(e) && e.operator === K.ExclamationToken) return z3.Not(cond(L, e.operand, env))
   if (ts.isBinaryExpression(e) && e.operatorToken.kind === K.AmpersandAmpersandToken)
@@ -196,9 +198,34 @@ export const cond = (L: Lowering, e: ts.Expression, env: Env): Bool<"main"> => {
   return truthy(L.u, lowerExpr(L, e, env))
 }
 
+/**
+ * The name a step's value is bound under once its computation ran it, and that of an expression whose steps run on some
+ * of its paths only (`a && (yield* b)`): one per node, a name no identifier has.
+ */
+const stepKeys = new WeakMap<ts.Node, string>()
+export const stepKey = (n: ts.Node): string => {
+  let k = stepKeys.get(n)
+  if (k === undefined) {
+    k = `\0step${++stepCount}`
+    stepKeys.set(n, k)
+  }
+  return k
+}
+let stepCount = 0
+const LOGICAL = new Set([K.AmpersandAmpersandToken, K.BarBarToken, K.QuestionQuestionToken])
+export const isLogical = (e: ts.Node): e is ts.BinaryExpression => ts.isBinaryExpression(e) && LOGICAL.has(e.operatorToken.kind)
+/** The value a computation bound for `e` when it ran the steps in it. */
+const ranStep = (e: ts.Expression, env: Env): Thunk | undefined => {
+  if (!(ts.isYieldExpression(e) || ts.isAwaitExpression(e) || ts.isConditionalExpression(e) || isLogical(e))) return undefined
+  const k = stepKeys.get(e)
+  return k === undefined ? undefined : env.get(k)
+}
+
 export const lowerExpr = (L: Lowering, e: ts.Expression, env: Env): Val => {
   const { u } = L
   const z3 = u.z3
+  const stepped = ranStep(e, env)
+  if (stepped !== undefined) return stepped()
   if (ts.isParenthesizedExpression(e)) return lowerExpr(L, e.expression, env)
   if (ts.isAsExpression(e) && ts.isConstTypeReference(e.type)) return lowerExpr(L, e.expression, env)
   if (ts.isSatisfiesExpression(e)) return lowerExpr(L, e.expression, env)
@@ -215,7 +242,7 @@ export const lowerExpr = (L: Lowering, e: ts.Expression, env: Env): Val => {
   if (e.kind === K.NullKeyword) return { kind: "nullish", which: "null" }
   if (ts.isTemplateExpression(e)) return template(L, e, env)
   if (ts.isYieldExpression(e) || ts.isAwaitExpression(e))
-    throw new Unsupported("a step (`yield*`, `await`) is modeled as a statement: `const x = yield* e`, `yield* e`, `return yield* e`", e)
+    throw new Unsupported("a step (`yield*`, `await`) is modeled in a computation's body, outside any function it defines", e)
 
   if (ts.isIdentifier(e) && env.has(e.text)) return env.get(e.text)!()
   if (ts.isIdentifier(e) || ts.isPropertyAccessExpression(e) || ts.isCallExpression(e) || ts.isNewExpression(e))

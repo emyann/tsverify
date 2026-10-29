@@ -3,8 +3,9 @@
 **Date:** 28 October 2026, revised 29 October. **Status:** the core and both adapters are built for the subset the
 withdrawal example needs, and the proof below holds (`test/withdraw.test.ts`). Spec, proof and exec modes and
 declarations of unread functions are built, after Verus (*Modes and trust*, *Proof mode*), and the Effect forms
-`Effect.gen`, `pipe`, `map`, `flatMap`, `catch`, `catchTag` and `sync`. Operation contracts, `Effect.try`, loops in a
-generator and concurrency are not.
+`Effect.gen`, `pipe`, `map`, `flatMap`, `catch`, `catchTag`, `sync`, `try` and `tryPromise`. In the core, a computation's
+body runs loops of steps and steps inside expressions, whether a generator or an async function marks them. Operation
+contracts, a loop of steps read through invariants, and concurrency are not.
 
 ## The answer in one paragraph
 
@@ -226,6 +227,13 @@ A loop is read twice, once per side:
   length, on the paths that reach its end: how the loop is left is the solver's choice, its end or an iteration that
   returns or breaks, and the invariants at the end are known only on the first. A loop with none is havocked: the proof side knows nothing of what it changed, and a law that needs it is
   `bounded`, never `proved`.
+
+**A loop of steps** (`for (const x of xs) yield* ...`, or `await`) is a computation's, and carries no invariants yet. The
+search side runs it as far as its arrays go; so does the proof side when the array's length is bounded (a literal). Over
+an array of unknown length the proof side runs it at most 4 times and keeps the inputs to those that run it no longer:
+its models are real runs, and its `unsat` is no proof, so every law and obligation of the contract is `bounded` at best,
+with the loop named. Each iteration is continued once, from the merged trace of every path that reached its end, so the
+code after a body with an `if` is read once per iteration, not once per path.
 
 Each proof call is an **obligation** with a key (`invariant@account.ts:44#kept`), checked on both sides like a law: proved,
 or broken with a counterexample run for real. What it states is then a **hint**: the proof side assumes it from there

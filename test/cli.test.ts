@@ -20,9 +20,15 @@ it("verifies every contract under a folder, and exits 1 on a vacuous law", () =>
 })
 
 it("exits 0 when every law and every obligation is proved", () => {
-  const r = cli("examples/account")
+  const r = cli(...["account", "withdraw", "effects"].map((f) => `examples/account/${f}.spec.ts`))
   assert.equal(r.code, 0, r.out + r.err)
   assert.match(r.out, /\n7 contracts in 3 files: laws 28 proved; obligations 10 proved\n$/)
+})
+
+it("exits 1 when a law is only bounded: a loop of steps over an array of unknown length", () => {
+  const r = cli("examples/account/imports.spec.ts")
+  assert.equal(r.code, 1, r.out + r.err)
+  assert.match(r.out, /\n5 contracts in 1 file: laws 11 proved, 8 bounded\n$/)
 })
 
 it("verifies one contract by name, with what it reaches, trusted and assumed", () => {

@@ -10,10 +10,10 @@
 import ts from "typescript"
 import type { Arith } from "z3-solver"
 import type { Style } from "./adapter.ts"
-import { bind, bindParameters, cond, later, lowerExpr, type Lowering } from "./lower.ts"
-import { ite } from "./ops.ts"
+import { bind, bindParameters, cond, isLogical, later, lowerExpr, type Lowering, stepKey } from "./lower.ts"
+import { isNullish, ite, truthy } from "./ops.ts"
 import { symbolicOf } from "./symbolic.ts"
-import { type Env, type FunctionNode, type Ran, Unsupported, type Val, lazyRecord } from "./value.ts"
+import { type Env, type FunctionNode, type Ran, Unsupported, type Val, lazy, lazyRecord, locate } from "./value.ts"
 
 const K = ts.SyntaxKind
 
@@ -119,7 +119,7 @@ export const runBody = (
     const scope = bindParameters(L, fn, env, args)
     const body = fn.body
     if (body === undefined) throw new Unsupported("a function with no body", fn)
-    if (!ts.isBlock(body)) return returning(L, style, body, scope, trace)
+    if (!ts.isBlock(body)) return unran(stepsIn(L, style, body, scope, trace, (stepped, t) => ran(returning(L, style, body, stepped, t))))
     return unran(statements(L, style, body.statements, 0, scope, trace, (t) => ran({ outcome: success(L, { kind: "nullish", which: "undefined" }), trace: t })))
   } finally {
     L.stack.pop()
@@ -152,13 +152,64 @@ const runValue = (L: Lowering, style: Style, v: Val, trace: Val, at: ts.Node): R
   throw new Unsupported(`\`yield*\` of a ${v.kind}, which is no computation`, at)
 }
 
-/** `return e`: a step's end is the computation's; a value is its success (an async function's promise is awaited). */
+/** `return e`, its steps run: a value is the computation's success (an async function's promise is awaited). */
 const returning = (L: Lowering, style: Style, e: ts.Expression, env: Env, trace: Val): Ran => {
-  const operand = stepOf(style, e)
-  if (operand !== undefined) return step(L, style, operand, env, trace)
   const v = lowerExpr(L, e, env)
-  if ((style === "async" || style === "returns") && v.kind === "comp") return v.run(trace)
+  if ((style === "async" || style === "returns") && v.kind === "comp" && stepOf(style, e) === undefined) return v.run(trace)
   return { outcome: success(L, v), trace }
+}
+
+/** Whether `n` holds a step of this style, outside any function it defines. */
+const holdsStep = (style: Style, n: ts.Node): boolean => {
+  if (style === "returns" || ts.isFunctionLike(n) || ts.isClassLike(n)) return false
+  const memo = held[style]
+  let h = memo.get(n)
+  if (h === undefined) {
+    h = (style === "gen" ? ts.isYieldExpression(n) : ts.isAwaitExpression(n)) || (ts.forEachChild(n, (c) => holdsStep(style, c) || undefined) ?? false)
+    memo.set(n, h)
+  }
+  return h
+}
+const held = { gen: new WeakMap<ts.Node, boolean>(), async: new WeakMap<ts.Node, boolean>() }
+
+/**
+ * Runs the steps in `e`, in the order JavaScript evaluates them, each from the trace the one before left, each value
+ * bound under its node for `lowerExpr` to read; then `k`. A step runs only on the paths that reach it: one inside
+ * `c ? a : b`, `a && b`, `a || b` or `a ?? b` runs on the paths where its side is evaluated, and the expression's value
+ * is bound on each path. A failed step ends the computation there.
+ */
+const stepsIn = (L: Lowering, style: Style, n: ts.Node, env: Env, trace: Val, k: (env: Env, trace: Val) => Val): Val => {
+  if (!holdsStep(style, n)) return k(env, trace)
+  const bound = (scope: Env, node: ts.Node, value: () => Val): Env => new Map(scope).set(stepKey(node), lazy(value))
+  if (ts.isYieldExpression(n) || ts.isAwaitExpression(n)) {
+    const operand = stepOf(style, n)!
+    return stepsIn(L, style, operand, env, trace, (env2, t2) =>
+      after(L, step(L, style, operand, env2, t2), n, (value, t3) => k(bound(env2, n, () => value), t3)),
+    )
+  }
+  if (ts.isConditionalExpression(n) && (holdsStep(style, n.whenTrue) || holdsStep(style, n.whenFalse)))
+    return stepsIn(L, style, n.condition, env, trace, (env2, t2) => {
+      const arm = (b: ts.Expression) => stepsIn(L, style, b, env2, t2, (env3, t3) => k(bound(env3, n, () => lowerExpr(L, b, env3)), t3))
+      return ite(L.u, cond(L, n.condition, env2), arm(n.whenTrue), arm(n.whenFalse), n)
+    })
+  if (isLogical(n) && holdsStep(style, n.right))
+    return stepsIn(L, style, n.left, env, trace, (env2, t2) => {
+      const left = lowerExpr(L, n.left, env2)
+      const op = n.operatorToken.kind
+      const z3 = L.u.z3
+      const stops = op === K.AmpersandAmpersandToken ? z3.Not(truthy(L.u, left)) : op === K.BarBarToken ? truthy(L.u, left) : z3.Not(isNullish(L.u, left))
+      const right = stepsIn(L, style, n.right, env2, t2, (env3, t3) => k(bound(env3, n, () => lowerExpr(L, n.right, env3)), t3))
+      return ite(L.u, stops, k(bound(env2, n, () => left), t2), right, n)
+    })
+  const children: Array<ts.Node> = []
+  ts.forEachChild(n, (c) => {
+    children.push(c)
+  })
+  // In a chain after `?.`, all but the head is evaluated only when what came before is present.
+  if ((n.flags & ts.NodeFlags.OptionalChain) !== 0 && children.slice(1).some((c) => holdsStep(style, c)))
+    throw new Unsupported("a step after `?.` runs only when what is before it is present, which is not modeled: write an `if`", n)
+  const each = (i: number, scope: Env, t: Val): Val => (i === children.length ? k(scope, t) : stepsIn(L, style, children[i]!, scope, t, (s2, t2) => each(i + 1, s2, t2)))
+  return each(0, env, trace)
 }
 
 /** Runs the computation `v` from `trace`; a value that is none is refused. */
@@ -223,41 +274,93 @@ const statements = (
     const bindFrom = (k: number, scope: Map<string, () => Val>, t: Val): Val => {
       if (k === decls.length) return statements(L, style, stmts, i + 1, scope, t, rest)
       const d = decls[k]!
-      if (d.initializer === undefined) throw new Unsupported("a `const` with no value", d)
-      const operand = stepOf(style, d.initializer)
-      if (operand === undefined) {
-        const init = d.initializer
-        const inner = new Map(scope)
+      const init = d.initializer
+      if (init === undefined) throw new Unsupported("a `const` with no value", d)
+      return stepsIn(L, style, init, scope, t, (stepped, t2) => {
+        const inner = new Map(stepped)
         bindName(L, d.name, later(L, () => lowerExpr(L, init, inner)), inner)
-        return bindFrom(k + 1, inner, t)
-      }
-      return after(L, step(L, style, operand, scope, t), d, (value, t2) => {
-        const inner = new Map(scope)
-        bindName(L, d.name, () => value, inner)
         return bindFrom(k + 1, inner, t2)
       })
     }
     return bindFrom(0, new Map(env), trace)
   }
   if (ts.isExpressionStatement(s)) {
-    const operand = stepOf(style, s.expression)
-    if (operand === undefined) throw new Unsupported("a statement that is no step (`yield*`, `await`) has an effect the verifier does not model", s)
-    return after(L, step(L, style, operand, env, trace), s, (_, t) => next(t))
+    if (stepOf(style, s.expression) === undefined)
+      throw new Unsupported("a statement that is no step (`yield*`, `await`) has an effect the verifier does not model", s)
+    return stepsIn(L, style, s.expression, env, trace, (_, t) => next(t))
   }
-  if (ts.isReturnStatement(s))
-    return ran(s.expression === undefined ? { outcome: success(L, { kind: "nullish", which: "undefined" }), trace } : returning(L, style, s.expression, env, trace))
+  if (ts.isReturnStatement(s)) {
+    const e = s.expression
+    if (e === undefined) return ran({ outcome: success(L, { kind: "nullish", which: "undefined" }), trace })
+    return stepsIn(L, style, e, env, trace, (stepped, t) => ran(returning(L, style, e, stepped, t)))
+  }
   if (ts.isThrowStatement(s)) {
     if (style === "gen") throw new Unsupported("a `throw` in a generator is a defect, which is not modeled; fail instead", s)
-    return ran({ outcome: failure(L, lowerExpr(L, s.expression, env)), trace })
+    return stepsIn(L, style, s.expression, env, trace, (stepped, t) => ran({ outcome: failure(L, lowerExpr(L, s.expression, stepped)), trace: t }))
   }
-  if (ts.isIfStatement(s)) {
-    const c = cond(L, s.expression, env)
-    const branch = (b: ts.Statement) => statements(L, style, ts.isBlock(b) ? b.statements : [b], 0, env, trace, (t) => next(t))
-    return ite(L.u, c, branch(s.thenStatement), s.elseStatement === undefined ? next(trace) : branch(s.elseStatement), s)
-  }
+  if (ts.isIfStatement(s))
+    return stepsIn(L, style, s.expression, env, trace, (stepped, t) => {
+      const branch = (b: ts.Statement) => statements(L, style, ts.isBlock(b) ? b.statements : [b], 0, stepped, t, (t2) => next(t2))
+      return ite(L.u, cond(L, s.expression, stepped), branch(s.thenStatement), s.elseStatement === undefined ? next(t) : branch(s.elseStatement), s)
+    })
+  if (ts.isForOfStatement(s)) return stepsIn(L, style, s.expression, env, trace, (stepped, t) => forOf(L, style, s, stepped, t, next))
   if (ts.isBlock(s)) return statements(L, style, s.statements, 0, env, trace, (t) => next(t))
   if (ts.isEmptyStatement(s)) return next(trace)
   throw new Unsupported(`a ${K[s.kind]} in a computation is not modeled`, s)
+}
+
+/**
+ * An outcome no computation ends with: the path ran to the end of a loop's body, or out of the loop. Each iteration and
+ * the loop's end are reached once, with the trace of every path that got there merged, so the code after them is read
+ * once, not once per path.
+ */
+const THROUGH = "$through"
+const through = (L: Lowering, trace: Val): Val => ran({ outcome: lazyRecord((n) => (n === "_tag" ? str(L, THROUGH) : undefined)), trace })
+
+/** The paths of `v` that went through, continued by `next` from their merged trace; the others ended where they did. */
+const whenThrough = (L: Lowering, v: Val, at: ts.Node, next: (trace: Val) => Val): Val => {
+  const r = unran(v)
+  if (r.outcome.kind !== "record") throw new Error("an outcome is a record")
+  const tag = r.outcome.field("_tag")!
+  if (tag.kind !== "str") throw new Error("an outcome's _tag is a string")
+  const mark = L.u.z3.String.val(THROUGH)
+  if (tag.term.eqIdentity(mark)) return next(r.trace)
+  return ite(L.u, tag.term.eq(mark), next(r.trace), v, at)
+}
+
+/** The proof side runs a loop over an array of unknown length at most this many times. */
+const TRUNCATE = 4
+
+/**
+ * `for (const x of xs) { ... }` over an array: its body run once per element, in order, each iteration from the trace
+ * the one before left. An array of known bound (every array of the search side) is run in full. On the proof side an
+ * array of unknown length is run at most `TRUNCATE` times, the inputs kept to those it runs no longer: what the proof
+ * side then finds is a real run, and what it proves holds of those inputs only.
+ */
+const forOf = (L: Lowering, style: Style, s: ts.ForOfStatement, env: Env, trace: Val, next: (t: Val) => Val): Val => {
+  const z3 = L.u.z3
+  if (s.awaitModifier !== undefined) throw new Unsupported("`for await` is not modeled", s)
+  const init = s.initializer
+  if (!ts.isVariableDeclarationList(init) || (init.flags & ts.NodeFlags.Const) === 0 || init.declarations.length !== 1)
+    throw new Unsupported("a `for…of` loop in a computation is modeled with one `const`, `for (const x of xs)`", s)
+  const name = init.declarations[0]!.name
+  const xs = lowerExpr(L, s.expression, env)
+  if (xs.kind !== "array") throw new Unsupported(`a \`for…of\` over a ${xs.kind} is not modeled`, s.expression)
+  const known = xs.size ?? xs.maxSize
+  const bound = known ?? L.u.bound ?? TRUNCATE
+  // Run no further than the inputs go: on the search side, as its arrays do; on the proof side, which then proves nothing.
+  if (known === undefined) L.u.assume(xs.length.le(bound))
+  if (known === undefined && L.u.bound === undefined)
+    L.u.truncated ??= `the proof side runs a loop in a computation at most ${TRUNCATE} times (${locate(s)})`
+  const body = ts.isBlock(s.statement) ? s.statement.statements : [s.statement]
+  const iteration = (k: number, t: Val): Val => {
+    if (k === bound) return through(L, t)
+    const scope = new Map(env)
+    bindName(L, name, () => xs.elem(z3.Int.val(k)), scope)
+    const ran = statements(L, style, body, 0, scope, t, (t2) => through(L, t2))
+    return ite(L.u, z3.Int.val(k).lt(xs.length), whenThrough(L, ran, s, (t2) => iteration(k + 1, t2)), through(L, t), s)
+  }
+  return whenThrough(L, iteration(0, trace), s, next)
 }
 
 const bindName = (L: Lowering, name: ts.BindingName, value: () => Val, scope: Map<string, () => Val>): void => bind(L, name, value, scope)
