@@ -104,10 +104,26 @@ interface Exits {
 }
 
 /** An argument: a value, or a place the parameter borrows. */
-export type Arg = { readonly kind: "value"; readonly thunk: Thunk; readonly owned: boolean } | { readonly kind: "place"; readonly place: Place }
+export type Arg =
+  | { readonly kind: "value"; readonly thunk: Thunk; readonly owned: boolean }
+  | { readonly kind: "place"; readonly place: Place }
 
 /** The methods that change the array, map or set they are called on. */
-const MUTATORS: ReadonlySet<string> = new Set(["push", "pop", "shift", "unshift", "splice", "sort", "reverse", "fill", "copyWithin", "set", "add", "delete", "clear"])
+const MUTATORS: ReadonlySet<string> = new Set([
+  "push",
+  "pop",
+  "shift",
+  "unshift",
+  "splice",
+  "sort",
+  "reverse",
+  "fill",
+  "copyWithin",
+  "set",
+  "add",
+  "delete",
+  "clear",
+])
 
 /** How many times a `for` or `while` loop is unrolled on the search side. */
 const UNROLL = 10
@@ -160,7 +176,11 @@ export const runFunction = (
   const body = fn.body!
   if (!ts.isBlock(body)) {
     const now = st
-    return { value: later(L, () => lowerExpr(L, body, envOf(L, now))), owned: fresh(body), after: caller === undefined ? undefined : { ...caller, store: st.store } }
+    return {
+      value: later(L, () => lowerExpr(L, body, envOf(L, now))),
+      owned: fresh(body),
+      after: caller === undefined ? undefined : { ...caller, store: st.store },
+    }
   }
   const x = statements(L, body.statements, st)
   const results = [...x.returns, ...(x.normal === undefined ? [] : [{ state: x.normal, value: (() => UNDEFINED) as Thunk, owned: true }])]
@@ -168,7 +188,11 @@ export const runFunction = (
   const last = results[results.length - 1]!
   const value = lazy(() => results.slice(0, -1).reduceRight((acc, r) => ite(L.u, r.state.cond, r.value(), acc, at), last.value()))
   if (caller === undefined) return { value, owned: results.every((r) => r.owned), after: undefined }
-  const merged = merge(L, results.map((r) => r.state), at)!
+  const merged = merge(
+    L,
+    results.map((r) => r.state),
+    at,
+  )!
   return { value, owned: results.every((r) => r.owned), after: { ...caller, store: merged.store, dead: merged.dead } }
 }
 
@@ -193,9 +217,17 @@ const bindName = (L: Lowering, st: State, name: ts.BindingName, thunk: Thunk, ow
   if (!ts.isObjectBindingPattern(name)) throw new Unsupported("array destructuring is not modeled", name)
   let out = st
   for (const el of name.elements) {
-    if (el.dotDotDotToken !== undefined || el.initializer !== undefined) throw new Unsupported("rest and default values in destructuring are not modeled", el)
+    if (el.dotDotDotToken !== undefined || el.initializer !== undefined)
+      throw new Unsupported("rest and default values in destructuring are not modeled", el)
     const key = el.propertyName === undefined ? (el.name as ts.Identifier).text : propertyKey(el.propertyName)
-    out = bindName(L, out, el.name, later(L, () => member(L, thunk(), key, el, type)), false, L.checker.getTypeAtLocation(el))
+    out = bindName(
+      L,
+      out,
+      el.name,
+      later(L, () => member(L, thunk(), key, el, type)),
+      false,
+      L.checker.getTypeAtLocation(el),
+    )
   }
   return out
 }
@@ -315,7 +347,9 @@ const placeOf = (L: Lowering, st: State, e: ts.Expression): { readonly place: Pl
   }
   if (ts.isElementAccessExpression(x) && ts.isNumericLiteral(x.argumentExpression) && /^\d+$/.test(x.argumentExpression.text)) {
     const base = placeOf(L, st, x.expression)
-    return base === undefined ? undefined : { place: extend(base.place, { kind: "index", index: z3.Int.val(Number(x.argumentExpression.text)) }, x.getText()) }
+    return base === undefined
+      ? undefined
+      : { place: extend(base.place, { kind: "index", index: z3.Int.val(Number(x.argumentExpression.text)) }, x.getText()) }
   }
   if (ts.isCallExpression(x) && ts.isPropertyAccessExpression(x.expression) && x.arguments.length === 1) {
     const method = x.expression.name.text
@@ -326,7 +360,11 @@ const placeOf = (L: Lowering, st: State, e: ts.Expression): { readonly place: Pl
     if (arr.kind !== "array") return undefined
     if (method === "at") {
       const a = x.arguments[0]!
-      const k = ts.isNumericLiteral(a) ? BigInt(a.text) : ts.isPrefixUnaryExpression(a) && a.operator === K.MinusToken && ts.isNumericLiteral(a.operand) ? -BigInt(a.operand.text) : undefined
+      const k = ts.isNumericLiteral(a)
+        ? BigInt(a.text)
+        : ts.isPrefixUnaryExpression(a) && a.operator === K.MinusToken && ts.isNumericLiteral(a.operand)
+          ? -BigInt(a.operand.text)
+          : undefined
       if (k === undefined) return undefined
       const index = k < 0n ? arr.length.add(z3.Int.val(k)) : z3.Int.val(k)
       return { place: extend(base.place, { kind: "index", index }, x.getText()), isUndefined: z3.Or(index.lt(0), index.ge(arr.length)) }
@@ -349,7 +387,9 @@ const extend = (p: Place, s: Step, text: string): Place => ({ cell: p.cell, step
 /** Whether an object-typed value is read here: a borrow is made only of one, a primitive is copied. */
 const isObjectTyped = (L: Lowering, e: ts.Node): boolean => {
   const t = L.checker.getNonNullableType(L.checker.getTypeAtLocation(e))
-  return (t.isUnion() ? t.types : [t]).some((m) => (m.flags & (ts.TypeFlags.Object | ts.TypeFlags.NonPrimitive | ts.TypeFlags.Intersection)) !== 0)
+  return (t.isUnion() ? t.types : [t]).some(
+    (m) => (m.flags & (ts.TypeFlags.Object | ts.TypeFlags.NonPrimitive | ts.TypeFlags.Intersection)) !== 0,
+  )
 }
 
 /** An expression that allocates: a literal, an object or an array the code builds here. */
@@ -361,7 +401,11 @@ const fresh = (e: ts.Expression): boolean => {
 /** A change may be made through `p`: its root is the function's own, and no one borrows into what it replaces. */
 const changeable = (L: Lowering, st: State, p: Place, replaces: boolean, at: ts.Node): void => {
   const cell = st.store.get(p.cell)!
-  if (!cell.owned) throw new Unsupported(`changes \`${p.text}\`, which the function did not allocate (an argument given by value, or what it was given)`, at)
+  if (!cell.owned)
+    throw new Unsupported(
+      `changes \`${p.text}\`, which the function did not allocate (an argument given by value, or what it was given)`,
+      at,
+    )
   const moved = st.dead.get(p.cell)
   if (moved !== undefined) throw new Unsupported(`\`${cell.name}\` was stored in ${moved}; change it there`, at)
   if (!replaces) return
@@ -389,7 +433,8 @@ const storing = (L: Lowering, st: State, e: ts.Expression, target: Place | undef
       return
     }
     if (ts.isArrayLiteralExpression(y)) {
-      for (const el of y.elements) if (ts.isSpreadElement(el)) spread(el.expression)
+      for (const el of y.elements)
+        if (ts.isSpreadElement(el)) spread(el.expression)
         else visit(el)
       return
     }
@@ -415,8 +460,11 @@ const storing = (L: Lowering, st: State, e: ts.Expression, target: Place | undef
     const p = placeOf(L, out, y)
     if (p === undefined || !out.store.get(p.place.cell)!.owned || (target !== undefined && samePlace(p.place, target))) return
     const t = L.checker.getNonNullableType(L.checker.getTypeAtLocation(y))
-    const parts = L.checker.isArrayType(t) ? [L.checker.getTypeArguments(t as ts.TypeReference)[0]!] : L.checker.getPropertiesOfType(t).map((s) => L.checker.getTypeOfSymbol(s))
-    if (parts.some((pt) => isObjectType(L, pt))) throw new Unsupported(`spreads \`${y.getText()}\`, whose parts are objects the function holds, into a second place (${where})`, at)
+    const parts = L.checker.isArrayType(t)
+      ? [L.checker.getTypeArguments(t as ts.TypeReference)[0]!]
+      : L.checker.getPropertiesOfType(t).map((s) => L.checker.getTypeOfSymbol(s))
+    if (parts.some((pt) => isObjectType(L, pt)))
+      throw new Unsupported(`spreads \`${y.getText()}\`, whose parts are objects the function holds, into a second place (${where})`, at)
   }
   visit(e)
   return out
@@ -424,7 +472,9 @@ const storing = (L: Lowering, st: State, e: ts.Expression, target: Place | undef
 
 const isObjectType = (L: Lowering, t: ts.Type): boolean => {
   const n = L.checker.getNonNullableType(t)
-  return (n.isUnion() ? n.types : [n]).some((m) => (m.flags & (ts.TypeFlags.Object | ts.TypeFlags.NonPrimitive | ts.TypeFlags.Intersection)) !== 0)
+  return (n.isUnion() ? n.types : [n]).some(
+    (m) => (m.flags & (ts.TypeFlags.Object | ts.TypeFlags.NonPrimitive | ts.TypeFlags.Intersection)) !== 0,
+  )
 }
 
 const samePlace = (a: Place, b: Place): boolean =>
@@ -525,7 +575,11 @@ const statement = (L: Lowering, s: ts.Statement, st: State): Exits => {
   if (ts.isIfStatement(s)) {
     const c = condOf(L, s.expression, envOf(L, st))
     const yes = z3.isFalse(c) ? NONE : block(L, s.thenStatement, withCond(st, z3.And(st.cond, c)))
-    const no = z3.isTrue(c) ? NONE : s.elseStatement === undefined ? normal(withCond(st, z3.And(st.cond, z3.Not(c)))) : block(L, s.elseStatement, withCond(st, z3.And(st.cond, z3.Not(c))))
+    const no = z3.isTrue(c)
+      ? NONE
+      : s.elseStatement === undefined
+        ? normal(withCond(st, z3.And(st.cond, z3.Not(c))))
+        : block(L, s.elseStatement, withCond(st, z3.And(st.cond, z3.Not(c))))
     return { normal: merge(L, [yes.normal, no.normal], s), ...join(yes, no) }
   }
   if (ts.isSwitchStatement(s)) return switchStatement(L, s, st)
@@ -560,11 +614,18 @@ const declare = (L: Lowering, list: ts.VariableDeclarationList, st: State): Stat
       const borrowed = ts.isIdentifier(unwrap(init)) ? out.vars.get((unwrap(init) as ts.Identifier).text)?.kind === "place" : true
       if (p !== undefined && borrowed) {
         if (!isConst) throw new Unsupported(`a \`let\` that refers into an object the function holds is not modeled; use \`const\``, d)
-        out = bindVar(out, d.name.text, { kind: "place", place: { ...p.place, text: d.name.text }, ...(p.isUndefined === undefined ? {} : { isUndefined: p.isUndefined }) })
+        out = bindVar(out, d.name.text, {
+          kind: "place",
+          place: { ...p.place, text: d.name.text },
+          ...(p.isUndefined === undefined ? {} : { isUndefined: p.isUndefined }),
+        })
         continue
       }
       if (p !== undefined && out.store.get(p.place.cell)?.owned)
-        throw new Unsupported(`\`${d.name.text}\` would be a second name for \`${init.getText()}\`, which the function holds; use \`${init.getText()}\``, d)
+        throw new Unsupported(
+          `\`${d.name.text}\` would be a second name for \`${init.getText()}\`, which the function holds; use \`${init.getText()}\``,
+          d,
+        )
     }
     const r = valueOf(L, init, out)
     out = bindName(L, r.state, d.name, r.value, r.owned, type)
@@ -644,7 +705,11 @@ const programFunction = (L: Lowering, e: ts.CallExpression, st: State): { readon
   if (ts.isFunctionDeclaration(d) && d.body !== undefined) return { node: d, env: new Map() }
   if (ts.isVariableDeclaration(d) && d.initializer !== undefined && (d.parent.flags & ts.NodeFlags.Const) !== 0) {
     const init = unwrap(d.initializer)
-    if ((ts.isArrowFunction(init) || ts.isFunctionExpression(init)) && init.asteriskToken === undefined && !init.modifiers?.some((m) => m.kind === K.AsyncKeyword))
+    if (
+      (ts.isArrowFunction(init) || ts.isFunctionExpression(init)) &&
+      init.asteriskToken === undefined &&
+      !init.modifiers?.some((m) => m.kind === K.AsyncKeyword)
+    )
       return { node: init, env: new Map() }
   }
   return undefined
@@ -675,12 +740,25 @@ const expressionStatement = (L: Lowering, e: ts.Expression, st: State): State =>
     }
     return assign(L, st, x.left, compute, x.right, x)
   }
-  if ((ts.isPrefixUnaryExpression(x) || ts.isPostfixUnaryExpression(x)) && (x.operator === K.PlusPlusToken || x.operator === K.MinusMinusToken)) {
+  if (
+    (ts.isPrefixUnaryExpression(x) || ts.isPostfixUnaryExpression(x)) &&
+    (x.operator === K.PlusPlusToken || x.operator === K.MinusMinusToken)
+  ) {
     const op = x.operator === K.PlusPlusToken ? K.PlusToken : K.MinusToken
-    return assign(L, st, x.operand, (old) => {
-      if (old.kind === "int" && old.origin === "bigint") return { ...old, term: op === K.PlusToken ? old.term.add(1) : old.term.sub(1) }
-      throw new Unsupported(`\`${ts.tokenToString(x.operator)}\` on a ${old.kind}: arithmetic on \`number\` rounds, which the model of numbers does not see: use \`bigint\` where the values are whole, or move it into a function the spec declares with \`assume\``, x)
-    }, undefined, x)
+    return assign(
+      L,
+      st,
+      x.operand,
+      (old) => {
+        if (old.kind === "int" && old.origin === "bigint") return { ...old, term: op === K.PlusToken ? old.term.add(1) : old.term.sub(1) }
+        throw new Unsupported(
+          `\`${ts.tokenToString(x.operator)}\` on a ${old.kind}: arithmetic on \`number\` rounds, which the model of numbers does not see: use \`bigint\` where the values are whole, or move it into a function the spec declares with \`assume\``,
+          x,
+        )
+      },
+      undefined,
+      x,
+    )
   }
   if (ts.isDeleteExpression(x)) return assign(L, st, x.expression, () => UNDEFINED, undefined, x, true)
   if (ts.isCallExpression(x)) return callStatement(L, x, st)
@@ -700,7 +778,11 @@ const assign = (
   const t = unwrap(target)
   if (ts.isIdentifier(t)) {
     const b = st.vars.get(t.text)
-    if (b?.kind !== "cell") throw new Unsupported(`assigns \`${t.text}\`, which is ${b?.kind === "place" ? "a reference into an object; change its fields" : "not a variable of this function (a closure's capture, or a global)"}`, at)
+    if (b?.kind !== "cell")
+      throw new Unsupported(
+        `assigns \`${t.text}\`, which is ${b?.kind === "place" ? "a reference into an object; change its fields" : "not a variable of this function (a closure's capture, or a global)"}`,
+        at,
+      )
     const cell = st.store.get(b.cell)!
     if (rhs !== undefined && isObjectTyped(L, rhs) && !fresh(rhs)) {
       const p = placeOf(L, st, rhs)
@@ -710,7 +792,11 @@ const assign = (
     const next = rhs === undefined ? st : storing(L, st, rhs, undefined, `\`${t.text}\``, at)
     const store = new Map(next.store)
     const before = st
-    store.set(b.cell, { ...cell, owned: rhs === undefined ? cell.owned : fresh(rhs) || (cell.owned && !isObjectTyped(L, rhs)), thunk: later(L, () => compute(readCell(before, b.cell, t.text))) })
+    store.set(b.cell, {
+      ...cell,
+      owned: rhs === undefined ? cell.owned : fresh(rhs) || (cell.owned && !isObjectTyped(L, rhs)),
+      thunk: later(L, () => compute(readCell(before, b.cell, t.text))),
+    })
     return { ...next, store }
   }
   if (!ts.isPropertyAccessExpression(t) && !ts.isElementAccessExpression(t))
@@ -719,7 +805,8 @@ const assign = (
   if ((objType.isUnion() ? objType.types : [objType]).some((m) => m.flags & (ts.TypeFlags.Undefined | ts.TypeFlags.Null)))
     throw new Unsupported(`changes \`${t.expression.getText()}\`, which the type checker has not shown present here`, at)
   const base = placeOf(L, st, t.expression)
-  if (base === undefined) throw new Unsupported(`changes \`${t.expression.getText()}\`, which is no variable of this function nor part of one`, at)
+  if (base === undefined)
+    throw new Unsupported(`changes \`${t.expression.getText()}\`, which is no variable of this function nor part of one`, at)
   const step: Step = ts.isPropertyAccessExpression(t)
     ? { kind: "field", name: t.name.text }
     : ts.isNumericLiteral(t.argumentExpression) && /^\d+$/.test(t.argumentExpression.text)
@@ -756,7 +843,13 @@ const callStatement = (L: Lowering, e: ts.CallExpression, st: State): State => {
       const req = inSpec(L, () => truthy(u, lowerCall(L, lem.requires!, new Map(), args, e)))
       obligate(L, "requires", e, "here", st.cond, req, `${lem.name}: ${lem.requires.getText()}`)
     }
-    if (u.bound === undefined) L.hints.push(z3.Implies(st.cond, inSpec(L, () => truthy(u, lowerCall(L, lem.statement, new Map(), args, e)))))
+    if (u.bound === undefined)
+      L.hints.push(
+        z3.Implies(
+          st.cond,
+          inSpec(L, () => truthy(u, lowerCall(L, lem.statement, new Map(), args, e))),
+        ),
+      )
     return st
   }
   if (ts.isPropertyAccessExpression(callee)) {
@@ -773,8 +866,7 @@ const callStatement = (L: Lowering, e: ts.CallExpression, st: State): State => {
       const items = e.arguments.map((a) => later(L, () => lowerExpr(L, a, env)))
       return writePlace(L, next, recv.place, (old) => appended(L, old, items, e), e)
     }
-    if (recv !== undefined && MUTATORS.has(method))
-      throw new Unsupported(`\`.${method}\` is not modeled; \`.push\` is`, e)
+    if (recv !== undefined && MUTATORS.has(method)) throw new Unsupported(`\`.${method}\` is not modeled; \`.push\` is`, e)
   }
   const run = runInline(L, e, st, true)
   if (run !== undefined) return run.state
@@ -843,7 +935,12 @@ const switchStatement = (L: Lowering, s: ts.SwitchStatement, st: State): Exits =
   })
   const noDefault = !clauses.some(ts.isDefaultClause)
   const out = scoped(
-    { normal: merge(L, [fall, ...leaving, noDefault ? withCond(st, z3.And(st.cond, z3.Not(anyMatch))) : undefined], s), returns, breaks: [], continues },
+    {
+      normal: merge(L, [fall, ...leaving, noDefault ? withCond(st, z3.And(st.cond, z3.Not(anyMatch))) : undefined], s),
+      returns,
+      breaks: [],
+      continues,
+    },
     st.vars,
   )
   return out
@@ -852,13 +949,21 @@ const switchStatement = (L: Lowering, s: ts.SwitchStatement, st: State): Exits =
 // ——— Loops ———
 
 /** The leading `invariant(...)` calls of a loop's body, and the rest of it. */
-const invariantsOf = (L: Lowering, body: ts.Statement): { readonly invariants: ReadonlyArray<ts.CallExpression>; readonly rest: ReadonlyArray<ts.Statement> } => {
+const invariantsOf = (
+  L: Lowering,
+  body: ts.Statement,
+): { readonly invariants: ReadonlyArray<ts.CallExpression>; readonly rest: ReadonlyArray<ts.Statement> } => {
   const stmts = ts.isBlock(body) ? body.statements : [body]
   const invariants: Array<ts.CallExpression> = []
   let i = 0
   for (; i < stmts.length; i++) {
     const s = stmts[i]!
-    if (!ts.isExpressionStatement(s) || !ts.isCallExpression(s.expression) || !declared(L.checker, s.expression.expression, CONTRACT_MODULE, "invariant")) break
+    if (
+      !ts.isExpressionStatement(s) ||
+      !ts.isCallExpression(s.expression) ||
+      !declared(L.checker, s.expression.expression, CONTRACT_MODULE, "invariant")
+    )
+      break
     invariants.push(s.expression)
   }
   return { invariants, rest: stmts.slice(i) }
@@ -867,11 +972,14 @@ const invariantsOf = (L: Lowering, body: ts.Statement): { readonly invariants: R
 /** An invariant's, or an assert's, claim in a state: the callback written in place, run as spec code. */
 const claim = (L: Lowering, st: State, call: ts.CallExpression, i: Arith | undefined): Bool => {
   const f = call.arguments[0]
-  if (f === undefined || !(ts.isArrowFunction(unwrap(f)) || ts.isFunctionExpression(unwrap(f)))) throw new Unsupported("a hint takes a function written in place", call)
+  if (f === undefined || !(ts.isArrowFunction(unwrap(f)) || ts.isFunctionExpression(unwrap(f))))
+    throw new Unsupported("a hint takes a function written in place", call)
   const fn = unwrap(f) as ts.ArrowFunction | ts.FunctionExpression
   if (fn.parameters.length > 0 && i === undefined)
     throw new Unsupported("only a `for…of` loop's invariant takes `i`; a `for` or `while` loop's names its own variables", fn)
-  return inSpec(L, () => truthy(L.u, lowerCall(L, fn, envOf(L, st), i === undefined ? [] : [{ kind: "int", origin: "count", term: i }], call)))
+  return inSpec(L, () =>
+    truthy(L.u, lowerCall(L, fn, envOf(L, st), i === undefined ? [] : [{ kind: "int", origin: "count", term: i }], call)),
+  )
 }
 
 /**
@@ -907,7 +1015,15 @@ const obligateClaim = (L: Lowering, inv: LoopClaim, phase: "entry" | "kept", con
   })
 }
 
-const obligate = (L: Lowering, kind: Obligation["kind"], node: ts.CallExpression, phase: Obligation["phase"], cond: Bool, goal: Bool, text?: string): void => {
+const obligate = (
+  L: Lowering,
+  kind: Obligation["kind"],
+  node: ts.CallExpression,
+  phase: Obligation["phase"],
+  cond: Bool,
+  goal: Bool,
+  text?: string,
+): void => {
   const at = locate(node)
   const what = text ?? node.arguments[0]?.getText() ?? node.getText()
   L.obligations.push({ key: `${kind}@${at}#${phase}`, kind, text: what, at, phase, cond, goal, hints: L.hints.length })
@@ -933,7 +1049,11 @@ const changedBy = (L: Lowering, st: State, nodes: ReadonlyArray<ts.Node>, inner:
   const visit = (n: ts.Node): void => {
     if (ts.isFunctionLike(n) && !ts.isArrowFunction(n) && !ts.isFunctionExpression(n)) return
     if (ts.isBinaryExpression(n) && n.operatorToken.kind >= K.FirstAssignment && n.operatorToken.kind <= K.LastAssignment) root(n.left)
-    else if ((ts.isPrefixUnaryExpression(n) || ts.isPostfixUnaryExpression(n)) && (n.operator === K.PlusPlusToken || n.operator === K.MinusMinusToken)) root(n.operand)
+    else if (
+      (ts.isPrefixUnaryExpression(n) || ts.isPostfixUnaryExpression(n)) &&
+      (n.operator === K.PlusPlusToken || n.operator === K.MinusMinusToken)
+    )
+      root(n.operand)
     else if (ts.isDeleteExpression(n)) root(n.expression)
     else if (ts.isCallExpression(n)) {
       if (ts.isPropertyAccessExpression(n.expression) && MUTATORS.has(n.expression.name.text)) root(n.expression.expression)
@@ -971,7 +1091,7 @@ const forOf = (L: Lowering, s: ts.ForOfStatement, st: State): Exits => {
   const init = s.initializer
   if (!ts.isVariableDeclarationList(init) || init.declarations.length !== 1 || !ts.isIdentifier(init.declarations[0]!.name))
     throw new Unsupported("a `for…of` loop is modeled with one variable, `for (const x of xs)`", s)
-  const name = (init.declarations[0]!.name).text
+  const name = init.declarations[0]!.name.text
   const iterPlace = placeOf(L, st, s.expression)
   const iterated = present(iterPlace !== undefined ? readPlace(L, st, iterPlace.place) : lowerExpr(L, s.expression, envOf(L, st)))
   if (iterated.kind !== "array") throw new Unsupported(`a \`for…of\` over a ${iterated.kind} is not modeled`, s.expression)
@@ -987,7 +1107,8 @@ const forOf = (L: Lowering, s: ts.ForOfStatement, st: State): Exits => {
     ...guessed.map((g) => ({ ...g, claim: (at: State, i: Arith) => g.claim(envOf(L, at), i) })),
   ]
   const changed = changedBy(L, st, [s.statement], s.statement)
-  if (iterPlace !== undefined && changed.has(iterPlace.place.cell)) throw new Unsupported(`changes \`${s.expression.getText()}\` while iterating it`, s)
+  if (iterPlace !== undefined && changed.has(iterPlace.place.cell))
+    throw new Unsupported(`changes \`${s.expression.getText()}\` while iterating it`, s)
   const elementType = L.checker.getTypeAtLocation(init.declarations[0]!.name)
   const bindElement = (head: State, i: Arith): State => {
     if (iterPlace !== undefined && isObjectType(L, elementType))
@@ -1058,7 +1179,10 @@ const noElement = (L: Lowering, inv: ts.CallExpression, element: ts.Identifier):
   const sym = L.checker.getSymbolAtLocation(element)
   const visit = (n: ts.Node): void => {
     if (ts.isIdentifier(n) && L.checker.getSymbolAtLocation(n) === sym)
-      throw new Unsupported(`an invariant holds between iterations, where there is no \`${element.text}\`: state it with \`i\`, the count done`, n)
+      throw new Unsupported(
+        `an invariant holds between iterations, where there is no \`${element.text}\`: state it with \`i\`, the count done`,
+        n,
+      )
     ts.forEachChild(n, visit)
   }
   visit(inv)
@@ -1100,7 +1224,12 @@ const guarded = (L: Lowering, s: ts.ForStatement | ts.WhileStatement, st0: State
     return scoped({ normal: merge(L, leaving, s), returns, breaks: [], continues: [] }, st0.vars)
   }
   for (const inv of invariants) obligate(L, "invariant", inv, "entry", st.cond, claim(L, st, inv, undefined))
-  const changed = changedBy(L, st, ts.isForStatement(s) && s.incrementor !== undefined ? [s.statement, s.incrementor] : [s.statement], s.statement)
+  const changed = changedBy(
+    L,
+    st,
+    ts.isForStatement(s) && s.incrementor !== undefined ? [s.statement, s.incrementor] : [s.statement],
+    s.statement,
+  )
   const step = havoc(L, st, changed, "step", s)
   const hyp = z3.And(st.cond, guard(step), ...invariants.map((inv) => claim(L, step, inv, undefined)))
   const x = scoped(statements(L, rest, withCond(step, hyp)), st.vars)
@@ -1108,7 +1237,10 @@ const guarded = (L: Lowering, s: ts.ForStatement | ts.WhileStatement, st0: State
   if (next !== undefined) for (const inv of invariants) obligate(L, "invariant", inv, "kept", next.cond, claim(L, next, inv, undefined))
   const after = havoc(L, st, changed, "after", s)
   u.notes.add("A `for` or `while` loop is assumed to end: an invariant proves what holds if it does.")
-  return scoped(leave(L, st, x, after, z3.And(z3.Not(guard(after)), ...invariants.map((inv) => claim(L, after, inv, undefined))), s), st0.vars)
+  return scoped(
+    leave(L, st, x, after, z3.And(z3.Not(guard(after)), ...invariants.map((inv) => claim(L, after, inv, undefined))), s),
+    st0.vars,
+  )
 }
 
 // ——— Lemmas ———
@@ -1117,7 +1249,9 @@ const guarded = (L: Lowering, s: ts.ForStatement | ts.WhileStatement, st0: State
 export const lemmaOf = (
   L: Lowering,
   callee: ts.Expression,
-): { readonly file: string; readonly name: string; readonly statement: FunctionNode; readonly requires: FunctionNode | undefined } | undefined => {
+):
+  | { readonly file: string; readonly name: string; readonly statement: FunctionNode; readonly requires: FunctionNode | undefined }
+  | undefined => {
   if (!ts.isIdentifier(callee)) return undefined
   let sym = L.checker.getSymbolAtLocation(callee)
   if (sym !== undefined && sym.flags & ts.SymbolFlags.Alias) sym = L.checker.getAliasedSymbol(sym)
@@ -1132,10 +1266,15 @@ export const lemmaOf = (
     const o = unwrap(opts)
     if (!ts.isObjectLiteralExpression(o)) throw new Unsupported("a lemma's options are written in place", opts)
     for (const p of o.properties) {
-      if (ts.isPropertyAssignment(p) && ts.isIdentifier(p.name) && p.name.text === "requires") requires = functionOf(L.checker, p.initializer)
+      if (ts.isPropertyAssignment(p) && ts.isIdentifier(p.name) && p.name.text === "requires")
+        requires = functionOf(L.checker, p.initializer)
       else throw new Unsupported("a lemma's one option is `requires`", p)
     }
   }
-  return { file: d.getSourceFile().fileName, name: (d.name as ts.Identifier).text, statement: functionOf(L.checker, statementArg), requires }
+  return {
+    file: d.getSourceFile().fileName,
+    name: (d.name as ts.Identifier).text,
+    statement: functionOf(L.checker, statementArg),
+    requires,
+  }
 }
-

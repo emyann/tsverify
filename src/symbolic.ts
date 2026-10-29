@@ -88,8 +88,7 @@ const present = (
   }
   if (all(F.StringLike)) {
     const term = u.leaf(leaf, "str", indices) as never as ReturnType<typeof z3.String.val>
-    if (members.every((m) => m.isStringLiteral()))
-      u.assume(z3.Or(...members.map((m) => term.eq(z3.String.val((m).value)))), indices)
+    if (members.every((m) => m.isStringLiteral())) u.assume(z3.Or(...members.map((m) => term.eq(z3.String.val(m.value)))), indices)
     return { kind: "str", term }
   }
   if (all(F.NumberLike)) {
@@ -98,27 +97,20 @@ const present = (
     u.assume(z3.And(cls.ge(NUM.finite), cls.le(NUM.negInf)), indices)
     // The search side keeps to values a double holds exactly (multiples of 2^-10 below 2^40), so every
     // model it finds is a real input; the proof side keeps every real, a superset of the doubles.
-    if (u.bound !== undefined)
-      u.assume(z3.And(z3.IsInt(real.mul(1024)), real.ge(-(2 ** 40)), real.le(2 ** 40)), indices)
+    if (u.bound !== undefined) u.assume(z3.And(z3.IsInt(real.mul(1024)), real.ge(-(2 ** 40)), real.le(2 ** 40)), indices)
     // A real no double holds is no input: a model there is not a counterexample, and the search side is asked instead.
     else if (!members.every((m) => m.isNumberLiteral())) {
       u.abstracted = true
       u.approximations.add("a `number` is any real on the proof side, a double or not")
     }
     if (members.every((m) => m.isNumberLiteral()))
-      u.assume(
-        z3.And(cls.eq(NUM.finite), z3.Or(...members.map((m) => real.eq(z3.Real.val(exactRational((m).value)))))),
-        indices,
-      )
+      u.assume(z3.And(cls.eq(NUM.finite), z3.Or(...members.map((m) => real.eq(z3.Real.val(exactRational(m.value)))))), indices)
     return { kind: "num", cls, real }
   }
   if (all(F.BigIntLike)) {
     const term = u.leaf(leaf, "int", indices, "bigint") as never as ReturnType<typeof z3.Int.val>
     if (members.every((m) => m.flags & F.BigIntLiteral))
-      u.assume(
-        z3.Or(...members.map((m) => term.eq(literalBigint(m as ts.BigIntLiteralType)))),
-        indices,
-      )
+      u.assume(z3.Or(...members.map((m) => term.eq(literalBigint(m as ts.BigIntLiteralType)))), indices)
     return { kind: "int", origin: "bigint", term }
   }
   const id = `${path}@${indices.map(termId).join(",")}`
@@ -138,7 +130,14 @@ const present = (
       })
       if (props.length === 0) return undefined
       const optional = props.some((p) => (p.flags & ts.SymbolFlags.Optional) !== 0)
-      return symbolicOf(t, props.map((p) => checker.getTypeOfSymbol(p)), [...segments, `.${name}`], indices, at, optional)
+      return symbolicOf(
+        t,
+        props.map((p) => checker.getTypeOfSymbol(p)),
+        [...segments, `.${name}`],
+        indices,
+        at,
+        optional,
+      )
     }, id)
   }
   const type = members[0]!
@@ -183,7 +182,8 @@ const present = (
       const op = a.operation?.(t, returns)
       if (op === undefined) continue
       const last = segments.at(-1) ?? ""
-      if (indices.length > 0 || !last.startsWith(".")) throw new Unsupported(`${path}: an operation is a method of a value given to the code`, at)
+      if (indices.length > 0 || !last.startsWith("."))
+        throw new Unsupported(`${path}: an operation is a method of a value given to the code`, at)
       const target = segments.slice(0, -1).join("").replace(/[!$]/g, "")
       return operation(t, target, last.slice(1), op, at)
     }
@@ -199,5 +199,4 @@ const present = (
   throw new Unsupported(`${path}: type ${checker.typeToString(type)} is not modeled`, at)
 }
 
-const literalBigint = (m: ts.BigIntLiteralType): bigint =>
-  (m.value.negative ? -1n : 1n) * BigInt(m.value.base10Value)
+const literalBigint = (m: ts.BigIntLiteralType): bigint => (m.value.negative ? -1n : 1n) * BigInt(m.value.base10Value)

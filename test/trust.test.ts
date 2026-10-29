@@ -32,8 +32,13 @@ it("the fixture type-checks", () => {
 describe("a declared function", () => {
   it("its law holds of every element of a quantifier, and the report names it as trusted, its purity checked", async () => {
     const v = await run("everyScoreNonNegative")
-    assert.deepEqual(v.laws.map((l) => [l.name, l.status]), [["always", "proved"]])
-    assert.deepEqual(v.trusted, [{ name: "score", declared: [v.trusted[0]!.declared[0]], purity: "checked", laws: ["nonNegative"], read: ["score"] }])
+    assert.deepEqual(
+      v.laws.map((l) => [l.name, l.status]),
+      [["always", "proved"]],
+    )
+    assert.deepEqual(v.trusted, [
+      { name: "score", declared: [v.trusted[0]!.declared[0]], purity: "checked", laws: ["nonNegative"], read: ["score"] },
+    ])
     assert.match(v.trusted[0]!.declared[0]!, /fixtures\/trusted\.ts:\d+/)
   })
 
@@ -53,9 +58,15 @@ describe("a declared function", () => {
 
 describe("refused, with what to write instead", () => {
   const cases: ReadonlyArray<readonly [string, RegExp]> = [
-    ["undeclared", /`total` is not read \(arithmetic on `number` rounds.*\): declare what the verifier may assume of it, `assume\(total, \{ pure: true/],
+    [
+      "undeclared",
+      /`total` is not read \(arithmetic on `number` rounds.*\): declare what the verifier may assume of it, `assume\(total, \{ pure: true/,
+    ],
     ["stamped", /`stamp` is declared pure and is not: .*changes its argument `log`\. Declare it `pure: false`/],
-    ["uncovered", /`uniq \(lodash-es\)` is called with \(readonly number\[\]\), which no declaration covers: \(readonly string\[\]\) at packs\/lodash\.ts/],
+    [
+      "uncovered",
+      /`uniq \(lodash-es\)` is called with \(readonly number\[\]\), which no declaration covers: \(readonly string\[\]\) at packs\/lodash\.ts/,
+    ],
     ["otherForm", /`clamp \(lodash-es\)` is called with \(number, 10\), which no declaration covers: \(number, number, number\)/],
     ["undeclaredPackage", /`compact` is a package's, which the verifier does not read: declare .*`assume\(compact/],
   ]
@@ -81,6 +92,9 @@ describe("spec code", () => {
 
   it("reads what the program computed with the clock: a binding keeps the mode of the code that wrote it", async () => {
     const v = await run("stampedNow")
-    assert.deepEqual(v.laws.map((l) => [l.name, l.status]), [["keeps", "proved"]])
+    assert.deepEqual(
+      v.laws.map((l) => [l.name, l.status]),
+      [["keeps", "proved"]],
+    )
   })
 })

@@ -17,7 +17,19 @@ import { tsAdapter } from "./adapters/ts.ts"
 import { emptyTrace, runBody } from "./computation.ts"
 import { TooLong, fromModel, literal, pin } from "./concrete.ts"
 import type { Obligation } from "./exec.ts"
-import { emptyEnv, type GuessedInvariant, inSpec, type Lowering, lowerCall, lowerExpr, lowering, num, slice, type Trust, trustOf } from "./lower.ts"
+import {
+  emptyEnv,
+  type GuessedInvariant,
+  inSpec,
+  type Lowering,
+  lowerCall,
+  lowerExpr,
+  lowering,
+  num,
+  slice,
+  type Trust,
+  trustOf,
+} from "./lower.ts"
 import { strictEq, truthy } from "./ops.ts"
 import { type ContractSource, type Project, readContract, unwrap } from "./project.ts"
 import { symbolicOf } from "./symbolic.ts"
@@ -159,7 +171,9 @@ export const lowerSide = (
     return { params, args: fn.parameters.map((p, i) => symbolicOf(L, project.checker.getTypeAtLocation(p), [params[i]!], [], p)) }
   }
   const preOf = (args: ReadonlyArray<Val>) =>
-    source.requires === undefined ? z3.Bool.val(true) : inSpec(L, () => truthy(u, lowerCall(L, source.requires!, emptyEnv, args, source.requires!)))
+    source.requires === undefined
+      ? z3.Bool.val(true)
+      : inSpec(L, () => truthy(u, lowerCall(L, source.requires!, emptyEnv, args, source.requires!)))
   if (source.kind === "lemma") {
     const t = source.target as FunctionNode
     const { params, args } = symbolicArgs(t)
@@ -175,10 +189,22 @@ export const lowerSide = (
       L.guess = guesser(L, source, t, args, guessFrom, unguessable)
       L.guessBeside = guessBeside
     }
-    return { u, L, source, fn: t, params, args, result: lowerCall(L, t, emptyEnv, args, t), trace: undefined, pre: preOf(args), unguessable }
+    return {
+      u,
+      L,
+      source,
+      fn: t,
+      params,
+      args,
+      result: lowerCall(L, t, emptyEnv, args, t),
+      trace: undefined,
+      pre: preOf(args),
+      unguessable,
+    }
   }
   const c = adapters.map((a) => a.computation?.(L, source.target)).find((x) => x !== undefined)
-  if (c === undefined) throw new Unsupported("no adapter reads this as a computation (an async function, `Effect.fn(...)(function* ...)`)", source.target)
+  if (c === undefined)
+    throw new Unsupported("no adapter reads this as a computation (an async function, `Effect.fn(...)(function* ...)`)", source.target)
   const { params, args } = symbolicArgs(c.node)
   const r = runBody(L, c.node, c.style, emptyEnv, args, emptyTrace(L), c.node)
   return { u, L, source, fn: c.node, params, args, result: r.outcome, trace: r.trace, pre: preOf(args), unguessable }
@@ -201,7 +227,10 @@ const guesser =
     const p = sym === undefined ? -1 : fn.parameters.findIndex((q) => L.checker.getSymbolAtLocation(q.name) === sym)
     const xs = args[p]
     // What the function returns, by name, after the loop: `return a`.
-    const returned = fn.body.statements.find((st): st is ts.ReturnStatement => ts.isReturnStatement(st) && st.pos >= loop.end && st.expression !== undefined && ts.isIdentifier(unwrap(st.expression)))
+    const returned = fn.body.statements.find(
+      (st): st is ts.ReturnStatement =>
+        ts.isReturnStatement(st) && st.pos >= loop.end && st.expression !== undefined && ts.isIdentifier(unwrap(st.expression)),
+    )
     if (xs?.kind !== "array" || returned === undefined) return []
     const result = unwrap(returned.expression!) as ts.Identifier
     const count = (term: Arith): Val => ({ kind: "int", origin: "count", term })
@@ -216,7 +245,10 @@ const guesser =
           try {
             return inSpec(L, () => {
               const seen = slice(L, xs, [count(L.u.z3.Int.val(0)), count(i)], loop)
-              return truthy(L.u, lowerCall(L, law.law, emptyEnv, [...args.slice(0, p), seen, ...args.slice(p + 1), lowerExpr(L, result, env)], law.law))
+              return truthy(
+                L.u,
+                lowerCall(L, law.law, emptyEnv, [...args.slice(0, p), seen, ...args.slice(p + 1), lowerExpr(L, result, env)], law.law),
+              )
             })
           } catch (e) {
             // Not readable in the loop's state: no candidate. It claims nothing, and is dropped.
@@ -229,9 +261,20 @@ const guesser =
   }
 
 const lawOn = (side: Lowered, law: ContractSource["ensures"][number]): Bool =>
-  side.source.kind === "lemma" ? truthy(side.u, side.result) : inSpec(side.L, () =>
-    truthy(side.u, lowerCall(side.L, law.law, emptyEnv, side.trace === undefined ? [...side.args, side.result] : [...side.args, side.result, side.trace], law.law)),
-  )
+  side.source.kind === "lemma"
+    ? truthy(side.u, side.result)
+    : inSpec(side.L, () =>
+        truthy(
+          side.u,
+          lowerCall(
+            side.L,
+            law.law,
+            emptyEnv,
+            side.trace === undefined ? [...side.args, side.result] : [...side.args, side.result, side.trace],
+            law.law,
+          ),
+        ),
+      )
 
 /**
  * The law with the function's result, and a computation's calls, replaced by any value of the law's own parameter types;
@@ -266,7 +309,8 @@ export const verify = async (z3: Ctx, project: Project, file: string, name: stri
       notes: ALWAYS,
       trusted: [],
       obligations: [],
-      unsupported: '`strictNullChecks` is off in the tsconfig.json that reads this file, so its types leave out `null` and `undefined`, and a proof would too: set `"strict": true` (or `"strictNullChecks": true`)',
+      unsupported:
+        '`strictNullChecks` is off in the tsconfig.json that reads this file, so its types leave out `null` and `undefined`, and a proof would too: set `"strict": true` (or `"strictNullChecks": true`)',
     }
   let source: ContractSource
   try {
@@ -290,7 +334,8 @@ export const verify = async (z3: Ctx, project: Project, file: string, name: stri
       if (guessing === undefined || !proof.L.obligations.some((o) => o.guessed !== undefined)) break
       const within = { ...opts, within: [...(opts.within ?? []), `${file}#${name}`] }
       const failed = new Set([...proof.unguessable, ...search.unguessable])
-      for (const o of await obligationsOf(z3, project, proof, search, bound, within)) if (o.guessed !== undefined && o.status !== "proved") failed.add(o.guessed)
+      for (const o of await obligationsOf(z3, project, proof, search, bound, within))
+        if (o.guessed !== undefined && o.status !== "proved") failed.add(o.guessed)
       if (failed.size === 0) break
       dropped.push(...failed)
       guessing = new Set([...guessing].filter((l) => !failed.has(l)))
@@ -313,11 +358,24 @@ export const verify = async (z3: Ctx, project: Project, file: string, name: stri
     return { contract: name, laws: [], cover: [], notes: ALWAYS, trusted: [], obligations: [], unsupported: e.message }
   }
   if (source.kind === "lemma" && opts.within?.includes(`${file}#${name}`))
-    return { contract: name, laws: [], cover: [], notes: ALWAYS, trusted: [], obligations: [], unsupported: `the lemma \`${name}\` leans on itself` }
+    return {
+      contract: name,
+      laws: [],
+      cover: [],
+      notes: ALWAYS,
+      trusted: [],
+      obligations: [],
+      unsupported: `the lemma \`${name}\` leans on itself`,
+    }
   const first = await judge(z3, project, file, sides.proof, sides.search, trust, opts)
   // Only where it can help: a law left bounded while what is written all holds. A broken invariant keeps its law bounded
   // whatever else is guessed.
-  if (source.kind !== "function" || sides.proof.L.wrote !== true || !first.laws.some((l) => l.status === "bounded") || !first.obligations.every((o) => o.status === "proved"))
+  if (
+    source.kind !== "function" ||
+    sides.proof.L.wrote !== true ||
+    !first.laws.some((l) => l.status === "bounded") ||
+    !first.obligations.every((o) => o.status === "proved")
+  )
     return first
   let beside: { readonly proof: Lowered; readonly search: Lowered }
   try {
@@ -359,12 +417,23 @@ const DISAGREE =
   "the proof side proved it, and the search side found this input breaking it: one side is wrong, a bug of tsverify. Run the code on the input: if it breaks the law, the proof is wrong; if not, the search side is. Report it with the input"
 
 /** Decides a contract both sides have lowered: its obligations, its laws, what its result reaches. */
-export const judge = async (z3: Ctx, project: Project, file: string, proof: Lowered, search: Lowered, trust: Trust, opts: Options = {}): Promise<Verification> => {
+export const judge = async (
+  z3: Ctx,
+  project: Project,
+  file: string,
+  proof: Lowered,
+  search: Lowered,
+  trust: Trust,
+  opts: Options = {},
+): Promise<Verification> => {
   const source = proof.source
   const name = source.name
   const bound = opts.bound ?? 4
   // The proof code's obligations first: a law the proof side proves leans on them, and stands only if they do.
-  const obligations = await obligationsOf(z3, project, proof, search, bound, { ...opts, within: [...(opts.within ?? []), `${file}#${name}`] })
+  const obligations = await obligationsOf(z3, project, proof, search, bound, {
+    ...opts,
+    within: [...(opts.within ?? []), `${file}#${name}`],
+  })
   const open = obligations.filter((o) => o.status !== "proved")
   const leaning =
     open.length === 0
@@ -388,7 +457,11 @@ export const judge = async (z3: Ctx, project: Project, file: string, proof: Lowe
     }
     const proved = await solve(proof, [proof.pre, z3.Not(onProof)], opts)
     // A proof that holds only of the inputs a truncated loop keeps to is no proof; read after the law, which may run it.
-    const untrusted = leaning ?? (proof.u.truncated === undefined ? undefined : `proved only of the inputs that run no loop longer: ${proof.u.truncated}; no counterexample with arrays of at most ${bound} elements`)
+    const untrusted =
+      leaning ??
+      (proof.u.truncated === undefined
+        ? undefined
+        : `proved only of the inputs that run no loop longer: ${proof.u.truncated}; no counterexample with arrays of at most ${bound} elements`)
     let r: Omit<LawResult, "name" | "ms">
     if (proved.status === "unsat" && untrusted === undefined) {
       // A proof of a law no result could break is a proof of nothing about the function.
@@ -398,15 +471,20 @@ export const judge = async (z3: Ctx, project: Project, file: string, proof: Lowe
         breakable?.status === "unsat"
           ? { status: "vacuous", reason: "no result breaks it, whatever the function returns: it says nothing of the function" }
           : { status: "proved" }
-    }
-    else if (proved.status === "sat" && !proof.u.abstracted) r = { status: "counterexample", ...proved.witness }
+    } else if (proved.status === "sat" && !proof.u.abstracted) r = { status: "counterexample", ...proved.witness }
     else {
       const found = await solve(search, [search.pre, z3.Not(onSearch)], opts)
       r =
         found.status === "sat"
           ? { status: "counterexample", ...found.witness }
           : found.status === "unsat"
-            ? { status: "bounded", reason: proved.status === "unsat" ? untrusted! : `not proved: ${why(proved, proof.u)}; no counterexample with arrays of at most ${bound} elements` }
+            ? {
+                status: "bounded",
+                reason:
+                  proved.status === "unsat"
+                    ? untrusted!
+                    : `not proved: ${why(proved, proof.u)}; no counterexample with arrays of at most ${bound} elements`,
+              }
             : { status: "unknown", reason: `proof: ${why(proved, proof.u)}; search: ${found.reason}` }
     }
     laws.push({ name: law.name, ...r, ms: performance.now() - started })
@@ -428,9 +506,19 @@ export const judge = async (z3: Ctx, project: Project, file: string, proof: Lowe
     const found = failing.get(String(k))
     if (failing.has(String(k)))
       laws[k] = shaken
-        ? { ...l, status: "counterexample", ...(found === undefined ? {} : { args: found }), reason: "proved only through an obligation the two sides disagree on" }
+        ? {
+            ...l,
+            status: "counterexample",
+            ...(found === undefined ? {} : { args: found }),
+            reason: "proved only through an obligation the two sides disagree on",
+          }
         : { ...l, status: "inconsistent", ...(found === undefined ? {} : { args: found }), reason: DISAGREE }
-    else if (shaken) laws[k] = { ...l, status: "bounded", reason: `proved only through an obligation the two sides disagree on; no counterexample with arrays of at most ${bound} elements` }
+    else if (shaken)
+      laws[k] = {
+        ...l,
+        status: "bounded",
+        reason: `proved only through an obligation the two sides disagree on; no counterexample with arrays of at most ${bound} elements`,
+      }
   }
 
   const cover: Array<CoverResult> = []
@@ -438,7 +526,7 @@ export const judge = async (z3: Ctx, project: Project, file: string, proof: Lowe
   const literals = (returns.isUnion() ? returns.types : [returns]).filter((t) => t.isStringLiteral())
   if (source.kind === "function" && proof.result.kind === "str" && literals.length > 0)
     for (const t of literals) {
-      const value = (t).value
+      const value = t.value
       const is = (side: Lowered) => strictEq(side.u, side.result, { kind: "str", term: z3.String.val(value) }, side.fn)
       const found = await solve(search, [search.pre, is(search)], opts)
       let c: CoverResult
@@ -472,7 +560,10 @@ export const judge = async (z3: Ctx, project: Project, file: string, proof: Lowe
       cover.push(c)
       opts.progress?.(`cover ${value}: ${c.status}`)
     }
-  const coverOut = leaning === undefined && proof.u.truncated === undefined ? cover : cover.map((c) => (c.status === "unreachable" ? { ...c, status: "bounded" as const } : c))
+  const coverOut =
+    leaning === undefined && proof.u.truncated === undefined
+      ? cover
+      : cover.map((c) => (c.status === "unreachable" ? { ...c, status: "bounded" as const } : c))
   const trusted = trustedOf(trust)
   const notes = [...ALWAYS, ...new Set([...proof.u.notes, ...search.u.notes])]
   if (trusted.some((t) => t.purity === "checked")) notes.push(`A purity check takes on trust that ${PURITY_TRUSTS.join("; that ")}.`)
@@ -504,7 +595,9 @@ const obligationsOf = async (
    */
   const firstToFail = (key: string): Bool | undefined => {
     const os = search.L.obligations
-    const each = os.flatMap((o, k) => (o.key !== key ? [] : [z3.And(o.cond, z3.Not(o.goal), ...os.slice(0, k).map((p) => z3.Implies(p.cond, p.goal)))]))
+    const each = os.flatMap((o, k) =>
+      o.key !== key ? [] : [z3.And(o.cond, z3.Not(o.goal), ...os.slice(0, k).map((p) => z3.Implies(p.cond, p.goal)))],
+    )
     return each.length === 0 ? undefined : z3.Or(...each)
   }
   const out: Array<ObligationResult> = []
@@ -523,7 +616,8 @@ const obligationsOf = async (
     }
     const onSearch = broken(search, key)
     const found = onSearch === undefined ? undefined : await solve(search, [search.pre, onSearch], opts, [])
-    if (found?.status === "sat") out.push({ ...head, status: "counterexample", ...(found.witness.args === undefined ? {} : { args: found.witness.args }) })
+    if (found?.status === "sat")
+      out.push({ ...head, status: "counterexample", ...(found.witness.args === undefined ? {} : { args: found.witness.args }) })
     else if (found?.status === "unsat")
       out.push({
         ...head,
@@ -561,7 +655,7 @@ const obligationsOf = async (
           ? "proved"
           : [...v.laws, ...v.obligations].some((l) => l.status === "inconsistent")
             ? "inconsistent"
-              : v.laws.some((l) => l.status === "counterexample")
+            : v.laws.some((l) => l.status === "counterexample")
               ? "counterexample"
               : "bounded"
     const failed = v.laws.find((l) => l.status === "counterexample")
@@ -597,8 +691,7 @@ const trustedOf = (trust: Trust): Array<Trusted> =>
  */
 const outcomesOf = (project: Project, side: Lowered): Array<readonly [string, (s: Lowered) => Bool]> => {
   const field = (v: Val, n: string): Val | undefined => (v.kind === "record" ? v.field(n) : undefined)
-  const tagIs = (v: Val | undefined, t: string, z3: Ctx): Bool =>
-    v?.kind === "str" ? v.term.eq(z3.String.val(t)) : z3.Bool.val(false)
+  const tagIs = (v: Val | undefined, t: string, z3: Ctx): Bool => (v?.kind === "str" ? v.term.eq(z3.String.val(t)) : z3.Bool.val(false))
   const sig = project.checker.getTypeAtLocation(side.source.target).getCallSignatures()[0]
   const returns = sig?.getReturnType()
   const op = returns === undefined ? undefined : side.L.adapters.map((a) => a.operation?.(side.L, returns)).find((x) => x !== undefined)
@@ -613,7 +706,11 @@ const outcomesOf = (project: Project, side: Lowered): Array<readonly [string, (s
   for (const t of tags)
     goals.push([
       `Failure ${t}`,
-      (s) => s.u.z3.And(tagIs(field(s.result, "_tag"), "Failure", s.u.z3), tagIs(field(field(s.result, "error") ?? { kind: "nullish", which: "undefined" }, "_tag"), t, s.u.z3)),
+      (s) =>
+        s.u.z3.And(
+          tagIs(field(s.result, "_tag"), "Failure", s.u.z3),
+          tagIs(field(field(s.result, "error") ?? { kind: "nullish", which: "undefined" }, "_tag"), t, s.u.z3),
+        ),
     ])
   return goals
 }
@@ -640,7 +737,12 @@ type Outcome =
   | { readonly status: "unknown"; readonly reason: string }
 
 /** Checks a side's assumptions with `goals`; on `sat`, reads the arguments back, preferring short arrays. */
-export const solve = async (side: Lowered, goals: ReadonlyArray<Bool>, opts: Options = {}, hints: ReadonlyArray<Bool> = side.L.hints): Promise<Outcome> => {
+export const solve = async (
+  side: Lowered,
+  goals: ReadonlyArray<Bool>,
+  opts: Options = {},
+  hints: ReadonlyArray<Bool> = side.L.hints,
+): Promise<Outcome> => {
   const { u } = side
   const z3 = u.z3
   const run = async (extra: ReadonlyArray<Bool>) => {
@@ -654,9 +756,7 @@ export const solve = async (side: Lowered, goals: ReadonlyArray<Bool>, opts: Opt
   if (first.status === "unsat") return { status: "unsat" }
   if (first.status === "unknown") return { status: "unknown", reason: first.solver.reasonUnknown() }
   // A model may pick a huge array; ask again with short ones, which narrows the same formula.
-  const short = [...u.leaves.values()]
-    .filter((l) => l.arity === 0 && l.segments.at(-1) === "#len")
-    .map((l) => (l.constant as Arith).le(8))
+  const short = [...u.leaves.values()].filter((l) => l.arity === 0 && l.segments.at(-1) === "#len").map((l) => (l.constant as Arith).le(8))
   const small = short.length > 0 && u.bound === undefined ? await run(short) : undefined
   const model = small?.status === "sat" ? small.solver.model() : first.solver.model()
   return { status: "sat", witness: witness(side, model) }
@@ -727,7 +827,7 @@ const valueOf = (u: Universe, want: unknown): Val => {
 /** A Z3 context to verify many contracts with, and how to let it go: a test opens one before its cases and closes it after. */
 export const openZ3 = async (): Promise<{ readonly z3: Ctx; readonly close: () => Promise<void> }> => {
   const api = await init()
-  return { z3: api.Context("main"), close: async () =>  (await killThreads(api.em)) }
+  return { z3: api.Context("main"), close: async () => await killThreads(api.em) }
 }
 
 export const withZ3 = async <A>(f: (z3: Ctx) => Promise<A>): Promise<A> => {

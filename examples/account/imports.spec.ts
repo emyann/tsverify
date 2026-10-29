@@ -20,7 +20,8 @@ export const typed = computation<Ops>()(depositTyped, {
       !(out._tag === "Failure" && out.error._tag === "AmountUnreadable") || out.error.text === text,
     nothingCalledExactlyWhenUnreadable: (_accountId, _id, _text, out, calls) =>
       (calls.length === 0) === (out._tag === "Failure" && out.error._tag === "AmountUnreadable"),
-    readsFirst: (accountId, _id, _text, _out, calls) => calls.length === 0 || (calls.at(0)?.op === "read" && calls.at(0)?.args[0] === accountId),
+    readsFirst: (accountId, _id, _text, _out, calls) =>
+      calls.length === 0 || (calls.at(0)?.op === "read" && calls.at(0)?.args[0] === accountId),
     refusedOnlyAfterReading: (_accountId, _id, _text, out, calls) =>
       !(out._tag === "Failure" && out.error._tag === "DepositRefused") || (calls.length === 1 && calls.at(0)?.op === "read"),
     paidWritesOneDeposit: (accountId, id, _text, out, calls) => {
@@ -47,7 +48,8 @@ export const imported = computation<Ops>()(importDeposits, {
       calls.filter((c) => c.outcome._tag === "Failure").length === 0 ||
       (calls.filter((c) => c.outcome._tag === "Failure").length === 1 && calls.at(-1)?.outcome._tag === "Failure"),
     // Its error is `unknown` (what `JSON.parse` threw, or the ledger's): a law can say where it failed, not with what.
-    failsOnlyWhereItStopped: (_accountId, _json, out, calls) => out._tag !== "Failure" || calls.length === 0 || calls.at(-1)?.outcome._tag === "Failure",
+    failsOnlyWhereItStopped: (_accountId, _json, out, calls) =>
+      out._tag !== "Failure" || calls.length === 0 || calls.at(-1)?.outcome._tag === "Failure",
   },
 })
 
@@ -74,7 +76,7 @@ export const opened = computation<Ops>()(openWith, {
     },
     stopsAtAFailedWrite: (_accountId, _owner, _id, _amount, out, calls) =>
       out._tag !== "Failure" || calls.length === 0 || (calls.at(-1)?.outcome._tag === "Failure" && calls.length <= 2),
-    refusedWritesNothing: (_accountId, _owner, _id, amount, out, calls) => (amount <= 0n) === (out._tag === "Failure" && calls.length === 0),
+    refusedWritesNothing: (_accountId, _owner, _id, amount, out, calls) => amount <= 0n === (out._tag === "Failure" && calls.length === 0),
   },
 })
 

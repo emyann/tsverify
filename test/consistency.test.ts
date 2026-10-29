@@ -39,14 +39,23 @@ it("a false law the proof side proves is reported inconsistent, with an input th
   const law = v.laws.find((l) => l.name === "neverFinds")!
   assert.equal(law.status, "inconsistent")
   const [xs] = law.args as [ReadonlyArray<bigint>]
-  assert.ok(xs.some((x) => x < 0n), JSON.stringify(law.args, (_, x) => (typeof x === "bigint" ? `${x}n` : x)))
+  assert.ok(
+    xs.some((x) => x < 0n),
+    JSON.stringify(law.args, (_, x) => (typeof x === "bigint" ? `${x}n` : x)),
+  )
   // Its invariant is true: no run breaks it, so it stays proved.
-  assert.deepEqual(v.obligations.map((o) => `${o.phase}: ${o.status}`), ["entry: proved", "kept: proved"])
+  assert.deepEqual(
+    v.obligations.map((o) => `${o.phase}: ${o.status}`),
+    ["entry: proved", "kept: proved"],
+  )
 })
 
 it("a broken invariant the proof side proves is reported inconsistent; its inductive step, true, stays proved", async () => {
   // `total > 0n` fails on entry, and an iteration from a state that meets it keeps it.
   const v = await unsoundly("sumFromNothingNonNegative")
-  assert.deepEqual(v.obligations.map((o) => `${o.phase}: ${o.status}`), ["entry: inconsistent", "kept: proved"])
+  assert.deepEqual(
+    v.obligations.map((o) => `${o.phase}: ${o.status}`),
+    ["entry: inconsistent", "kept: proved"],
+  )
   assert.deepEqual(v.obligations[0]!.args, [[]])
 })

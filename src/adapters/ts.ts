@@ -25,7 +25,11 @@ export const tsAdapter: Adapter = {
       return { kind: "num", cls, real: L.u.leaf([base, "$"], "num", []) as never }
     }
     const clock = () => {
-      if (L.mode === "spec") throw new Unsupported("spec code is deterministic and does not read the clock: read the time in the program and pass it to the law", e)
+      if (L.mode === "spec")
+        throw new Unsupported(
+          "spec code is deterministic and does not read the clock: read the time in the program and pass it to the law",
+          e,
+        )
     }
     if (ts.isNewExpression(e) && ts.isIdentifier(e.expression) && isLib(L.checker, e.expression, "Date")) {
       clock()
@@ -33,7 +37,11 @@ export const tsAdapter: Adapter = {
       L.u.notes.add("The time (`new Date()`, `Date.now()`) is an unknown value per call: any time is covered.")
       const builtin = (name: string, v: () => Val): Val => ({ kind: "builtin", name, call: () => v() })
       return lazyRecord((n) =>
-        n === "toISOString" ? builtin("Date.toISOString", () => freshStr("date.iso")) : n === "getTime" ? builtin("Date.getTime", () => freshNum("date.ms")) : undefined,
+        n === "toISOString"
+          ? builtin("Date.toISOString", () => freshStr("date.iso"))
+          : n === "getTime"
+            ? builtin("Date.getTime", () => freshNum("date.ms"))
+            : undefined,
       )
     }
     if (
@@ -53,7 +61,11 @@ export const tsAdapter: Adapter = {
 }
 
 /** `new C(message?)` for an `Error` subclass of the program whose members are fields with initializers. */
-const errorOf = (L: Parameters<NonNullable<Adapter["expr"]>>[0], e: ts.NewExpression, env: Parameters<NonNullable<Adapter["expr"]>>[2]): Val | undefined => {
+const errorOf = (
+  L: Parameters<NonNullable<Adapter["expr"]>>[0],
+  e: ts.NewExpression,
+  env: Parameters<NonNullable<Adapter["expr"]>>[2],
+): Val | undefined => {
   let sym = L.checker.getSymbolAtLocation(e.expression)
   if (sym !== undefined && sym.flags & ts.SymbolFlags.Alias) sym = L.checker.getAliasedSymbol(sym)
   const decl = sym?.valueDeclaration
@@ -65,7 +77,10 @@ const errorOf = (L: Parameters<NonNullable<Adapter["expr"]>>[0], e: ts.NewExpres
     if (ts.isPropertyDeclaration(m) && m.initializer !== undefined && ts.isIdentifier(m.name)) {
       if (m.modifiers?.some((x) => x.kind === ts.SyntaxKind.StaticKeyword)) continue
       const init = m.initializer
-      fields.set(m.name.text, later(L, () => lowerExpr(L, init, emptyEnv)))
+      fields.set(
+        m.name.text,
+        later(L, () => lowerExpr(L, init, emptyEnv)),
+      )
     } else throw new Unsupported("an `Error` subclass is modeled when its members are fields with initializers", m)
   }
   const args = (e.arguments ?? []).map((a) => lowerExpr(L, a, env))

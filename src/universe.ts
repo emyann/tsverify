@@ -140,18 +140,12 @@ export class Universe {
   }
 
   /** The term of the leaf at `segments`, applied to `indices`; declared on first use. */
-  leaf(
-    segments: ReadonlyArray<string>,
-    sort: LeafSort,
-    indices: ReadonlyArray<Arith>,
-    origin?: "bigint" | "count",
-  ): Expr {
+  leaf(segments: ReadonlyArray<string>, sort: LeafSort, indices: ReadonlyArray<Arith>, origin?: "bigint" | "count"): Expr {
     const key = segments.join("")
     let leaf = this.leaves.get(key)
     if (leaf === undefined) {
       const z3 = this.z3
-      const s =
-        sort === "int" ? z3.Int.sort() : sort === "num" ? z3.Real.sort() : sort === "bool" ? z3.Bool.sort() : z3.String.sort()
+      const s = sort === "int" ? z3.Int.sort() : sort === "num" ? z3.Real.sort() : sort === "bool" ? z3.Bool.sort() : z3.String.sort()
       const arity = indices.length
       leaf = {
         key,

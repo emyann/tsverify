@@ -28,9 +28,7 @@ import { CONTRACT_MODULE, declared as ownExport } from "./project.ts"
 import type { AssumedFn } from "./trust.ts"
 import { type FunctionNode, locate } from "./value.ts"
 
-export type Purity =
-  | { readonly pure: true; readonly read: ReadonlyArray<string> }
-  | { readonly pure: false; readonly why: string }
+export type Purity = { readonly pure: true; readonly read: ReadonlyArray<string> } | { readonly pure: false; readonly why: string }
 
 /** Where a value came from: allocated during the call, the caller's argument `k`, or anything else. */
 type Origin = "fresh" | "foreign" | number
@@ -59,20 +57,97 @@ const PURE_STATICS: Readonly<Record<string, ReadonlySet<string>>> = {
   BigInt: new Set(["asIntN", "asUintN"]),
 }
 const PURE_GLOBAL_FNS = new Set([
-  "String", "Number", "Boolean", "BigInt", "parseInt", "parseFloat", "isNaN", "isFinite",
-  "encodeURIComponent", "decodeURIComponent", "encodeURI", "decodeURI", "structuredClone",
+  "String",
+  "Number",
+  "Boolean",
+  "BigInt",
+  "parseInt",
+  "parseFloat",
+  "isNaN",
+  "isFinite",
+  "encodeURIComponent",
+  "decodeURIComponent",
+  "encodeURI",
+  "decodeURI",
+  "structuredClone",
 ])
-const FRESH_CONSTRUCTORS = new Set(["Map", "Set", "WeakMap", "WeakSet", "Array", "Date", "Error", "TypeError", "RangeError", "SyntaxError", "URL", "RegExp"])
+const FRESH_CONSTRUCTORS = new Set([
+  "Map",
+  "Set",
+  "WeakMap",
+  "WeakSet",
+  "Array",
+  "Date",
+  "Error",
+  "TypeError",
+  "RangeError",
+  "SyntaxError",
+  "URL",
+  "RegExp",
+])
 const ARRAY_READS = new Set([
-  "at", "concat", "entries", "every", "filter", "find", "findIndex", "findLast", "findLastIndex", "flat", "flatMap",
-  "forEach", "includes", "indexOf", "join", "keys", "lastIndexOf", "map", "reduce", "reduceRight", "slice", "some",
-  "toReversed", "toSorted", "toSpliced", "values", "with", "toString",
+  "at",
+  "concat",
+  "entries",
+  "every",
+  "filter",
+  "find",
+  "findIndex",
+  "findLast",
+  "findLastIndex",
+  "flat",
+  "flatMap",
+  "forEach",
+  "includes",
+  "indexOf",
+  "join",
+  "keys",
+  "lastIndexOf",
+  "map",
+  "reduce",
+  "reduceRight",
+  "slice",
+  "some",
+  "toReversed",
+  "toSorted",
+  "toSpliced",
+  "values",
+  "with",
+  "toString",
 ])
 const ARRAY_WRITES = new Set(["push", "pop", "shift", "unshift", "splice", "sort", "reverse", "fill", "copyWithin"])
 /** Array methods whose result holds the receiver's elements. */
-const ARRAY_ELEMENTS = new Set(["at", "find", "findLast", "filter", "slice", "concat", "flat", "toReversed", "toSorted", "toSpliced", "with", "pop", "shift", "values"])
+const ARRAY_ELEMENTS = new Set([
+  "at",
+  "find",
+  "findLast",
+  "filter",
+  "slice",
+  "concat",
+  "flat",
+  "toReversed",
+  "toSorted",
+  "toSpliced",
+  "with",
+  "pop",
+  "shift",
+  "values",
+])
 const MAP_READS = new Set(["get", "has", "forEach", "entries", "keys", "values"])
-const SET_READS = new Set(["has", "forEach", "entries", "keys", "values", "union", "intersection", "difference", "symmetricDifference", "isSubsetOf", "isSupersetOf", "isDisjointFrom"])
+const SET_READS = new Set([
+  "has",
+  "forEach",
+  "entries",
+  "keys",
+  "values",
+  "union",
+  "intersection",
+  "difference",
+  "symmetricDifference",
+  "isSubsetOf",
+  "isSupersetOf",
+  "isDisjointFrom",
+])
 const COLLECTION_WRITES = new Set(["set", "add", "delete", "clear"])
 
 /**
@@ -158,12 +233,14 @@ export const purityOf = (checker: ts.TypeChecker, fn: FunctionNode, assumed: (ca
       if (ts.isConditionalExpression(e)) return union(originsOf(e.whenTrue), originsOf(e.whenFalse))
       if (ts.isBinaryExpression(e)) {
         const op = e.operatorToken.kind
-        if (op === K.QuestionQuestionToken || op === K.BarBarToken || op === K.AmpersandAmpersandToken) return union(originsOf(e.left), originsOf(e.right))
+        if (op === K.QuestionQuestionToken || op === K.BarBarToken || op === K.AmpersandAmpersandToken)
+          return union(originsOf(e.left), originsOf(e.right))
         if (isAssignment(op)) return originsOf(e.right)
         if (op === K.CommaToken) return originsOf(e.right)
         return new Set(["fresh"])
       }
-      if (ts.isObjectLiteralExpression(e) || ts.isArrayLiteralExpression(e) || ts.isArrowFunction(e) || ts.isFunctionExpression(e)) return new Set(["fresh"])
+      if (ts.isObjectLiteralExpression(e) || ts.isArrayLiteralExpression(e) || ts.isArrowFunction(e) || ts.isFunctionExpression(e))
+        return new Set(["fresh"])
       if (ts.isNewExpression(e)) return new Set(["fresh"])
       if (ts.isCallExpression(e) && ts.isPropertyAccessExpression(e.expression)) {
         const m = e.expression.name.text
@@ -172,7 +249,13 @@ export const purityOf = (checker: ts.TypeChecker, fn: FunctionNode, assumed: (ca
         if (isNamed(checker, recv, ["Map", "ReadonlyMap"]) && m === "get") return originsOf(recv)
         if (isGlobal(checker, recv, "Object") && (m === "values" || m === "entries")) return union(...e.arguments.map(originsOf))
       }
-      if (ts.isCallExpression(e) && ts.isIdentifier(e.expression) && e.expression.text === "structuredClone" && isLib(checker, e.expression)) return new Set(["fresh"])
+      if (
+        ts.isCallExpression(e) &&
+        ts.isIdentifier(e.expression) &&
+        e.expression.text === "structuredClone" &&
+        isLib(checker, e.expression)
+      )
+        return new Set(["fresh"])
       if (isPrimitive(checker, checker.getTypeAtLocation(e))) return new Set(["fresh"])
       return new Set(["foreign"])
     }
@@ -221,7 +304,8 @@ export const purityOf = (checker: ts.TypeChecker, fn: FunctionNode, assumed: (ca
         for (const o of originsOf(arg))
           for (const type of types.keys()) {
             if (o === "fresh") changeFresh(type, at)
-            else if (o === "foreign") effect(`passes \`${arg.getText()}\`, which it did not allocate, to \`${nameOf(callee)}\`, which changes it`, at)
+            else if (o === "foreign")
+              effect(`passes \`${arg.getText()}\`, which it did not allocate, to \`${nameOf(callee)}\`, which changes it`, at)
             else changeOf(o, type, at)
           }
       }
@@ -263,7 +347,12 @@ export const purityOf = (checker: ts.TypeChecker, fn: FunctionNode, assumed: (ca
           if (ARRAY_READS.has(m)) return
           if (ARRAY_WRITES.has(m)) {
             change(recv, e)
-            const stored = m === "splice" ? e.arguments.slice(2) : m === "push" || m === "unshift" || m === "fill" ? e.arguments.slice(0, m === "fill" ? 1 : undefined) : []
+            const stored =
+              m === "splice"
+                ? e.arguments.slice(2)
+                : m === "push" || m === "unshift" || m === "fill"
+                  ? e.arguments.slice(0, m === "fill" ? 1 : undefined)
+                  : []
             for (const a of stored) store(a)
             return
           }
@@ -277,7 +366,8 @@ export const purityOf = (checker: ts.TypeChecker, fn: FunctionNode, assumed: (ca
         }
         if (isNamed(checker, recv, ["Date"]) && /^(get|to|valueOf)/.test(m)) return
         if (isNamed(checker, recv, ["RegExp"]) && (m === "test" || m === "exec")) {
-          if (!statelessRegExp(checker, recv)) effect(`\`${recv.getText()}.${m}\` moves a global or sticky regular expression's \`lastIndex\``, e)
+          if (!statelessRegExp(checker, recv))
+            effect(`\`${recv.getText()}.${m}\` moves a global or sticky regular expression's \`lastIndex\``, e)
           return
         }
         effect(`calls the method \`${callee.getText()}\`, which the check cannot see into`, e)
@@ -312,14 +402,23 @@ export const purityOf = (checker: ts.TypeChecker, fn: FunctionNode, assumed: (ca
       if (n !== f && (ts.isArrowFunction(n) || ts.isFunctionExpression(n) || ts.isFunctionDeclaration(n))) {
         // A callback of an array method reads the receiver's elements; any other function written here, values of
         // its caller's choosing.
-        const host = ts.isCallExpression(n.parent) && n.parent.arguments.includes(n as ts.Expression) && ts.isPropertyAccessExpression(n.parent.expression) ? n.parent : undefined
-        const recv = host !== undefined && isArrayLike(checker, (host.expression as ts.PropertyAccessExpression).expression) ? (host.expression as ts.PropertyAccessExpression).expression : undefined
+        const host =
+          ts.isCallExpression(n.parent) &&
+          n.parent.arguments.includes(n as ts.Expression) &&
+          ts.isPropertyAccessExpression(n.parent.expression)
+            ? n.parent
+            : undefined
+        const recv =
+          host !== undefined && isArrayLike(checker, (host.expression as ts.PropertyAccessExpression).expression)
+            ? (host.expression as ts.PropertyAccessExpression).expression
+            : undefined
         const method = host === undefined ? undefined : (host.expression as ts.PropertyAccessExpression).name.text
         n.parameters.forEach((p, k) => {
           let o: Set<Origin> = new Set(["foreign"])
           if (recv !== undefined && (method === "reduce" || method === "reduceRight")) {
             const init = host!.arguments[1]
-            o = k === 0 ? (init === undefined ? originsOf(recv) : originsOf(init)) : k === 1 || k === 3 ? originsOf(recv) : new Set(["fresh"])
+            o =
+              k === 0 ? (init === undefined ? originsOf(recv) : originsOf(init)) : k === 1 || k === 3 ? originsOf(recv) : new Set(["fresh"])
           } else if (recv !== undefined) o = k === 1 ? new Set(["fresh"]) : originsOf(recv)
           for (const sym of boundSymbols(checker, p.name)) params.set(sym, o)
         })
@@ -330,7 +429,8 @@ export const purityOf = (checker: ts.TypeChecker, fn: FunctionNode, assumed: (ca
         effect("casts (`as`), which hides a value's type from the check", n)
       else if (ts.isTypeAssertionExpression(n)) effect("casts, which hides a value's type from the check", n)
       else if (ts.isTaggedTemplateExpression(n)) effect("calls a tag function", n)
-      else if (ts.isIdentifier(n) && isModuleState(checker, n, own)) effect(`reads or writes \`${n.text}\`, a module's \`let\`, which may change between calls`, n)
+      else if (ts.isIdentifier(n) && isModuleState(checker, n, own))
+        effect(`reads or writes \`${n.text}\`, a module's \`let\`, which may change between calls`, n)
       else if (ts.isBinaryExpression(n) && isAssignment(n.operatorToken.kind)) {
         const left = n.left
         if (ts.isPropertyAccessExpression(left) || ts.isElementAccessExpression(left)) {
@@ -340,7 +440,10 @@ export const purityOf = (checker: ts.TypeChecker, fn: FunctionNode, assumed: (ca
           const sym = symbolOf(checker, left)
           if (sym === undefined || !(local(sym) || params.has(sym))) effect(`assigns \`${left.text}\`, which is not its own`, n)
         } else effect("assigns through a pattern, which the check does not read", n)
-      } else if ((ts.isPrefixUnaryExpression(n) || ts.isPostfixUnaryExpression(n)) && (n.operator === K.PlusPlusToken || n.operator === K.MinusMinusToken)) {
+      } else if (
+        (ts.isPrefixUnaryExpression(n) || ts.isPostfixUnaryExpression(n)) &&
+        (n.operator === K.PlusPlusToken || n.operator === K.MinusMinusToken)
+      ) {
         const target = n.operand
         if (ts.isPropertyAccessExpression(target) || ts.isElementAccessExpression(target)) change(target.expression, n)
         else if (ts.isIdentifier(target)) {
@@ -383,10 +486,16 @@ export const purityOf = (checker: ts.TypeChecker, fn: FunctionNode, assumed: (ca
   const dispatchTable = (e: ts.Expression): Array<FunctionNode> | undefined => {
     if (!ts.isIdentifier(e)) return undefined
     const d = symbolOf(checker, e)?.valueDeclaration
-    if (d === undefined || !ts.isVariableDeclaration(d) || d.initializer === undefined || (d.parent.flags & ts.NodeFlags.Const) === 0) return undefined
+    if (d === undefined || !ts.isVariableDeclaration(d) || d.initializer === undefined || (d.parent.flags & ts.NodeFlags.Const) === 0)
+      return undefined
     if (!ts.isVariableStatement(d.parent.parent) || !ts.isSourceFile(d.parent.parent.parent)) return undefined
     let init = d.initializer
-    while (ts.isSatisfiesExpression(init) || ts.isParenthesizedExpression(init) || (ts.isAsExpression(init) && ts.isConstTypeReference(init.type))) init = init.expression
+    while (
+      ts.isSatisfiesExpression(init) ||
+      ts.isParenthesizedExpression(init) ||
+      (ts.isAsExpression(init) && ts.isConstTypeReference(init.type))
+    )
+      init = init.expression
     if (!ts.isObjectLiteralExpression(init)) return undefined
     const out: Array<FunctionNode> = []
     for (const p of init.properties) {
@@ -448,7 +557,10 @@ const isStoringAssignment = (k: ts.SyntaxKind): boolean =>
   k === K.EqualsToken || k === K.QuestionQuestionEqualsToken || k === K.BarBarEqualsToken || k === K.AmpersandAmpersandEqualsToken
 
 const symbolOf = (checker: ts.TypeChecker, e: ts.Node): ts.Symbol | undefined => {
-  const at = ts.isShorthandPropertyAssignment(e.parent) && e.parent.name === e ? checker.getShorthandAssignmentValueSymbol(e.parent) : checker.getSymbolAtLocation(e)
+  const at =
+    ts.isShorthandPropertyAssignment(e.parent) && e.parent.name === e
+      ? checker.getShorthandAssignmentValueSymbol(e.parent)
+      : checker.getSymbolAtLocation(e)
   return at !== undefined && at.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(at) : at
 }
 
@@ -473,9 +585,17 @@ const nameOf = (f: FunctionNode): string =>
 const isLib = (checker: ts.TypeChecker, e: ts.Node): boolean => {
   const sym = symbolOf(checker, e)
   const decls = sym?.declarations ?? []
-  return decls.length > 0 && decls.every((d) => d.getSourceFile().isDeclarationFile && /\/node_modules\/(typescript\/lib|@types\/node)\//.test(d.getSourceFile().fileName.replaceAll("\\", "/")))
+  return (
+    decls.length > 0 &&
+    decls.every(
+      (d) =>
+        d.getSourceFile().isDeclarationFile &&
+        /\/node_modules\/(typescript\/lib|@types\/node)\//.test(d.getSourceFile().fileName.replaceAll("\\", "/")),
+    )
+  )
 }
-const isGlobal = (checker: ts.TypeChecker, e: ts.Expression, name: string): boolean => ts.isIdentifier(e) && e.text === name && isLib(checker, e)
+const isGlobal = (checker: ts.TypeChecker, e: ts.Expression, name: string): boolean =>
+  ts.isIdentifier(e) && e.text === name && isLib(checker, e)
 
 /** Whether `e` reads a module-level `let` or `var` (not one of `own`'s). */
 const isModuleState = (checker: ts.TypeChecker, e: ts.Identifier, own: ReadonlySet<ts.Node>): boolean => {
@@ -484,11 +604,26 @@ const isModuleState = (checker: ts.TypeChecker, e: ts.Identifier, own: ReadonlyS
   const sym = symbolOf(checker, e)
   const d = sym?.valueDeclaration
   if (d === undefined || !ts.isVariableDeclaration(d) || own.has(d) || d.getSourceFile().isDeclarationFile) return false
-  return (d.parent.flags & (ts.NodeFlags.Const | ts.NodeFlags.Using)) === 0 && ts.isVariableStatement(d.parent.parent) && ts.isSourceFile(d.parent.parent.parent)
+  return (
+    (d.parent.flags & (ts.NodeFlags.Const | ts.NodeFlags.Using)) === 0 &&
+    ts.isVariableStatement(d.parent.parent) &&
+    ts.isSourceFile(d.parent.parent.parent)
+  )
 }
 
 const isPrimitive = (checker: ts.TypeChecker, t: ts.Type): boolean =>
-  membersOf(checker, t).every((m) => (m.flags & (ts.TypeFlags.StringLike | ts.TypeFlags.NumberLike | ts.TypeFlags.BooleanLike | ts.TypeFlags.BigIntLike | ts.TypeFlags.EnumLike | ts.TypeFlags.ESSymbolLike | ts.TypeFlags.Never)) !== 0)
+  membersOf(checker, t).every(
+    (m) =>
+      (m.flags &
+        (ts.TypeFlags.StringLike |
+          ts.TypeFlags.NumberLike |
+          ts.TypeFlags.BooleanLike |
+          ts.TypeFlags.BigIntLike |
+          ts.TypeFlags.EnumLike |
+          ts.TypeFlags.ESSymbolLike |
+          ts.TypeFlags.Never)) !==
+      0,
+  )
 
 /** A type's members, null and undefined dropped. */
 const membersOf = (checker: ts.TypeChecker, t: ts.Type): Array<ts.Type> => {
@@ -511,7 +646,8 @@ const statelessRegExp = (checker: ts.TypeChecker, e: ts.Expression): boolean => 
   let x: ts.Node = e
   if (ts.isIdentifier(x)) {
     const d = symbolOf(checker, x)?.valueDeclaration
-    if (d === undefined || !ts.isVariableDeclaration(d) || (d.parent.flags & ts.NodeFlags.Const) === 0 || d.initializer === undefined) return false
+    if (d === undefined || !ts.isVariableDeclaration(d) || (d.parent.flags & ts.NodeFlags.Const) === 0 || d.initializer === undefined)
+      return false
     x = d.initializer
   }
   return ts.isRegularExpressionLiteral(x) && !/[gy]/.test(x.text.slice(x.text.lastIndexOf("/") + 1))
@@ -543,7 +679,7 @@ const opaqueLike = (checker: ts.TypeChecker, t: ts.Type): boolean =>
   (t.flags & (ts.TypeFlags.Unknown | ts.TypeFlags.Any | ts.TypeFlags.NonPrimitive)) !== 0 ||
   (!checker.isArrayType(t) && !checker.isTupleType(t) && checker.getIndexInfosOfType(t).length > 0) ||
   t.isIntersection() ||
-  (t.flags & ts.TypeFlags.Object) !== 0 && checker.getPropertiesOfType(t).length === 0
+  ((t.flags & ts.TypeFlags.Object) !== 0 && checker.getPropertiesOfType(t).length === 0)
 
 /** A type of `reach` an object of type `changed` may be, if any. */
 const aliasOf = (checker: ts.TypeChecker, changed: ts.Type, reach: ReadonlySet<ts.Type>): ts.Type | undefined => {
@@ -563,4 +699,3 @@ const aliasOf = (checker: ts.TypeChecker, changed: ts.Type, reach: ReadonlySet<t
   }
   return undefined
 }
-

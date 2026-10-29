@@ -38,7 +38,11 @@ after(() => close())
 
 describe("the handlers, verified", () => {
   it("every file of the example type-checks", () => {
-    const files = ["users.ts", "laws.ts", ...BUILDS.flatMap((b) => ["store.ts", "handlers.spec.ts", "handlers.ts", "app.ts"].map((f) => `${b}/${f}`))].map((f) => path.join(dir, f))
+    const files = [
+      "users.ts",
+      "laws.ts",
+      ...BUILDS.flatMap((b) => ["store.ts", "handlers.spec.ts", "handlers.ts", "app.ts"].map((f) => `${b}/${f}`)),
+    ].map((f) => path.join(dir, f))
     const project = loadProject(files, tsconfig)
     for (const f of files) assert.deepEqual(diagnostics(project, f), [], f)
   })
@@ -51,15 +55,39 @@ describe("the handlers, verified", () => {
         assert.ok(v.laws.length >= 3 && v.laws.every((l) => l.status === "proved"), JSON.stringify(statuses(v)))
         const reached = v.cover.filter((c) => c.status === "reachable").map((c) => c.value)
         // An Effect program's failures are reached tag by tag; an async function's as one, `Failure`.
-        assert.ok(reached.includes("Success") && reached.includes(kind === "with-effect" ? "Failure StoreDown" : "Failure"), JSON.stringify(v.cover))
+        assert.ok(
+          reached.includes("Success") && reached.includes(kind === "with-effect" ? "Failure StoreDown" : "Failure"),
+          JSON.stringify(v.cover),
+        )
       })
 })
 
 /** Bugs planted in both builds' handlers, each the same text in either: what it breaks, and the law that says so. */
 const PLANTS = [
-  { id: "H1", what: "refuses the wrong name", fn: "renameUser", find: 'if (name === "") return emptyName()', replace: 'if (name === " ") return emptyName()', law: "emptyNameTouchesNothing" },
-  { id: "H2", what: "keeps the old name", fn: "renameUser", find: "{ ...user, name }", replace: "{ ...user, name: user.name }", law: "renamedAsWritten" },
-  { id: "H3", what: "answers 404 for a user it found", fn: "getUser", find: "notFound() : ok(user)", replace: "notFound() : notFound()", law: "answersWhatItFound" },
+  {
+    id: "H1",
+    what: "refuses the wrong name",
+    fn: "renameUser",
+    find: 'if (name === "") return emptyName()',
+    replace: 'if (name === " ") return emptyName()',
+    law: "emptyNameTouchesNothing",
+  },
+  {
+    id: "H2",
+    what: "keeps the old name",
+    fn: "renameUser",
+    find: "{ ...user, name }",
+    replace: "{ ...user, name: user.name }",
+    law: "renamedAsWritten",
+  },
+  {
+    id: "H3",
+    what: "answers 404 for a user it found",
+    fn: "getUser",
+    find: "notFound() : ok(user)",
+    replace: "notFound() : notFound()",
+    law: "answersWhatItFound",
+  },
 ] as const
 
 describe("bugs planted in the handlers", () => {
@@ -82,14 +110,14 @@ const keeping = (users: ReadonlyArray<User>, down: "get" | "put" | undefined) =>
   const failure = { _tag: "Failure", error: { _tag: "StoreDown" } } as const
   /** What the store holds under `id`, or `false` when it is down. */
   const read = (id: string): User | undefined | false => {
-    if (down === "get") return calls.push({ op: "get", args: [id], outcome: failure }), false
+    if (down === "get") return (calls.push({ op: "get", args: [id], outcome: failure }), false)
     const found = held.get(id)
     calls.push({ op: "get", args: [id], outcome: { _tag: "Success", value: found } })
     return found
   }
   /** Whether the store kept `user`: `false` when it is down. */
   const write = (user: User): boolean => {
-    if (down === "put") return calls.push({ op: "put", args: [user], outcome: failure }), false
+    if (down === "put") return (calls.push({ op: "put", args: [user], outcome: failure }), false)
     held.set(user.id, user)
     calls.push({ op: "put", args: [user], outcome: { _tag: "Success", value: undefined } })
     return true
@@ -130,18 +158,30 @@ describe("the apps, run through Hono", () => {
       const answers = []
       for (const make of [(s: ReturnType<typeof keeping>) => basicApp(s.port), (s: ReturnType<typeof keeping>) => effectApp(s.service)]) {
         const store = keeping([ANN], ask.down)
-        const res = await make(store).request(`/users/${ask.id}`, { method: ask.method, ...(ask.body === undefined ? {} : { body: ask.body }) })
+        const res = await make(store).request(`/users/${ask.id}`, {
+          method: ask.method,
+          ...(ask.body === undefined ? {} : { body: ask.body }),
+        })
         const body = (await res.json()) as unknown
         answers.push({ status: res.status, body, calls: store.calls, held: [...store.held.values()] })
         assert.equal(res.status, status, JSON.stringify(body))
         // The handler's outcome, as its laws read it: a 503 is the store's failure passed through, any other reply its own.
         type Out = Parameters<typeof laws.readsTheUserOnce>[1]
-        const out = (res.status === 503 ? { _tag: "Failure", error: { _tag: "StoreDown" } } : { _tag: "Success", value: { status: res.status, body } }) as Out
+        const out = (
+          res.status === 503 ? { _tag: "Failure", error: { _tag: "StoreDown" } } : { _tag: "Success", value: { status: res.status, body } }
+        ) as Out
         const name = ask.body === undefined ? undefined : (JSON.parse(ask.body.startsWith("{") ? ask.body : "{}") as { name?: string }).name
         if (ask.method === "GET")
-          for (const law of [laws.readsTheUserOnce, laws.answersWhatItFound, laws.getFailsAsTheStoreFails]) assert.ok(law(ask.id, out, store.calls), `${law.name} broken`)
+          for (const law of [laws.readsTheUserOnce, laws.answersWhatItFound, laws.getFailsAsTheStoreFails])
+            assert.ok(law(ask.id, out, store.calls), `${law.name} broken`)
         else if (name !== undefined)
-          for (const law of [laws.emptyNameTouchesNothing, laws.readsTheUserFirst, laws.missingWritesNothing, laws.renamedAsWritten, laws.renameFailsAsTheStoreFails])
+          for (const law of [
+            laws.emptyNameTouchesNothing,
+            laws.readsTheUserFirst,
+            laws.missingWritesNothing,
+            laws.renamedAsWritten,
+            laws.renameFailsAsTheStoreFails,
+          ])
             assert.ok(law(ask.id, name, out, store.calls), `${law.name} broken`)
         else assert.deepEqual(store.calls, [], "a body that is no name reaches no handler")
       }

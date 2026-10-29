@@ -21,7 +21,11 @@ export const balanceOf = (accountId: string) =>
 export const balanceOrZero = (accountId: string) => balanceOf(accountId).pipe(Effect.catch(() => Effect.succeed(0n)))
 
 /** Twice the balance. */
-export const doubledBalance = (accountId: string) => pipe(balanceOf(accountId), Effect.map((b) => b + b))
+export const doubledBalance = (accountId: string) =>
+  pipe(
+    balanceOf(accountId),
+    Effect.map((b) => b + b),
+  )
 
 /** Why `account` cannot take `amount` now, in words that say what to do instead; `undefined` when it can. */
 export function depositRefusalOf(account: Account, amount: bigint): string | undefined {

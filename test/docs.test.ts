@@ -18,14 +18,30 @@ import path from "node:path"
 import { describe, it } from "node:test"
 
 const root = path.resolve(import.meta.dirname, "..")
-const PAGES = ["README.md", ...readdirSync(path.join(root, "docs")).filter((f) => f.endsWith(".md")).map((f) => `docs/${f}`)]
+const PAGES = [
+  "README.md",
+  ...readdirSync(path.join(root, "docs"))
+    .filter((f) => f.endsWith(".md"))
+    .map((f) => `docs/${f}`),
+]
 
 /** A page's tsconfig, when it gives none: the one the README tells a project to have. */
 const TSCONFIG = {
-  compilerOptions: { target: "es2023", module: "nodenext", moduleResolution: "nodenext", strict: true, noEmit: true, allowImportingTsExtensions: true, skipLibCheck: true, types: [] },
+  compilerOptions: {
+    target: "es2023",
+    module: "nodenext",
+    moduleResolution: "nodenext",
+    strict: true,
+    noEmit: true,
+    allowImportingTsExtensions: true,
+    skipLibCheck: true,
+    types: [],
+  },
 }
 
-type Step = { readonly kind: "file"; readonly path: string; readonly text: string } | { readonly kind: "run"; readonly args: ReadonlyArray<string>; readonly out: string; readonly exits: number; readonly line: number }
+type Step =
+  | { readonly kind: "file"; readonly path: string; readonly text: string }
+  | { readonly kind: "run"; readonly args: ReadonlyArray<string>; readonly out: string; readonly exits: number; readonly line: number }
 
 const MARKED = /<!-- (?:file: (\S+)|run(?:, exits (\d))?) -->\n```[^\n]*\n([\s\S]*?)\n```/g
 const stepsOf = (page: string): Array<Step> =>

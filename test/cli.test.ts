@@ -99,5 +99,8 @@ it("--json: a counterexample's world is what the world gave the code, none of th
   // The labels, and what `uniq` was taken to return for them: the two the same, which lodash would never return.
   const [labels] = law.args as [ReadonlyArray<string>]
   assert.deepEqual(Object.values(law.world as Record<string, unknown>), [labels])
-  assert.deepEqual(Object.keys(law.world as Record<string, unknown>).map((k) => k.replace(/!\d+$/, "")), ["uniq"])
+  assert.deepEqual(
+    Object.keys(law.world as Record<string, unknown>).map((k) => k.replace(/!\d+$/, "")),
+    ["uniq"],
+  )
 })

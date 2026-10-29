@@ -118,7 +118,8 @@ export const readAssumptions = (project: Project): Assumptions => {
         let pure: boolean | undefined
         const ensures: Array<{ name: string; law: FunctionNode }> = []
         for (const p of (unwrap(specArg) as ts.ObjectLiteralExpression).properties) {
-          if (!ts.isPropertyAssignment(p) || !ts.isIdentifier(p.name)) throw new Unsupported("an assumption's parts are `pure` and `ensures`, written in place", p)
+          if (!ts.isPropertyAssignment(p) || !ts.isIdentifier(p.name))
+            throw new Unsupported("an assumption's parts are `pure` and `ensures`, written in place", p)
           if (p.name.text === "pure") {
             const v = unwrap(p.initializer)
             if (v.kind !== ts.SyntaxKind.TrueKeyword && v.kind !== ts.SyntaxKind.FalseKeyword)
@@ -135,18 +136,28 @@ export const readAssumptions = (project: Project): Assumptions => {
             }
           } else throw new Unsupported(`an assumption has no part \`${p.name.text}\`; it has \`pure\` and \`ensures\``, p)
         }
-        if (pure === undefined) throw new Unsupported("an assumption says whether the function is pure: `pure: true` or `pure: false`", init)
+        if (pure === undefined)
+          throw new Unsupported("an assumption says whether the function is pure: `pure: true` or `pure: false`", init)
         const where = where_(init)
         const view: View = { where, params: viewParams(checker, init), ensures }
         const known = bySymbol.get(sym)
         if (known !== undefined) {
           if (known.pure !== pure)
-            throw new Unsupported(`\`${known.name}\` is declared \`pure: ${known.pure}\` at ${known.pureAt} and \`pure: ${pure}\` here; one function is pure or it is not`, init)
+            throw new Unsupported(
+              `\`${known.name}\` is declared \`pure: ${known.pure}\` at ${known.pureAt} and \`pure: ${pure}\` here; one function is pure or it is not`,
+              init,
+            )
           known.views.push(view)
           continue
         }
         const pkg = packageOf(checker, unwrap(fnArg))
-        bySymbol.set(sym, { name: pkg === undefined ? sym.name : `${sym.name} (${pkg})`, body: bodyOf(sym), pure, views: [view], pureAt: where })
+        bySymbol.set(sym, {
+          name: pkg === undefined ? sym.name : `${sym.name} (${pkg})`,
+          body: bodyOf(sym),
+          pure,
+          views: [view],
+          pureAt: where,
+        })
       }
     }
   }
@@ -186,6 +197,5 @@ const where_ = (node: ts.Node): string => {
 export const coveringViews = (checker: ts.TypeChecker, a: AssumedFn, args: ReadonlyArray<ts.Expression>): ReadonlyArray<View> =>
   a.views.filter(
     (v) =>
-      args.length === v.params.length &&
-      args.every((arg, i) => checker.isTypeAssignableTo(checker.getTypeAtLocation(arg), v.params[i]!)),
+      args.length === v.params.length && args.every((arg, i) => checker.isTypeAssignableTo(checker.getTypeAtLocation(arg), v.params[i]!)),
   )

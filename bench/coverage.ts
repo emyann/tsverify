@@ -52,7 +52,11 @@ const exported = (sf: ts.SourceFile): Array<Fn> => {
       out.push({ name: s.name.text, node: s, file: sf.fileName })
     if (ts.isVariableStatement(s) && isExported(s))
       for (const d of s.declarationList.declarations)
-        if (ts.isIdentifier(d.name) && d.initializer !== undefined && (ts.isArrowFunction(d.initializer) || ts.isFunctionExpression(d.initializer) || ts.isCallExpression(d.initializer)))
+        if (
+          ts.isIdentifier(d.name) &&
+          d.initializer !== undefined &&
+          (ts.isArrowFunction(d.initializer) || ts.isFunctionExpression(d.initializer) || ts.isCallExpression(d.initializer))
+        )
           out.push({ name: d.name.text, node: d.initializer, file: sf.fileName })
   }
   return out
@@ -61,15 +65,18 @@ const exported = (sf: ts.SourceFile): Array<Fn> => {
 /** A refusal's reason with its location and names taken out, so like reasons group. */
 const reasonOf = (e: Unsupported): string =>
   keepNames
-    ? e.message.replace(/^.*?:\d+:\d+: /, "").replace(/ \(.*$/, "").slice(0, 140)
+    ? e.message
+        .replace(/^.*?:\d+:\d+: /, "")
+        .replace(/ \(.*$/, "")
+        .slice(0, 140)
     : e.message
-    .replace(/^.*?:\d+:\d+: /, "")
-    .replace(/`[^`]*`/g, "`X`")
-    .replace(/^[\w.[\]!?$#~-]+: /, "")
-    .replace(/type .* is not modeled/, "type T is not modeled")
-    .replace(/a union of .* is not modeled/, "a union of object types (or mixed kinds) is not modeled")
-    .replace(/the intersection .* is not modeled/, "an intersection is not modeled")
-    .replace(/\d+/g, "N")
+        .replace(/^.*?:\d+:\d+: /, "")
+        .replace(/`[^`]*`/g, "`X`")
+        .replace(/^[\w.[\]!?$#~-]+: /, "")
+        .replace(/type .* is not modeled/, "type T is not modeled")
+        .replace(/a union of .* is not modeled/, "a union of object types (or mixed kinds) is not modeled")
+        .replace(/the intersection .* is not modeled/, "an intersection is not modeled")
+        .replace(/\d+/g, "N")
 
 const returnsEffect = (fn: FunctionNode | ts.Expression): boolean => {
   if (!ts.isFunctionLike(fn)) return true
@@ -103,7 +110,13 @@ const declaredPure = (): Assumptions => {
     const sig = body === undefined ? undefined : checker.getSignatureFromDeclaration(body)
     let a: AssumedFn | undefined
     if (body !== undefined && sig !== undefined && sig.typeParameters === undefined && purityOf(checker, body, of).pure)
-      a = { symbol: sym, name: sym.name, body, pure: true, views: [{ where: "(probe)", params: sig.getParameters().map((p) => checker.getTypeOfSymbol(p)), ensures: [] }] }
+      a = {
+        symbol: sym,
+        name: sym.name,
+        body,
+        pure: true,
+        views: [{ where: "(probe)", params: sig.getParameters().map((p) => checker.getTypeOfSymbol(p)), ensures: [] }],
+      }
     memo.set(sym, a)
     return a
   }
@@ -169,14 +182,27 @@ await withZ3(async (z3) => {
     }
   }
   const pct = (a: number, b: number) => `${b === 0 ? 0 : Math.round((100 * a) / b)}%`
-  console.log(`${path.relative(process.cwd(), tsconfig)}: ${fns.length} exported functions and computations in ${files.length} files${modular ? ", each read on its own (--modular)" : ""}`)
+  console.log(
+    `${path.relative(process.cwd(), tsconfig)}: ${fns.length} exported functions and computations in ${files.length} files${modular ? ", each read on its own (--modular)" : ""}`,
+  )
   console.log(`  read: ${read} (${pct(read, fns.length)})`)
   console.log(`  Effect computations (\`Effect.fn\`, or returning an Effect, Stream or Layer): ${effects}, of which read: ${readEffect}`)
-  console.log(`  not returning one: ${fns.length - effects}, of which read: ${read - readEffect} (${pct(read - readEffect, fns.length - effects)})`)
-  if (crashes.length > 0) console.log(`  verifier crashes: ${crashes.length}\n${crashes.slice(0, 5).map((c) => `    ${c}`).join("\n")}`)
+  console.log(
+    `  not returning one: ${fns.length - effects}, of which read: ${read - readEffect} (${pct(read - readEffect, fns.length - effects)})`,
+  )
+  if (crashes.length > 0)
+    console.log(
+      `  verifier crashes: ${crashes.length}\n${crashes
+        .slice(0, 5)
+        .map((c) => `    ${c}`)
+        .join("\n")}`,
+    )
   console.log("  first refusal, by reason (count, of which Effect-returning, an example):")
   for (const [r, e] of [...reasons].sort((a, b) => b[1].count - a[1].count).slice(0, 18))
     console.log(`    ${String(e.count).padStart(4)} ${String(e.effect).padStart(4)}  ${r}  — ${e.example}`)
   if (jsonOut !== undefined)
-    writeFileSync(jsonOut, `${JSON.stringify({ tsconfig, functions: fns.length, read, readNames, effects, readEffect, crashes, reasons: Object.fromEntries(reasons) }, null, 2)}\n`)
+    writeFileSync(
+      jsonOut,
+      `${JSON.stringify({ tsconfig, functions: fns.length, read, readNames, effects, readEffect, crashes, reasons: Object.fromEntries(reasons) }, null, 2)}\n`,
+    )
 })

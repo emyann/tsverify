@@ -62,7 +62,12 @@ export const renamedAsWritten: RenameLaw = (_id, name, out, calls) => {
   if (read === undefined || read.op !== "get" || read.outcome._tag !== "Success" || read.outcome.value === undefined) return false
   if (calls.length !== 2 || write === undefined || write.op !== "put") return false
   const written = write.args[0]
-  return written.id === read.outcome.value.id && written.name === name && out.value.body.id === written.id && out.value.body.name === written.name
+  return (
+    written.id === read.outcome.value.id &&
+    written.name === name &&
+    out.value.body.id === written.id &&
+    out.value.body.name === written.name
+  )
 }
 
 /** A store that fails ends the handler with that failure: no call after it, no reply. Without one, there is a reply. */

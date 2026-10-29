@@ -22,7 +22,11 @@ export interface LedgerShape {
 export class Ledger extends Context.Service<Ledger, LedgerShape>()("examples/Ledger") {}
 
 /** Pays out `amount` from the account, recorded as the withdrawal `id`; refused, with nothing written, when the guard says why. */
-export const withdraw: Implementation<typeof WithdrawSpec> = Effect.fn("withdraw")(function* (accountId: string, id: string, amount: bigint) {
+export const withdraw: Implementation<typeof WithdrawSpec> = Effect.fn("withdraw")(function* (
+  accountId: string,
+  id: string,
+  amount: bigint,
+) {
   const ledger = yield* Ledger
   const entries = yield* ledger.read(accountId)
   const refused = withdrawalRefusalOf(accountOf(entries), amount)

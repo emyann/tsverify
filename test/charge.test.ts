@@ -32,7 +32,9 @@ after(() => close())
 describe("charge, written against its spec", () => {
   it("type-checks, and nothing of the spec is left in what runs", () => {
     assert.deepEqual(diagnostics(loadProject([source], tsconfig), source), [])
-    const js = ts.transpileModule(readFileSync(source, "utf8"), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText
+    const js = ts.transpileModule(readFileSync(source, "utf8"), {
+      compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext },
+    }).outputText
     assert.doesNotMatch(js, /import|charge\.spec|tsverify/)
   })
 

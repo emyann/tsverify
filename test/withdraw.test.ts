@@ -33,7 +33,13 @@ before(async () => {
 })
 after(() => close())
 
-const LAWS = ["readsFirst", "readFailurePassesThrough", "refusedWritesNothing", "paidWritesOneWithdrawal", "refusedExactlyWhenTheGuardSays"] as const
+const LAWS = [
+  "readsFirst",
+  "readFailurePassesThrough",
+  "refusedWritesNothing",
+  "paidWritesOneWithdrawal",
+  "refusedExactlyWhenTheGuardSays",
+] as const
 const statuses = (v: Verification) => Object.fromEntries(v.laws.map((l) => [l.name, l.status]))
 
 describe("a withdrawal, as an Effect program and as async TypeScript, under the same five laws", () => {
@@ -51,7 +57,10 @@ describe("a withdrawal, as an Effect program and as async TypeScript, under the 
       assert.deepEqual(statuses(v), Object.fromEntries(LAWS.map((l) => [l, "proved"])))
       assert.deepEqual(v.cover.map((c) => `${c.value} ${c.status}`).sort(), ends.map((e) => `${e} reachable`).sort())
       // The fold is declared, not read here; the report names the declaration and says its purity was checked.
-      assert.deepEqual(v.trusted.map((t) => [t.name, t.purity, t.laws]), [["accountOf", "checked", []]])
+      assert.deepEqual(
+        v.trusted.map((t) => [t.name, t.purity, t.laws]),
+        [["accountOf", "checked", []]],
+      )
     })
 })
 
@@ -59,7 +68,10 @@ describe("the spec's type constrains the code", () => {
   it("an Effect implementation failing with an error its spec does not declare does not type-check", () => {
     const text = readFileSync(effectFile, "utf8").replace("new WithdrawalRefused({ message: refused })", "new Error(refused)")
     const errors = diagnostics(loadProject([effectFile], tsconfig, new Map([[effectFile, text]])), effectFile)
-    assert.ok(errors.some((e) => /Implementation|not assignable/.test(e)), errors.join("\n"))
+    assert.ok(
+      errors.some((e) => /Implementation|not assignable/.test(e)),
+      errors.join("\n"),
+    )
   })
 })
 
@@ -98,7 +110,11 @@ const runEffect = async (program: typeof effectProgram, r: Run): Promise<Ran> =>
     },
     append: (id, entry) => {
       const error = new program.LedgerError({ accountId: id, message: "unwritable" })
-      calls.push({ op: "append", args: [id, entry], outcome: r.failAppend ? { _tag: "Failure", error } : { _tag: "Success", value: undefined } })
+      calls.push({
+        op: "append",
+        args: [id, entry],
+        outcome: r.failAppend ? { _tag: "Failure", error } : { _tag: "Success", value: undefined },
+      })
       return r.failAppend ? Effect.fail(error) : Effect.void
     },
   })
@@ -118,7 +134,11 @@ const runAsync = async (program: typeof asyncProgram, r: Run): Promise<Ran> => {
     },
     append: async (id, entry) => {
       const error = new program.LedgerError("unwritable")
-      calls.push({ op: "append", args: [id, entry], outcome: r.failAppend ? { _tag: "Failure", error } : { _tag: "Success", value: undefined } })
+      calls.push({
+        op: "append",
+        args: [id, entry],
+        outcome: r.failAppend ? { _tag: "Failure", error } : { _tag: "Success", value: undefined },
+      })
       if (r.failAppend) throw error
     },
   }
@@ -135,10 +155,20 @@ const broken = (r: Run, ran: Ran): Array<string> => LAWS.filter((l) => !laws[l](
 
 describe("the laws hold when the programs run", () => {
   it(`the Effect program, on ${RUNS.length} runs`, async () => {
-    for (const r of RUNS) assert.deepEqual(broken(r, await runEffect(effectProgram, r)), [], JSON.stringify(r, (_, x) => (typeof x === "bigint" ? `${x}n` : x)))
+    for (const r of RUNS)
+      assert.deepEqual(
+        broken(r, await runEffect(effectProgram, r)),
+        [],
+        JSON.stringify(r, (_, x) => (typeof x === "bigint" ? `${x}n` : x)),
+      )
   })
   it("the async program, on the same runs", async () => {
-    for (const r of RUNS) assert.deepEqual(broken(r, await runAsync(asyncProgram, r)), [], JSON.stringify(r, (_, x) => (typeof x === "bigint" ? `${x}n` : x)))
+    for (const r of RUNS)
+      assert.deepEqual(
+        broken(r, await runAsync(asyncProgram, r)),
+        [],
+        JSON.stringify(r, (_, x) => (typeof x === "bigint" ? `${x}n` : x)),
+      )
   })
 })
 
@@ -154,19 +184,52 @@ const E_WRITE = '  yield* ledger.append(accountId, { kind: "withdrawn", at: new 
 const A_GUARD = "  if (refused) throw new WithdrawalRefused(refused)\n"
 const A_WRITE = '  await ledger.append(accountId, { kind: "withdrawn", at: new Date().toISOString(), id, amount })\n'
 const PLANTS: ReadonlyArray<Plant> = [
-  { id: "B1", what: "writes before the guard", effect: [E_GUARD + E_WRITE, E_WRITE + E_GUARD], async: [A_GUARD + A_WRITE, A_WRITE + A_GUARD] },
+  {
+    id: "B1",
+    what: "writes before the guard",
+    effect: [E_GUARD + E_WRITE, E_WRITE + E_GUARD],
+    async: [A_GUARD + A_WRITE, A_WRITE + A_GUARD],
+  },
   {
     id: "B2",
     what: "the guard inverted",
-    effect: ["if (refused) return yield* Effect.fail(new WithdrawalRefused({ message: refused }))", 'if (!refused) return yield* Effect.fail(new WithdrawalRefused({ message: "no" }))'],
+    effect: [
+      "if (refused) return yield* Effect.fail(new WithdrawalRefused({ message: refused }))",
+      'if (!refused) return yield* Effect.fail(new WithdrawalRefused({ message: "no" }))',
+    ],
     async: ["if (refused) throw new WithdrawalRefused(refused)", 'if (!refused) throw new WithdrawalRefused("no")'],
   },
-  { id: "B3", what: "writes a deposit", effect: ['kind: "withdrawn"', 'kind: "deposited"'], async: ['kind: "withdrawn"', 'kind: "deposited"'] },
-  { id: "B4", what: "writes to another account", effect: ["ledger.append(accountId,", 'ledger.append("*",'], async: ["ledger.append(accountId,", 'ledger.append("*",'] },
+  {
+    id: "B3",
+    what: "writes a deposit",
+    effect: ['kind: "withdrawn"', 'kind: "deposited"'],
+    async: ['kind: "withdrawn"', 'kind: "deposited"'],
+  },
+  {
+    id: "B4",
+    what: "writes to another account",
+    effect: ["ledger.append(accountId,", 'ledger.append("*",'],
+    async: ["ledger.append(accountId,", 'ledger.append("*",'],
+  },
   { id: "B5", what: "writes twice", effect: [E_WRITE, E_WRITE + E_WRITE], async: [A_WRITE, A_WRITE + A_WRITE] },
-  { id: "B6", what: "refuses only an empty account id", effect: ["if (refused) return", 'if (refused && accountId === "") return'], async: ["if (refused) throw", 'if (refused && accountId === "") throw'] },
-  { id: "B7", what: "reads another account", effect: ["ledger.read(accountId)", 'ledger.read("*")'], async: ["ledger.read(accountId)", 'ledger.read("*")'] },
-  { id: "B8", what: "writes a fixed amount", effect: ["id, amount })", "id, amount: 1n })"], async: ["id, amount })", "id, amount: 1n })"] },
+  {
+    id: "B6",
+    what: "refuses only an empty account id",
+    effect: ["if (refused) return", 'if (refused && accountId === "") return'],
+    async: ["if (refused) throw", 'if (refused && accountId === "") throw'],
+  },
+  {
+    id: "B7",
+    what: "reads another account",
+    effect: ["ledger.read(accountId)", 'ledger.read("*")'],
+    async: ["ledger.read(accountId)", 'ledger.read("*")'],
+  },
+  {
+    id: "B8",
+    what: "writes a fixed amount",
+    effect: ["id, amount })", "id, amount: 1n })"],
+    async: ["id, amount })", "id, amount: 1n })"],
+  },
 ]
 
 /** `text` with `[find, replace]` applied, where `find` must occur exactly once. */
@@ -206,6 +269,9 @@ describe("planted bugs", () => {
           const program = await loaded<typeof asyncProgram>(file, p.id, text)
           for (const r of RUNS) for (const l of broken(r, await runAsync(program, r))) seen.add(l)
         }
-        assert.ok(refuted.some((l) => seen.has(l)), `refuted ${refuted.join(", ")}; runs broke ${[...seen].join(", ") || "nothing"}`)
+        assert.ok(
+          refuted.some((l) => seen.has(l)),
+          `refuted ${refuted.join(", ")}; runs broke ${[...seen].join(", ") || "nothing"}`,
+        )
       })
 })

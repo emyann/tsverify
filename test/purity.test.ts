@@ -19,7 +19,12 @@ const fnOf = (f: string, name: string): FunctionNode => {
     if (ts.isFunctionDeclaration(s) && s.name?.text === name) return s
     if (ts.isVariableStatement(s))
       for (const d of s.declarationList.declarations)
-        if (ts.isIdentifier(d.name) && d.name.text === name && d.initializer !== undefined && (ts.isArrowFunction(d.initializer) || ts.isFunctionExpression(d.initializer)))
+        if (
+          ts.isIdentifier(d.name) &&
+          d.name.text === name &&
+          d.initializer !== undefined &&
+          (ts.isArrowFunction(d.initializer) || ts.isFunctionExpression(d.initializer))
+        )
           return d.initializer
   }
   throw new Error(`no function ${name} in ${f}`)

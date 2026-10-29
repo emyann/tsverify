@@ -35,10 +35,10 @@ export interface Contract<A extends ReadonlyArray<unknown>, R> {
   readonly ensures: Readonly<Record<string, (...args: [...A, R]) => boolean>>
 }
 
-export const contract = <A extends ReadonlyArray<unknown>, R>(
-  fn: (...args: A) => R,
-  laws: Omit<Contract<A, R>, "fn">,
-): Contract<A, R> => ({ fn, ...laws })
+export const contract = <A extends ReadonlyArray<unknown>, R>(fn: (...args: A) => R, laws: Omit<Contract<A, R>, "fn">): Contract<A, R> => ({
+  fn,
+  ...laws,
+})
 
 /** A function's type, as a spec records it for `Implementation`. */
 // `any`: any function; a spec constrains it through its laws, not its type.
@@ -59,7 +59,13 @@ export type LawOf<F> = F extends (...args: infer A) => infer R
 /** Every call an async function can make to the operations of its arguments. */
 type ParameterCallsOf<A extends ReadonlyArray<unknown>> = {
   [K in keyof A]: A[K] extends object
-    ? { [M in keyof A[K] & string]: A[K][M] extends (...args: infer P) => infer R ? (R extends PromiseLike<unknown> ? Call<M, P, Awaited<R>, RejectionOf<R>> : never) : never }[keyof A[K] & string]
+    ? {
+        [M in keyof A[K] & string]: A[K][M] extends (...args: infer P) => infer R
+          ? R extends PromiseLike<unknown>
+            ? Call<M, P, Awaited<R>, RejectionOf<R>>
+            : never
+          : never
+      }[keyof A[K] & string]
     : never
 }[number]
 

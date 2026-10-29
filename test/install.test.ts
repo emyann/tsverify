@@ -14,13 +14,27 @@ import path from "node:path"
 import { after, before, describe, it } from "node:test"
 
 const root = path.resolve(import.meta.dirname, "..")
-const manifest = JSON.parse(readFileSync(path.join(root, "package.json"), "utf8")) as { version: string; devDependencies: Readonly<Record<string, string>> }
+const manifest = JSON.parse(readFileSync(path.join(root, "package.json"), "utf8")) as {
+  version: string
+  devDependencies: Readonly<Record<string, string>>
+}
 const dev = (name: string) => `${name}@${manifest.devDependencies[name]}`
 
 // The examples that reach what only an installed copy reads differently, the
 // bench's planted copies left out. Named one by one: a test planting bugs
 // beside them writes files the folders would hold for a while.
-const FILES = ["account/account.spec.ts", "account/account.ts", "account/withdraw.spec.ts", "account/withdraw.ts", "account/withdraw.async.ts", "account/laws.ts", "charge/charge.spec.ts", "charge/charge.ts", "lodash/labels.spec.ts", "lodash/labels.ts"].map((f) => `examples/${f}`)
+const FILES = [
+  "account/account.spec.ts",
+  "account/account.ts",
+  "account/withdraw.spec.ts",
+  "account/withdraw.ts",
+  "account/withdraw.async.ts",
+  "account/laws.ts",
+  "charge/charge.spec.ts",
+  "charge/charge.ts",
+  "lodash/labels.spec.ts",
+  "lodash/labels.ts",
+].map((f) => `examples/${f}`)
 const VERIFIED = FILES.filter((f) => /\.spec\.ts$|withdraw(\.async)?\.ts$|charge\.ts$/.test(f))
 
 const PLANTED = `import type { Implementation } from "tsverify"
@@ -95,19 +109,34 @@ before(() => {
   writeFileSync(
     path.join(project, "tsconfig.json"),
     JSON.stringify({
-      compilerOptions: { target: "es2023", module: "nodenext", moduleResolution: "nodenext", strict: true, allowImportingTsExtensions: true, noEmit: true, skipLibCheck: true, types: [] },
+      compilerOptions: {
+        target: "es2023",
+        module: "nodenext",
+        moduleResolution: "nodenext",
+        strict: true,
+        allowImportingTsExtensions: true,
+        noEmit: true,
+        skipLibCheck: true,
+        types: [],
+      },
       include: ["examples"],
     }),
   )
   const tarball = path.join(dir, `tsverify-${manifest.version}.tgz`)
-  sync("npm", ["install", "--prefer-offline", "--no-audit", "--no-fund", tarball, dev("effect"), dev("lodash-es"), dev("@types/lodash-es")], project)
+  sync(
+    "npm",
+    ["install", "--prefer-offline", "--no-audit", "--no-fund", tarball, dev("effect"), dev("lodash-es"), dev("@types/lodash-es")],
+    project,
+  )
   bin = path.join(project, "node_modules/.bin/tsverify")
 })
 after(() => rmSync(dir, { recursive: true, force: true }))
 
 describe("tsverify, installed from its tarball", () => {
   it("ships what it builds, the packs' source and its license, and none of its own source or tests", () => {
-    const files = sync("tar", ["-tzf", path.join(dir, `tsverify-${manifest.version}.tgz`)], dir).trim().split("\n")
+    const files = sync("tar", ["-tzf", path.join(dir, `tsverify-${manifest.version}.tgz`)], dir)
+      .trim()
+      .split("\n")
     const outside = files.filter((f) => !/^package\/(dist\/.*\.(js|d\.ts)|packs\/[^/]+\.ts|package\.json|README\.md|LICENSE)$/.test(f))
     assert.deepEqual(outside, [])
     assert.ok(files.includes("package/dist/src/cli.js") && files.includes("package/packs/lodash.ts"))
@@ -123,7 +152,10 @@ describe("tsverify, installed from its tarball", () => {
   })
 
   it("reaches the verdicts the source reaches on the same files", async () => {
-    const [source, installed] = await Promise.all([ran(process.execPath, [path.join(root, "src/cli.ts"), ...VERIFIED, "--json"], root), ran(process.execPath, [bin, ...VERIFIED, "--json"], project)])
+    const [source, installed] = await Promise.all([
+      ran(process.execPath, [path.join(root, "src/cli.ts"), ...VERIFIED, "--json"], root),
+      ran(process.execPath, [bin, ...VERIFIED, "--json"], project),
+    ])
     // Exit 1 on both: the lodash example holds a counterexample on purpose.
     assert.equal(source.code, 1, source.err)
     assert.equal(installed.code, 1, installed.err)
@@ -133,7 +165,11 @@ describe("tsverify, installed from its tarball", () => {
     // And what each reads differently once installed, decided as it should be.
     const folded = contract(i, "examples/account/account.spec.ts folded")
     assert.ok(folded.obligations.length > 0 && folded.obligations.every((o) => o.status === "proved"), JSON.stringify(folded.obligations))
-    for (const at of ["examples/account/withdraw.ts withdraw", "examples/account/withdraw.async.ts withdraw", "examples/charge/charge.ts charge"]) {
+    for (const at of [
+      "examples/account/withdraw.ts withdraw",
+      "examples/account/withdraw.async.ts withdraw",
+      "examples/charge/charge.ts charge",
+    ]) {
       const c = contract(i, at)
       assert.ok(c.laws.length > 0 && c.laws.every((l) => l.status === "proved"), `${at}: ${JSON.stringify(c.laws)}`)
     }
@@ -142,7 +178,10 @@ describe("tsverify, installed from its tarball", () => {
       ["accountOf: checked"],
     )
     const labels = contract(i, "examples/lodash/labels.spec.ts labels")
-    assert.deepEqual(labels.trusted.map((t) => [t.purity, t.laws.length]), [["unchecked", 4]])
+    assert.deepEqual(
+      labels.trusted.map((t) => [t.purity, t.laws.length]),
+      [["unchecked", 4]],
+    )
   })
 
   it("exits 1 on a planted bug, with a counterexample the installed code breaks on", async () => {
@@ -150,7 +189,10 @@ describe("tsverify, installed from its tarball", () => {
     assert.equal(r.code, 1, r.err)
     const law = contract(JSON.parse(r.out) as Report, "examples/charge/overdraw.ts overdraw").laws.find((l) => l.name === "neverNegative")
     assert.equal(law?.status, "counterexample")
-    assert.ok(law.args?.every((a) => typeof a === "string" && /^-?\d+n$/.test(a)), JSON.stringify(law.args))
+    assert.ok(
+      law.args?.every((a) => typeof a === "string" && /^-?\d+n$/.test(a)),
+      JSON.stringify(law.args),
+    )
     assert.equal(sync(process.execPath, ["replay.ts", JSON.stringify(law.args)], project).trim(), "false")
   })
 })

@@ -10,7 +10,10 @@ import type ts from "typescript"
 
 /** A read of a value of type `unknown`, refused: it may be anything. */
 const refuseOpaque = (what: string, at?: ts.Node): never => {
-  throw new Unsupported(`${what} of a value of type \`unknown\` is not modeled: such a value is carried and never read; give it a type where it is made (for an error, a \`catch\` that builds a typed one)`, at)
+  throw new Unsupported(
+    `${what} of a value of type \`unknown\` is not modeled: such a value is carried and never read; give it a type where it is made (for an error, a \`catch\` that builds a typed one)`,
+    at,
+  )
 }
 
 const T = (u: Universe) => u.z3.Bool.val(true)
@@ -21,10 +24,10 @@ const parts = (u: Universe, v: Val): { isNull: Bool; isUndefined: Bool; value: V
   v.kind === "opaque"
     ? refuseOpaque("whether it is null or undefined")
     : v.kind === "maybe"
-    ? v
-    : v.kind === "nullish"
-      ? { isNull: v.which === "null" ? T(u) : F(u), isUndefined: v.which === "undefined" ? T(u) : F(u), value: undefined }
-      : { isNull: F(u), isUndefined: F(u), value: v }
+      ? v
+      : v.kind === "nullish"
+        ? { isNull: v.which === "null" ? T(u) : F(u), isUndefined: v.which === "undefined" ? T(u) : F(u), value: undefined }
+        : { isNull: F(u), isUndefined: F(u), value: v }
 
 /** `v == null`: v is null or undefined. */
 export const isNullish = (u: Universe, v: Val): Bool => {
@@ -87,8 +90,7 @@ const numLt = (u: Universe, a: Num, b: Num): Bool => {
 
 export type Order = "<" | "<=" | ">" | ">="
 
-const arithCmp = (a: Arith, b: Arith, op: Order): Bool =>
-  op === "<" ? a.lt(b) : op === "<=" ? a.le(b) : op === ">" ? a.gt(b) : a.ge(b)
+const arithCmp = (a: Arith, b: Arith, op: Order): Bool => (op === "<" ? a.lt(b) : op === "<=" ? a.le(b) : op === ">" ? a.gt(b) : a.ge(b))
 
 const numCmp = (u: Universe, a: Num, b: Num, op: Order): Bool =>
   op === "<"
@@ -116,8 +118,10 @@ export const strictEq = (u: Universe, a: Val, b: Val, at: ts.Node): Bool => {
   if (a.kind === "int" && b.kind === "int" && a.origin === b.origin) return a.term.eq(b.term)
   if (a.kind === "num" && b.kind === "int" && b.origin === "count") return numEq(u, a, countAsNum(u, b.term))
   if (a.kind === "int" && a.origin === "count" && b.kind === "num") return numEq(u, countAsNum(u, a.term), b)
-  if (a.kind === "int" && b.kind === "num") throw new Unsupported("=== between a bigint and a number is always false; write what you mean", at)
-  if (a.kind === "num" && b.kind === "int") throw new Unsupported("=== between a number and a bigint is always false; write what you mean", at)
+  if (a.kind === "int" && b.kind === "num")
+    throw new Unsupported("=== between a bigint and a number is always false; write what you mean", at)
+  if (a.kind === "num" && b.kind === "int")
+    throw new Unsupported("=== between a number and a bigint is always false; write what you mean", at)
   if (a.kind !== b.kind && isPrimitive(a) && isPrimitive(b)) return F(u)
   throw new Unsupported(`=== between a ${a.kind} and a ${b.kind} compares identity, which is not modeled`, at)
 }
@@ -155,8 +159,7 @@ export const ite = (u: Universe, c: Bool, a: Val, b: Val, at: ts.Node): Val => {
     if (a.kind === "nullish" && b.kind === "nullish" && a.which === b.which) return a
     const pa = parts(u, a)
     const pb = parts(u, b)
-    const value =
-      pa.value !== undefined && pb.value !== undefined ? ite(u, c, pa.value, pb.value, at) : (pa.value ?? pb.value)
+    const value = pa.value !== undefined && pb.value !== undefined ? ite(u, c, pa.value, pb.value, at) : (pa.value ?? pb.value)
     return {
       kind: "maybe",
       isNull: z3.If(c, pa.isNull, pb.isNull),
@@ -176,8 +179,10 @@ export const ite = (u: Universe, c: Bool, a: Val, b: Val, at: ts.Node): Val => {
         const fa = a.field(name)
         const fb = b.field(name)
         // A key both hold only on some paths: absent reads as undefined there.
-        if (a.has !== undefined && b.has !== undefined && fa !== undefined && fb === undefined) return ite(u, c, fa, { kind: "nullish", which: "undefined" }, at)
-        if (a.has !== undefined && b.has !== undefined && fb !== undefined && fa === undefined) return ite(u, c, { kind: "nullish", which: "undefined" }, fb, at)
+        if (a.has !== undefined && b.has !== undefined && fa !== undefined && fb === undefined)
+          return ite(u, c, fa, { kind: "nullish", which: "undefined" }, at)
+        if (a.has !== undefined && b.has !== undefined && fb !== undefined && fa === undefined)
+          return ite(u, c, { kind: "nullish", which: "undefined" }, fb, at)
         return fa === undefined ? fb : fb === undefined ? fa : ite(u, c, fa, fb, at)
       },
       a.id !== undefined && b.id !== undefined ? `ite(${termId(c)},${a.id},${b.id})` : undefined,

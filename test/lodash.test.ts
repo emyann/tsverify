@@ -40,24 +40,47 @@ describe("the program, against what the pack declares", () => {
     const [labels] = several.args as [ReadonlyArray<string>]
     assert.ok(labels.every((l) => l === labels[0]))
     assert.equal(program.labelCount(labels), "one")
-    assert.deepEqual(v.trusted.map((t) => [t.name, t.purity]), [["uniq (lodash-es)", "unchecked"]])
+    assert.deepEqual(
+      v.trusted.map((t) => [t.name, t.purity]),
+      [["uniq (lodash-es)", "unchecked"]],
+    )
   })
 
   it("progress: within the total, none without one, all of it when done; every law proved", async () => {
     const v = await verify(z3, project, spec, "progressWithinTotal")
-    assert.deepEqual(v.laws.map((l) => l.status), ["proved", "proved", "proved"])
+    assert.deepEqual(
+      v.laws.map((l) => l.status),
+      ["proved", "proved", "proved"],
+    )
   })
 })
 
 describe("the pack, against lodash", () => {
   it("uniq's laws hold on every sample", () => {
-    const samples: ReadonlyArray<[ReadonlyArray<string>]> = [[[]], [["a"]], [["a", "a"]], [["b", "a", "b"]], [["", ""]], [["x", "y", "z", "y", "x"]]]
+    const samples: ReadonlyArray<[ReadonlyArray<string>]> = [
+      [[]],
+      [["a"]],
+      [["a", "a"]],
+      [["b", "a", "b"]],
+      [["", ""]],
+      [["x", "y", "z", "y", "x"]],
+    ]
     assert.deepEqual(brokenOn(uniqOfStrings, samples), [])
   })
 
   const numbers: ReadonlyArray<[number, number, number]> = [
-    [5, 0, 10], [-1, 0, 10], [11, 0, 10], [Number.NaN, 0, 10], [5, 10, 0], [5, Number.NaN, 10], [5, 0, Number.NaN],
-    [Number.POSITIVE_INFINITY, 0, 10], [Number.NEGATIVE_INFINITY, 0, 10], [-0, 0, 5], [3, 3, 3], [0.5, 0.25, 0.75],
+    [5, 0, 10],
+    [-1, 0, 10],
+    [11, 0, 10],
+    [Number.NaN, 0, 10],
+    [5, 10, 0],
+    [5, Number.NaN, 10],
+    [5, 0, Number.NaN],
+    [Number.POSITIVE_INFINITY, 0, 10],
+    [Number.NEGATIVE_INFINITY, 0, 10],
+    [-0, 0, 5],
+    [3, 3, 3],
+    [0.5, 0.25, 0.75],
   ]
   it("clamp's laws hold on every sample, NaN and reversed bounds among them", () => {
     assert.deepEqual(brokenOn(clampOfNumbers, numbers), [])
@@ -69,6 +92,11 @@ describe("the pack, against lodash", () => {
       ensures: { within: (_n, lower, upper, out) => lower <= out && out <= upper },
     })
     const broken = brokenOn(naive, numbers).map((b) => b.input)
-    assert.deepEqual(broken, [[Number.NaN, 0, 10], [5, 10, 0], [5, Number.NaN, 10], [5, 0, Number.NaN]])
+    assert.deepEqual(broken, [
+      [Number.NaN, 0, 10],
+      [5, 10, 0],
+      [5, Number.NaN, 10],
+      [5, 0, Number.NaN],
+    ])
   })
 })

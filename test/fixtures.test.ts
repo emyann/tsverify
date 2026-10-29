@@ -63,14 +63,20 @@ describe("a refused construct leaves its contract unverified", () => {
     ["numberArithmetic", /arithmetic on `number` rounds.*: use `bigint` where the values are whole/],
     ["looseEquality", /operator == is not modeled: write `===`/],
     ["letCapture", /`limit` is a binding the verifier cannot see .*: read it from a `const` or an argument/],
-    ["bigintDivision", /bigint `\/` is not modeled .*: keep it out of the code a law reads, or move it into a function the spec declares with `assume`/],
+    [
+      "bigintDivision",
+      /bigint `\/` is not modeled .*: keep it out of the code a law reads, or move it into a function the spec declares with `assume`/,
+    ],
     ["elementAccess", /`xs\[0\]` on an array is not read: write `xs\.at\(0\)`/],
     ["global", /`Math` is a binding the verifier cannot see/],
     ["stringLength", /UTF-16 code units.*: compare with `""`/],
   ]
   it("recursion: the recursive call is refused, saying what to declare instead", async () => {
     const v = await verify(z3, project, fixture("refused"), "recursion")
-    assert.match(v.unsupported ?? "(verified)", /`countdown` is not read \(recursion is not modeled\): declare what the verifier may assume of it, `assume\(countdown, /)
+    assert.match(
+      v.unsupported ?? "(verified)",
+      /`countdown` is not read \(recursion is not modeled\): declare what the verifier may assume of it, `assume\(countdown, /,
+    )
   })
   it("unnarrowed: a member of a value the checker has not shown present", async () => {
     const v = await verify(z3, project, fixture("ill-typed"), "unnarrowed")
@@ -89,7 +95,10 @@ it("a project whose types leave out `null` is refused, saying which option to se
   const dir = mkdtempSync(path.join(tmpdir(), "tsverify-loose-"))
   try {
     const tsconfig = path.join(dir, "tsconfig.json")
-    writeFileSync(tsconfig, JSON.stringify({ extends: new URL("../tsconfig.json", import.meta.url).pathname, compilerOptions: { strict: false } }))
+    writeFileSync(
+      tsconfig,
+      JSON.stringify({ extends: new URL("../tsconfig.json", import.meta.url).pathname, compilerOptions: { strict: false } }),
+    )
     const v = await verify(z3, loadProject([fixture("charge")], tsconfig), fixture("charge"), "right")
     assert.match(v.unsupported ?? "(verified)", /`strictNullChecks` is off .*: set `"strict": true`/)
     assert.deepEqual(v.laws, [])

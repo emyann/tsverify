@@ -32,7 +32,11 @@ export const loadProject = (
     const fileExists = host.fileExists.bind(host)
     host.fileExists = (name) => resolved.has(path.resolve(name)) || fileExists(name)
   }
-  const program = ts.createProgram(files.map((f) => path.resolve(f)), options, host)
+  const program = ts.createProgram(
+    files.map((f) => path.resolve(f)),
+    options,
+    host,
+  )
   return { program, checker: program.getTypeChecker() }
 }
 
@@ -97,7 +101,10 @@ export const ownModule = (fileName: string, name: OwnModule): boolean => {
   const file = path.resolve(fileName)
   const pkg = packageOf(path.dirname(file))
   if (pkg?.name !== "tsverify") return false
-  const rel = path.relative(pkg.root, file).replaceAll("\\", "/").replace(/\.d\.[cm]?ts$|\.[cm]?[jt]s$/, "")
+  const rel = path
+    .relative(pkg.root, file)
+    .replaceAll("\\", "/")
+    .replace(/\.d\.[cm]?ts$|\.[cm]?[jt]s$/, "")
   return rel === `src/${name}` || rel === `dist/src/${name}`
 }
 
@@ -150,14 +157,20 @@ export const contractsIn = (project: Project, file: string): Array<string> =>
 
 /** Whether `d` is typed `Implementation<...>`, this package's. */
 const isImplementation = (checker: ts.TypeChecker, d: ts.VariableDeclaration): boolean =>
-  d.type !== undefined && ts.isTypeReferenceNode(d.type) && ts.isIdentifier(d.type.typeName) && declared(checker, d.type.typeName, CONTRACT_MODULE, "Implementation")
+  d.type !== undefined &&
+  ts.isTypeReferenceNode(d.type) &&
+  ts.isIdentifier(d.type.typeName) &&
+  declared(checker, d.type.typeName, CONTRACT_MODULE, "Implementation")
 
 /**
  * The spec an implementation is typed by: `const f: Implementation<typeof S>` where `S` is `spec<F>({ ... })` of this
  * package or its Effect adapter; the call, and whether its function is a computation (an Effect program, or a function
  * that returns a promise).
  */
-const specOf = (checker: ts.TypeChecker, d: ts.VariableDeclaration): { readonly call: ts.CallExpression; readonly computation: boolean } => {
+const specOf = (
+  checker: ts.TypeChecker,
+  d: ts.VariableDeclaration,
+): { readonly call: ts.CallExpression; readonly computation: boolean } => {
   const t = d.type as ts.TypeReferenceNode
   const arg = t.typeArguments?.[0]
   if (arg === undefined || !ts.isTypeQueryNode(arg) || !ts.isIdentifier(arg.exprName))
@@ -168,7 +181,10 @@ const specOf = (checker: ts.TypeChecker, d: ts.VariableDeclaration): { readonly 
   const call = decl !== undefined && ts.isVariableDeclaration(decl) && decl.initializer !== undefined ? unwrap(decl.initializer) : undefined
   const named = arg.exprName.text
   const notASpec = () =>
-    new Unsupported(`\`${named}\` is no spec: write \`export const ${named} = spec<F>({ ... })\`, with \`spec\` from "tsverify" (or "tsverify/effect" for an Effect program)`, arg)
+    new Unsupported(
+      `\`${named}\` is no spec: write \`export const ${named} = spec<F>({ ... })\`, with \`spec\` from "tsverify" (or "tsverify/effect" for an Effect program)`,
+      arg,
+    )
   if (call === undefined || !ts.isCallExpression(call)) throw notASpec()
   const effect = declared(checker, call.expression, EFFECT_CONTRACT_MODULE, "spec")
   if (!effect && !declared(checker, call.expression, CONTRACT_MODULE, "spec")) throw notASpec()
@@ -196,7 +212,8 @@ export const readContract = (project: Project, file: string, name: string): Cont
       const o = unwrap(opts)
       if (!ts.isObjectLiteralExpression(o)) throw new Unsupported("a lemma's options are written in place", opts)
       for (const p of o.properties)
-        if (ts.isPropertyAssignment(p) && ts.isIdentifier(p.name) && p.name.text === "requires") requires = functionOf(checker, p.initializer)
+        if (ts.isPropertyAssignment(p) && ts.isIdentifier(p.name) && p.name.text === "requires")
+          requires = functionOf(checker, p.initializer)
         else throw new Unsupported("a lemma's one option is `requires`", p)
     }
     return { name, kind: "lemma", target: statement, requires, ensures: [{ name: "holds", law: statement }] }
@@ -211,7 +228,10 @@ export const readContract = (project: Project, file: string, name: string): Cont
   }
   const helper = contractKind(checker, init)
   if (helper === undefined || helper === "lemma" || !ts.isCallExpression(init))
-    throw new Unsupported(`\`${name}\` is not a \`contract(...)\`, a \`computation<...>()(...)\`, a \`lemma(...)\` or an \`Implementation<typeof S>\` of this package`, init)
+    throw new Unsupported(
+      `\`${name}\` is not a \`contract(...)\`, a \`computation<...>()(...)\`, a \`lemma(...)\` or an \`Implementation<typeof S>\` of this package`,
+      init,
+    )
   const [fnArg, lawsArg] = init.arguments
   if (fnArg === undefined || lawsArg === undefined || !ts.isObjectLiteralExpression(unwrap(lawsArg)))
     throw new Unsupported("a contract is `contract(fn, { requires?, ensures: { ... } })`, written in place", init)
@@ -222,7 +242,8 @@ export const readContract = (project: Project, file: string, name: string): Cont
 const implementationNamed = (project: Project, file: string, name: string): ts.VariableDeclaration | undefined => {
   for (const stmt of sourceFile(project, file).statements)
     if (ts.isVariableStatement(stmt))
-      for (const d of stmt.declarationList.declarations) if (ts.isIdentifier(d.name) && d.name.text === name && isImplementation(project.checker, d)) return d
+      for (const d of stmt.declarationList.declarations)
+        if (ts.isIdentifier(d.name) && d.name.text === name && isImplementation(project.checker, d)) return d
   return undefined
 }
 
@@ -267,7 +288,12 @@ const targetOf = (checker: ts.TypeChecker, e: ts.Expression): ts.Node => {
   if (sym !== undefined && sym.flags & ts.SymbolFlags.Alias) sym = checker.getAliasedSymbol(sym)
   const decl = sym?.valueDeclaration
   if (decl !== undefined && ts.isFunctionDeclaration(decl) && decl.body !== undefined) return decl
-  if (decl !== undefined && ts.isVariableDeclaration(decl) && decl.initializer !== undefined && (decl.parent.flags & ts.NodeFlags.Const) !== 0)
+  if (
+    decl !== undefined &&
+    ts.isVariableDeclaration(decl) &&
+    decl.initializer !== undefined &&
+    (decl.parent.flags & ts.NodeFlags.Const) !== 0
+  )
     return unwrap(decl.initializer)
   throw new Unsupported("expected a function or a computation the program declares", e)
 }
@@ -280,7 +306,9 @@ export const functionOf = (checker: ts.TypeChecker, e: ts.Expression): FunctionN
   const name = ts.isIdentifier(x) ? x : ts.isPropertyAccessExpression(x) && ts.isIdentifier(x.expression) ? x.name : undefined
   if (name !== undefined) {
     // In `{ requires }` the name is the property's; the binding it reads is the shorthand's value symbol.
-    let sym = ts.isShorthandPropertyAssignment(name.parent) ? checker.getShorthandAssignmentValueSymbol(name.parent) : checker.getSymbolAtLocation(name)
+    let sym = ts.isShorthandPropertyAssignment(name.parent)
+      ? checker.getShorthandAssignmentValueSymbol(name.parent)
+      : checker.getSymbolAtLocation(name)
     if (sym !== undefined && sym.flags & ts.SymbolFlags.Alias) sym = checker.getAliasedSymbol(sym)
     const decl = sym?.valueDeclaration
     if (decl !== undefined && ts.isFunctionDeclaration(decl) && decl.body !== undefined) return decl

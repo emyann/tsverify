@@ -13,7 +13,9 @@ import type { Call, Outcome } from "../../contract.ts"
 /** Every call the operations of `Ops` can make, as a law reads it. */
 export type EffectCallsOf<Ops> = {
   [T in keyof Ops]: {
-    [M in keyof Ops[T] & string]: Ops[T][M] extends (...args: infer P) => Effect.Effect<infer A, infer E, infer _R> ? Call<M, P, A, E> : never
+    [M in keyof Ops[T] & string]: Ops[T][M] extends (...args: infer P) => Effect.Effect<infer A, infer E, infer _R>
+      ? Call<M, P, A, E>
+      : never
   }[keyof Ops[T] & string]
 }[keyof Ops]
 
@@ -25,7 +27,9 @@ export interface EffectContract<Args extends ReadonlyArray<unknown>, A, E, Ops> 
 
 /** Every call an Effect can make to the services it requires, each method of a service that returns an Effect. */
 type ServiceCallsOf<R> = R extends { readonly Service: infer S }
-  ? { [M in keyof S & string]: S[M] extends (...args: infer P) => Effect.Effect<infer A, infer E, infer _R> ? Call<M, P, A, E> : never }[keyof S & string]
+  ? {
+      [M in keyof S & string]: S[M] extends (...args: infer P) => Effect.Effect<infer A, infer E, infer _R> ? Call<M, P, A, E> : never
+    }[keyof S & string]
   : never
 
 /** The laws of a spec over an Effect program of type `F`: over its arguments, how it ended and the calls it made. */

@@ -65,7 +65,11 @@ const read = (u: Universe, model: Model, n: Node, indices: ReadonlyArray<number>
         return Number(numerator) / Number(denominator)
       }
       case "int":
-        return leaf.origin === "bigint" ? (u.z3.isIntVal(v) ? v.value() : BigInt(v.sexpr())) : Number(u.z3.isIntVal(v) ? v.value() : v.sexpr())
+        return leaf.origin === "bigint"
+          ? u.z3.isIntVal(v)
+            ? v.value()
+            : BigInt(v.sexpr())
+          : Number(u.z3.isIntVal(v) ? v.value() : v.sexpr())
     }
   }
   if (n.children.has("$")) return leafAt("$")

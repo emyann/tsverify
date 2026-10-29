@@ -40,7 +40,11 @@ describe("loops, through their invariants", () => {
     ["sumCappedNonNegative", ["bounded"], ["invariant entry: proved", "invariant kept: counterexample"]],
     ["sumFromNothingNonNegative", ["bounded"], ["invariant entry: counterexample", "invariant kept: proved"]],
     // One invariant written, for `oneOfThem`: `noneLarger` is still guessed beside it, and both are proved.
-    ["largestOneOfThem", ["proved", "proved"], ["invariant entry: proved", "invariant entry: proved", "invariant kept: proved", "invariant kept: proved"]],
+    [
+      "largestOneOfThem",
+      ["proved", "proved"],
+      ["invariant entry: proved", "invariant entry: proved", "invariant kept: proved", "invariant kept: proved"],
+    ],
     ["maxIsAnUpperBound", ["proved"], ["invariant entry: proved", "invariant kept: proved"]],
     ["positivesNoMore", ["proved"], ["invariant entry: proved", "invariant kept: proved"]],
     ["firstNegativeIsNegative", ["proved", "proved"], ["invariant entry: proved", "invariant kept: proved"]],
@@ -64,7 +68,10 @@ describe("loops, through their invariants", () => {
     let total = 0n
     const heads = [total]
     for (const x of xs.slice(0, -1)) heads.push((total += x))
-    assert.ok(heads.some((t) => t >= 10n), JSON.stringify(xs, (_, x) => (typeof x === "bigint" ? `${x}n` : x)))
+    assert.ok(
+      heads.some((t) => t >= 10n),
+      JSON.stringify(xs, (_, x) => (typeof x === "bigint" ? `${x}n` : x)),
+    )
   })
 })
 
@@ -99,7 +106,10 @@ describe("state", () => {
     it(`${name}: proved`, async () => {
       const v = await verify(z3, project, files.state, name)
       assert.equal(v.unsupported, undefined)
-      assert.deepEqual(laws(v), v.laws.map(() => "proved"))
+      assert.deepEqual(
+        laws(v),
+        v.laws.map(() => "proved"),
+      )
     })
 
   it("and each is what the code does when it runs", () => {

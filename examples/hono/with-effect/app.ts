@@ -13,7 +13,12 @@ const down = { status: 503, body: { error: "the store is down" } } as const
 export const appOf = (users: Users["Service"]) => {
   const layer = Layer.succeed(Users)(Users.of(users))
   const run = (program: Effect.Effect<Reply, StoreDown, Users>) =>
-    Effect.runPromise(program.pipe(Effect.catchTag("StoreDown", () => Effect.succeed(down)), Effect.provide(layer)))
+    Effect.runPromise(
+      program.pipe(
+        Effect.catchTag("StoreDown", () => Effect.succeed(down)),
+        Effect.provide(layer),
+      ),
+    )
   return new Hono()
     .get("/users/:id", async (c) => {
       const reply = await run(getUser(c.req.param("id")))

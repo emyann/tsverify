@@ -35,7 +35,10 @@ describe("steps inside expressions, verified", () => {
     it(`${name}: every law proved`, async () => {
       const v = await verify(z3, project, file, name)
       assert.equal(v.unsupported, undefined)
-      assert.ok(v.laws.every((l) => l.status === "proved"), JSON.stringify(statuses(v)))
+      assert.ok(
+        v.laws.every((l) => l.status === "proved"),
+        JSON.stringify(statuses(v)),
+      )
     })
 
   it("a step after `?.` is refused, naming what to write instead", async () => {
@@ -47,7 +50,10 @@ describe("steps inside expressions, verified", () => {
     const v = await verify(z3, project, file, "parsed")
     assert.equal(v.unsupported, undefined)
     assert.deepEqual(statuses(v), { callsNothing: "proved", readsTheError: "unsupported" })
-    assert.match(v.laws.find((l) => l.name === "readsTheError")!.reason!, /`===` of a value of type `unknown` is not modeled: .*give it a type where it is made/)
+    assert.match(
+      v.laws.find((l) => l.name === "readsTheError")!.reason!,
+      /`===` of a value of type `unknown` is not modeled: .*give it a type where it is made/,
+    )
   })
 
   it("a `catch` that reads what was thrown gives any error of its type: a law its type alone implies is vacuous", async () => {
@@ -57,11 +63,18 @@ describe("steps inside expressions, verified", () => {
 })
 
 // The runs: a store whose keys hold what each run says.
-type Call = { readonly op: "get" | "put"; readonly args: readonly string[]; readonly outcome: { readonly _tag: "Success"; readonly value: unknown } }
+type Call = {
+  readonly op: "get" | "put"
+  readonly args: readonly string[]
+  readonly outcome: { readonly _tag: "Success"; readonly value: unknown }
+}
 type Out = { readonly _tag: "Success"; readonly value: unknown } | { readonly _tag: "Failure"; readonly error: unknown }
 const STORES: ReadonlyArray<Readonly<Record<string, string>>> = [{}, { a: "1" }, { b: "2" }, { a: "1", b: "2" }]
 
-const running = async <A, E>(program: Effect.Effect<A, E, steps.Store>, held: Readonly<Record<string, string>>): Promise<{ out: Out; calls: Array<Call> }> => {
+const running = async <A, E>(
+  program: Effect.Effect<A, E, steps.Store>,
+  held: Readonly<Record<string, string>>,
+): Promise<{ out: Out; calls: Array<Call> }> => {
   const calls: Array<Call> = []
   const kept = new Map(Object.entries(held))
   const store = steps.Store.of({
@@ -98,6 +111,7 @@ it("the laws hold when the programs run", async () => {
         [steps.copies.ensures, ["a", "b"], steps.copy("a", "b")],
         [steps.readsWhatItDrops.ensures, ["a"], steps.readAndDrop("a")],
       ]
-      for (const [laws, args, program] of runs) assert.deepEqual(broken(laws, args, await running(program, held)), [], JSON.stringify({ held, args }))
+      for (const [laws, args, program] of runs)
+        assert.deepEqual(broken(laws, args, await running(program, held)), [], JSON.stringify({ held, args }))
     }
 })

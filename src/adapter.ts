@@ -57,7 +57,11 @@ export const promiseOf = (checker: ts.TypeChecker, t: ts.Type): ts.Type | undefi
   const parts = t.isIntersection() ? t.types : [t]
   for (const p of parts) {
     const decl = p.getSymbol()?.declarations?.[0]
-    if (p.getSymbol()?.name === "Promise" && decl?.getSourceFile().isDeclarationFile && /\/typescript\/lib\//.test(decl.getSourceFile().fileName))
+    if (
+      p.getSymbol()?.name === "Promise" &&
+      decl?.getSourceFile().isDeclarationFile &&
+      /\/typescript\/lib\//.test(decl.getSourceFile().fileName)
+    )
       return checker.getTypeArguments(p as ts.TypeReference)[0]
   }
   return undefined

@@ -97,7 +97,9 @@ const tried = (L: Lowering, name: string, args: ReadonlyArray<Val>, at: ts.Node)
   const types = effectAdapter.operation?.(L, L.checker.getTypeAtLocation(at))
   if (types?.failure === undefined) throw new Unsupported(`\`${name}\` whose type is no Effect of a success and a failure`, at)
   const handler = arg.kind === "record" ? arg.field("catch") : undefined
-  L.u.notes.add(`\`${name}\` is not read: it succeeds with any value of its type, or fails with what its \`catch\` makes of what was thrown.`)
+  L.u.notes.add(
+    `\`${name}\` is not read: it succeeds with any value of its type, or fails with what its \`catch\` makes of what was thrown.`,
+  )
   return comp((trace) => {
     const z3 = L.u.z3
     const base = [L.u.given(name)]
@@ -136,7 +138,11 @@ export const effectAdapter: Adapter = {
     const gen = generatorOf(L.checker, e)
     if (gen !== undefined) return { node: gen, style: "gen" }
     // A plain function that returns an Effect: running it runs the Effect it returns.
-    if ((ts.isArrowFunction(e) || ts.isFunctionExpression(e) || ts.isFunctionDeclaration(e)) && e.asteriskToken === undefined && e.body !== undefined) {
+    if (
+      (ts.isArrowFunction(e) || ts.isFunctionExpression(e) || ts.isFunctionDeclaration(e)) &&
+      e.asteriskToken === undefined &&
+      e.body !== undefined
+    ) {
       const sig = L.checker.getSignatureFromDeclaration(e)
       const returns = sig === undefined ? undefined : L.checker.getReturnTypeOfSignature(sig)
       if (returns !== undefined && effectAdapter.operation?.(L, returns) !== undefined) return { node: e, style: "returns" }
@@ -146,7 +152,7 @@ export const effectAdapter: Adapter = {
   operation: (L, returns) => {
     const sym = returns.getSymbol()
     const decl = sym?.declarations?.[0]
-    if (sym?.name !== "Effect" || decl === undefined || !decl.getSourceFile().fileName.endsWith('/node_modules/effect/dist/Effect.d.ts'))
+    if (sym?.name !== "Effect" || decl === undefined || !decl.getSourceFile().fileName.endsWith("/node_modules/effect/dist/Effect.d.ts"))
       return undefined
     const [success, failure] = L.checker.getTypeArguments(returns as ts.TypeReference)
     if (success === undefined) return undefined
@@ -158,7 +164,12 @@ export const effectAdapter: Adapter = {
     const service = L.checker.getPropertyOfType(t, "Service")
     const key = L.checker.getPropertyOfType(t, "key")
     const decl = service?.declarations?.[0]
-    if (service === undefined || key === undefined || decl === undefined || !decl.getSourceFile().fileName.endsWith('/node_modules/effect/dist/Context.d.ts'))
+    if (
+      service === undefined ||
+      key === undefined ||
+      decl === undefined ||
+      !decl.getSourceFile().fileName.endsWith("/node_modules/effect/dist/Context.d.ts")
+    )
       return undefined
     const name = operand.getText()
     const memo = `service:${name}`
@@ -196,7 +207,9 @@ export const effectAdapter: Adapter = {
     }
     switch (effectName(L.checker, e)) {
       case "Function.pipe":
-        return builtin("pipe", ([self, ...fs], at) => fs.reduce((x, f) => applyValue(L, f, [x], at), self ?? { kind: "nullish", which: "undefined" }))
+        return builtin("pipe", ([self, ...fs], at) =>
+          fs.reduce((x, f) => applyValue(L, f, [x], at), self ?? { kind: "nullish", which: "undefined" }),
+        )
       case "Effect.gen":
         return builtin("Effect.gen", (args, at) => {
           const g = args.at(-1)
@@ -209,19 +222,27 @@ export const effectAdapter: Adapter = {
         return builtin("Effect.sync", ([f], at) => comp((trace) => ({ outcome: success(L, applyValue(L, f!, [], at)), trace })))
       case "Effect.map":
         return dual("Effect.map", (self, f, at) =>
-          comp((trace) => onSuccess(L, runComp(self, trace, at), at, (v, t) => ({ outcome: success(L, applyValue(L, f, [v], at)), trace: t }))),
+          comp((trace) =>
+            onSuccess(L, runComp(self, trace, at), at, (v, t) => ({ outcome: success(L, applyValue(L, f, [v], at)), trace: t })),
+          ),
         )
       case "Effect.flatMap":
-        return dual("Effect.flatMap", (self, f, at) => comp((trace) => onSuccess(L, runComp(self, trace, at), at, (v, t) => runComp(applyValue(L, f, [v], at), t, at))))
+        return dual("Effect.flatMap", (self, f, at) =>
+          comp((trace) => onSuccess(L, runComp(self, trace, at), at, (v, t) => runComp(applyValue(L, f, [v], at), t, at))),
+        )
       case "Effect.catch":
-        return dual("Effect.catch", (self, f, at) => comp((trace) => onFailure(L, runComp(self, trace, at), at, (err, t) => runComp(applyValue(L, f, [err], at), t, at))))
+        return dual("Effect.catch", (self, f, at) =>
+          comp((trace) => onFailure(L, runComp(self, trace, at), at, (err, t) => runComp(applyValue(L, f, [err], at), t, at))),
+        )
       case "Effect.catchTag":
         return builtin("Effect.catchTag", (args, at) => {
           const first = args[0]
           const [self, rest] = first?.kind === "comp" ? [first, args.slice(1)] : [undefined, args]
           if (rest.length !== 2) throw new Unsupported("`Effect.catchTag` with a handler for the other errors is not modeled", at)
           const [tag, f] = rest as [Val, Val]
-          return self !== undefined ? caughtTag(L, self, tag, f, at) : builtin("Effect.catchTag(tag, f)", ([s], at2) => caughtTag(L, s!, tag, f, at2))
+          return self !== undefined
+            ? caughtTag(L, self, tag, f, at)
+            : builtin("Effect.catchTag(tag, f)", ([s], at2) => caughtTag(L, s!, tag, f, at2))
         })
       case "Effect.try":
       case "Effect.tryPromise": {
@@ -229,14 +250,29 @@ export const effectAdapter: Adapter = {
         return builtin(name, (args, at) => tried(L, name, args, at))
       }
       case "Effect.succeed":
-        return { kind: "builtin", name: "Effect.succeed", call: ([v]) => comp((trace) => ({ outcome: success(L, v ?? { kind: "nullish", which: "undefined" }), trace })) }
+        return {
+          kind: "builtin",
+          name: "Effect.succeed",
+          call: ([v]) => comp((trace) => ({ outcome: success(L, v ?? { kind: "nullish", which: "undefined" }), trace })),
+        }
       case "Effect.fail":
-        return { kind: "builtin", name: "Effect.fail", call: ([err]) => comp((trace) => ({ outcome: failure(L, err ?? { kind: "nullish", which: "undefined" }), trace })) }
+        return {
+          kind: "builtin",
+          name: "Effect.fail",
+          call: ([err]) => comp((trace) => ({ outcome: failure(L, err ?? { kind: "nullish", which: "undefined" }), trace })),
+        }
       case "Effect.void":
         return comp((trace) => ({ outcome: success(L, { kind: "nullish", which: "undefined" }), trace }))
       default: {
         const name = effectName(L.checker, e)
-        if (name === undefined || !ts.isPropertyAccessExpression(e) || !name.startsWith("Effect.") || name === "Effect.fn" || name === "Effect.fnUntraced") return undefined
+        if (
+          name === undefined ||
+          !ts.isPropertyAccessExpression(e) ||
+          !name.startsWith("Effect.") ||
+          name === "Effect.fn" ||
+          name === "Effect.fnUntraced"
+        )
+          return undefined
         throw new Unsupported(`\`${name}\` is not read: ${INSTEAD[name.slice("Effect.".length)] ?? READ}`, e)
       }
     }

@@ -118,11 +118,7 @@ export const lazy = (f: () => Val): Thunk => {
 }
 
 /** A record whose fields are built on first read and kept. */
-export const lazyRecord = (
-  build: (name: string) => Val | undefined,
-  id?: string,
-  has?: (name: string) => Bool | undefined,
-): Val => {
+export const lazyRecord = (build: (name: string) => Val | undefined, id?: string, has?: (name: string) => Bool | undefined): Val => {
   const memo = new Map<string, Val | undefined>()
   return {
     kind: "record",

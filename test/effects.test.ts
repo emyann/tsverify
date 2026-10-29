@@ -47,7 +47,10 @@ describe("the Effect forms, verified", () => {
     it(`${name}: every law proved, every end it can come to reached`, async () => {
       const v = await verify(z3, project, specFile, name)
       assert.equal(v.unsupported, undefined)
-      assert.ok(v.laws.every((l) => l.status === "proved"), JSON.stringify(statuses(v)))
+      assert.ok(
+        v.laws.every((l) => l.status === "proved"),
+        JSON.stringify(statuses(v)),
+      )
       const want = ends.map((e) => (e.endsWith(" unreachable") ? e : `${e} reachable`))
       assert.deepEqual(v.cover.map((c) => `${c.value} ${c.status}`).sort(), want.sort())
     })
@@ -62,7 +65,12 @@ type Call = {
 type Out = { readonly _tag: "Success"; readonly value: unknown } | { readonly _tag: "Failure"; readonly error: { readonly _tag: string } }
 const at = "2026-10-29T12:00:00.000Z"
 const opened: Entry = { kind: "opened", at, owner: "ada" }
-const LEDGERS: ReadonlyArray<ReadonlyArray<Entry>> = [[], [opened], [opened, { kind: "deposited", at, id: "d1", amount: 70n }], [opened, { kind: "closed", at }]]
+const LEDGERS: ReadonlyArray<ReadonlyArray<Entry>> = [
+  [],
+  [opened],
+  [opened, { kind: "deposited", at, id: "d1", amount: 70n }],
+  [opened, { kind: "closed", at }],
+]
 const RUNS = LEDGERS.flatMap((entries) =>
   [false, true].flatMap((failRead) =>
     [false, true].flatMap((failAppend) => [30n, 0n].map((amount) => ({ accountId: "a-1", entries, failRead, failAppend, amount }))),
@@ -80,12 +88,22 @@ const running = async <A, E>(program: Effect.Effect<A, E, Ledger>, r: Run): Prom
     },
     append: (id, entry) => {
       const error = new LedgerError({ accountId: id, message: "unwritable" })
-      calls.push({ op: "append", args: [id, entry], outcome: r.failAppend ? { _tag: "Failure", error } : { _tag: "Success", value: undefined } })
+      calls.push({
+        op: "append",
+        args: [id, entry],
+        outcome: r.failAppend ? { _tag: "Failure", error } : { _tag: "Success", value: undefined },
+      })
       return r.failAppend ? Effect.fail(error) : Effect.void
     },
   })
   const result = await Effect.runPromise(Effect.result(program.pipe(Effect.provide(Layer.succeed(Ledger)(ledger)))))
-  return { out: result._tag === "Success" ? { _tag: "Success", value: result.success } : { _tag: "Failure", error: result.failure as { _tag: string } }, calls }
+  return {
+    out:
+      result._tag === "Success"
+        ? { _tag: "Success", value: result.success }
+        : { _tag: "Failure", error: result.failure as { _tag: string } },
+    calls,
+  }
 }
 
 type Programs = typeof programs
@@ -109,7 +127,12 @@ const brokenBy = async (p: Programs, r: Run): Promise<Record<string, Array<strin
 
 describe("the laws hold when the programs run", () => {
   it(`on ${RUNS.length} runs of each`, async () => {
-    for (const r of RUNS) assert.deepEqual(await brokenBy(programs, r), { balance: [], balanceOrNothing: [], doubled: [], deposited: [] }, JSON.stringify(r, (_, x) => (typeof x === "bigint" ? `${x}n` : x)))
+    for (const r of RUNS)
+      assert.deepEqual(
+        await brokenBy(programs, r),
+        { balance: [], balanceOrNothing: [], doubled: [], deposited: [] },
+        JSON.stringify(r, (_, x) => (typeof x === "bigint" ? `${x}n` : x)),
+      )
   })
 })
 
@@ -120,14 +143,60 @@ interface Plant {
   readonly contract: keyof typeof CONTRACTS
 }
 const PLANTS: ReadonlyArray<Plant> = [
-  { id: "G1", what: "Effect.gen: reads the ledger twice", change: ["    const entries = yield* ledger.read(accountId)\n", "    yield* ledger.read(accountId)\n    const entries = yield* ledger.read(accountId)\n"], contract: "balance" },
-  { id: "C1", what: "Effect.catch: an unreadable ledger reads as 1", change: ["Effect.catch(() => Effect.succeed(0n))", "Effect.catch(() => Effect.succeed(1n))"], contract: "balanceOrNothing" },
-  { id: "P1", what: "pipe and Effect.map: three times, not twice", change: ["Effect.map((b) => b + b)", "Effect.map((b) => b + b + b)"], contract: "doubled" },
-  { id: "M1", what: "Effect.map: the guard asked of 1, not the amount", change: ["depositRefusalOf(accountOf(entries), amount)", "depositRefusalOf(accountOf(entries), 1n)"], contract: "deposited" },
-  { id: "T1", what: "Effect.catchTag: an unreadable ledger is no refusal", change: ['Effect.succeed("the ledger cannot be read now: try again later")', "Effect.succeed(undefined)"], contract: "deposited" },
-  { id: "T2", what: "Effect.catchTag left out", change: ['    Effect.catchTag("LedgerError", () => Effect.succeed("the ledger cannot be read now: try again later")),\n', ""], contract: "deposited" },
-  { id: "F1", what: "Effect.flatMap: writes twice the amount", change: ['{ kind: "deposited", at, id, amount }', '{ kind: "deposited", at, id, amount: amount + amount }'], contract: "deposited" },
-  { id: "F2", what: "Effect.catch: a failed write is swallowed", change: ['(at) => ledger.append(accountId, { kind: "deposited", at, id, amount }),\n  )', '(at) => ledger.append(accountId, { kind: "deposited", at, id, amount }),\n  ).pipe(Effect.catch(() => Effect.void))'], contract: "deposited" },
+  {
+    id: "G1",
+    what: "Effect.gen: reads the ledger twice",
+    change: [
+      "    const entries = yield* ledger.read(accountId)\n",
+      "    yield* ledger.read(accountId)\n    const entries = yield* ledger.read(accountId)\n",
+    ],
+    contract: "balance",
+  },
+  {
+    id: "C1",
+    what: "Effect.catch: an unreadable ledger reads as 1",
+    change: ["Effect.catch(() => Effect.succeed(0n))", "Effect.catch(() => Effect.succeed(1n))"],
+    contract: "balanceOrNothing",
+  },
+  {
+    id: "P1",
+    what: "pipe and Effect.map: three times, not twice",
+    change: ["Effect.map((b) => b + b)", "Effect.map((b) => b + b + b)"],
+    contract: "doubled",
+  },
+  {
+    id: "M1",
+    what: "Effect.map: the guard asked of 1, not the amount",
+    change: ["depositRefusalOf(accountOf(entries), amount)", "depositRefusalOf(accountOf(entries), 1n)"],
+    contract: "deposited",
+  },
+  {
+    id: "T1",
+    what: "Effect.catchTag: an unreadable ledger is no refusal",
+    change: ['Effect.succeed("the ledger cannot be read now: try again later")', "Effect.succeed(undefined)"],
+    contract: "deposited",
+  },
+  {
+    id: "T2",
+    what: "Effect.catchTag left out",
+    change: ['    Effect.catchTag("LedgerError", () => Effect.succeed("the ledger cannot be read now: try again later")),\n', ""],
+    contract: "deposited",
+  },
+  {
+    id: "F1",
+    what: "Effect.flatMap: writes twice the amount",
+    change: ['{ kind: "deposited", at, id, amount }', '{ kind: "deposited", at, id, amount: amount + amount }'],
+    contract: "deposited",
+  },
+  {
+    id: "F2",
+    what: "Effect.catch: a failed write is swallowed",
+    change: [
+      '(at) => ledger.append(accountId, { kind: "deposited", at, id, amount }),\n  )',
+      '(at) => ledger.append(accountId, { kind: "deposited", at, id, amount }),\n  ).pipe(Effect.catch(() => Effect.void))',
+    ],
+    contract: "deposited",
+  },
 ]
 
 describe("a bug planted in each form", () => {
@@ -146,7 +215,10 @@ describe("a bug planted in each form", () => {
         const planted = (await import(pathToFileURL(file).href)) as Programs
         const seen = new Set<string>()
         for (const r of RUNS) for (const l of (await brokenBy(planted, r))[p.contract]!) seen.add(l)
-        assert.ok(refuted.some((l) => seen.has(l)), `refuted ${refuted.join(", ")}; runs broke ${[...seen].join(", ") || "nothing"}`)
+        assert.ok(
+          refuted.some((l) => seen.has(l)),
+          `refuted ${refuted.join(", ")}; runs broke ${[...seen].join(", ") || "nothing"}`,
+        )
       } finally {
         rmSync(file)
       }

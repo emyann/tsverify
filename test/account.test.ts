@@ -87,7 +87,8 @@ describe("the account fold, verified", () => {
     for (let k = 0; k < 2000; k++) {
       const entries = ledger(r)
       const a = accountOf(entries)
-      for (const [name, law] of Object.entries(folded.ensures)) assert.ok(law(entries, a), `${name} broken on ${JSON.stringify(entries, (_, x) => (typeof x === "bigint" ? `${x}n` : x))}`)
+      for (const [name, law] of Object.entries(folded.ensures))
+        assert.ok(law(entries, a), `${name} broken on ${JSON.stringify(entries, (_, x) => (typeof x === "bigint" ? `${x}n` : x))}`)
     }
   })
 })
@@ -101,11 +102,36 @@ interface Plant {
 }
 const DEPOSIT = "a.transactions.push({ id: e.id, amount: e.amount, disputed: false })"
 const PLANTS: ReadonlyArray<Plant> = [
-  { id: "A1", what: "a second close reopens the account", change: ["a.closed = true", "a.closed = !a.closed"], breaks: "closedExactlyWhenRecorded" },
-  { id: "A2", what: "an opening after a freeze is lost", change: ["a.opened = true", "a.opened = a.frozen === null"], breaks: "openedExactlyWhenRecorded" },
-  { id: "A3", what: "a dispute freezes the account", change: ["if (t) t.disputed = true", 'if (t) t.disputed = true\n        a.frozen ??= "disputed"'], breaks: "frozenOnlyWhenRecorded" },
-  { id: "A4", what: "a deposit is recorded twice", change: [DEPOSIT, `${DEPOSIT}\n        ${DEPOSIT}`], breaks: "noMoreTransactionsThanEntries" },
-  { id: "A5", what: "a deposit is taken out", change: ["a.balance += e.amount", "a.balance -= e.amount"], breaks: "noDebtWithoutWithdrawals" },
+  {
+    id: "A1",
+    what: "a second close reopens the account",
+    change: ["a.closed = true", "a.closed = !a.closed"],
+    breaks: "closedExactlyWhenRecorded",
+  },
+  {
+    id: "A2",
+    what: "an opening after a freeze is lost",
+    change: ["a.opened = true", "a.opened = a.frozen === null"],
+    breaks: "openedExactlyWhenRecorded",
+  },
+  {
+    id: "A3",
+    what: "a dispute freezes the account",
+    change: ["if (t) t.disputed = true", 'if (t) t.disputed = true\n        a.frozen ??= "disputed"'],
+    breaks: "frozenOnlyWhenRecorded",
+  },
+  {
+    id: "A4",
+    what: "a deposit is recorded twice",
+    change: [DEPOSIT, `${DEPOSIT}\n        ${DEPOSIT}`],
+    breaks: "noMoreTransactionsThanEntries",
+  },
+  {
+    id: "A5",
+    what: "a deposit is taken out",
+    change: ["a.balance += e.amount", "a.balance -= e.amount"],
+    breaks: "noDebtWithoutWithdrawals",
+  },
 ]
 
 /** The example with `find` (which must occur once) replaced. */
@@ -134,15 +160,25 @@ describe("the account fold, with a bug planted", () => {
       try {
         const planted = ((await import(pathToFileURL(file).href)) as { accountOf: typeof accountOf }).accountOf
         const [entries] = law.args as [Entry[]]
-        assert.equal(folded.ensures[p.breaks]!(entries, planted(entries)), false, JSON.stringify(law.args, (_, x) => (typeof x === "bigint" ? `${x}n` : x)))
+        assert.equal(
+          folded.ensures[p.breaks]!(entries, planted(entries)),
+          false,
+          JSON.stringify(law.args, (_, x) => (typeof x === "bigint" ? `${x}n` : x)),
+        )
       } finally {
         rmSync(file)
       }
     })
 
   it("a harmless change (`a.closed = a.closed || true`) is still proved", async () => {
-    const v = await verifyWith(z3, new Map([[source, plant(readFileSync(source, "utf8"), ["a.closed = true", "a.closed = a.closed || true"], "C1")]]))
-    assert.deepEqual(Object.values(statuses(v)), LAWS.map(() => "proved"))
+    const v = await verifyWith(
+      z3,
+      new Map([[source, plant(readFileSync(source, "utf8"), ["a.closed = true", "a.closed = a.closed || true"], "C1")]]),
+    )
+    assert.deepEqual(
+      Object.values(statuses(v)),
+      LAWS.map(() => "proved"),
+    )
   })
 
   it("with no invariant written, the verifier finds them: each law, restated for the entries gone through, proved on entry and kept", async () => {
@@ -172,7 +208,9 @@ const unwritten = (text: string): string =>
 
 it("the purity check reads the fold as pure, with the helper it changes its state through", () => {
   const project = loadProject([source], tsconfig)
-  const fn = sourceFile(project, source).statements.find((s): s is ts.FunctionDeclaration => ts.isFunctionDeclaration(s) && s.name?.text === "accountOf")!
+  const fn = sourceFile(project, source).statements.find(
+    (s): s is ts.FunctionDeclaration => ts.isFunctionDeclaration(s) && s.name?.text === "accountOf",
+  )!
   const p = purityOf(project.checker, fn, () => undefined)
   assert.ok(p.pure, p.pure ? "" : p.why)
   assert.deepEqual([...p.read].sort(), ["accountOf", "openInto"])

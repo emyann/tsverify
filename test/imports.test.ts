@@ -47,21 +47,35 @@ describe("the programs that take text, verified", () => {
   it("typed (`Effect.try` with a typed error, a step inside an expression): every law proved, every end reached", async () => {
     const v = await verify(z3, project, specFile, "typed")
     assert.equal(v.unsupported, undefined)
-    assert.ok(v.laws.every((l) => l.status === "proved"), JSON.stringify(statuses(v)))
-    assert.deepEqual(ends(v), ["Failure AmountUnreadable: reachable", "Failure DepositRefused: reachable", "Failure LedgerError: reachable", "Success: reachable"])
+    assert.ok(
+      v.laws.every((l) => l.status === "proved"),
+      JSON.stringify(statuses(v)),
+    )
+    assert.deepEqual(ends(v), [
+      "Failure AmountUnreadable: reachable",
+      "Failure DepositRefused: reachable",
+      "Failure LedgerError: reachable",
+      "Success: reachable",
+    ])
   })
 
   it("opened (a loop over an array of known length): every law proved, every end reached", async () => {
     const v = await verify(z3, project, specFile, "opened")
     assert.equal(v.unsupported, undefined)
-    assert.ok(v.laws.every((l) => l.status === "proved"), JSON.stringify(statuses(v)))
+    assert.ok(
+      v.laws.every((l) => l.status === "proved"),
+      JSON.stringify(statuses(v)),
+    )
     assert.deepEqual(ends(v), ["Failure DepositRefused: reachable", "Failure LedgerError: reachable", "Success: reachable"])
   })
 
   it("imported (a loop over an array of unknown length, an `unknown` error): every law bounded, the loop named as why", async () => {
     const v = await verify(z3, project, specFile, "imported")
     assert.equal(v.unsupported, undefined)
-    assert.ok(v.laws.every((l) => l.status === "bounded"), JSON.stringify(statuses(v)))
+    assert.ok(
+      v.laws.every((l) => l.status === "bounded"),
+      JSON.stringify(statuses(v)),
+    )
     for (const name of ["writesOnlyDepositsHere", "stopsAtAFailedWrite", "failsOnlyWhereItStopped"])
       assert.match(v.laws.find((l) => l.name === name)!.reason!, /runs a loop in a computation at most 4 times \(.*imports\.ts:35:3\)/)
     // An error of type `unknown` has no `_tag` to name: one failure, undistinguished.
@@ -71,14 +85,23 @@ describe("the programs that take text, verified", () => {
   it("balanced (async, an `await` inside an expression): every law proved", async () => {
     const v = await verify(z3, project, specFile, "balanced")
     assert.equal(v.unsupported, undefined)
-    assert.ok(v.laws.every((l) => l.status === "proved"), JSON.stringify(statuses(v)))
+    assert.ok(
+      v.laws.every((l) => l.status === "proved"),
+      JSON.stringify(statuses(v)),
+    )
   })
 
   it("copied (async, a loop of `await`s over an array of unknown length): every law bounded", async () => {
     const v = await verify(z3, project, specFile, "copied")
     assert.equal(v.unsupported, undefined)
-    assert.ok(v.laws.every((l) => l.status === "bounded"), JSON.stringify(statuses(v)))
-    assert.match(v.laws.find((l) => l.name === "writesOnlyDepositsToTheTarget")!.reason!, /runs a loop in a computation at most 4 times \(.*imports\.async\.ts:13:3\)/)
+    assert.ok(
+      v.laws.every((l) => l.status === "bounded"),
+      JSON.stringify(statuses(v)),
+    )
+    assert.match(
+      v.laws.find((l) => l.name === "writesOnlyDepositsToTheTarget")!.reason!,
+      /runs a loop in a computation at most 4 times \(.*imports\.async\.ts:13:3\)/,
+    )
   })
 })
 
@@ -98,7 +121,12 @@ const EXPORTS = [
   "[]",
   "not json",
   exported([{ kind: "deposited", at, id: "d1", amount: 5n }]),
-  exported([opened, { kind: "deposited", at, id: "d1", amount: 5n }, { kind: "withdrawn", at, id: "w1", amount: 2n }, { kind: "deposited", at, id: "d2", amount: 7n }]),
+  exported([
+    opened,
+    { kind: "deposited", at, id: "d1", amount: 5n },
+    { kind: "withdrawn", at, id: "w1", amount: 2n },
+    { kind: "deposited", at, id: "d2", amount: 7n },
+  ]),
 ]
 const RUNS = [[], funded].flatMap((entries) =>
   [false, true].flatMap((failRead) =>
@@ -130,7 +158,7 @@ const running = async <A, E>(program: Effect.Effect<A, E, Ledger>, r: Run): Prom
 }
 
 /** The same stand-in, as the async programs' port: what fails is thrown. */
-const runningAsync = async <A,>(program: (ledger: port.LedgerPort) => Promise<A>, r: Run): Promise<{ out: Out; calls: Array<Call> }> => {
+const runningAsync = async <A>(program: (ledger: port.LedgerPort) => Promise<A>, r: Run): Promise<{ out: Out; calls: Array<Call> }> => {
   const calls: Array<Call> = []
   let appends = 0
   const ledger: port.LedgerPort = {
@@ -198,30 +226,73 @@ interface Plant {
   readonly async?: true
 }
 const PLANTS: ReadonlyArray<Plant> = [
-  { id: "Y1", what: "Effect.try: the error names no text", change: ["new AmountUnreadable({ text })", 'new AmountUnreadable({ text: "" })'], contract: "typed" },
-  { id: "Y2", what: "Effect.try: an unreadable amount is a refusal", change: ["new AmountUnreadable({ text })", "new DepositRefused({ message: text })"], contract: "typed" },
+  {
+    id: "Y1",
+    what: "Effect.try: the error names no text",
+    change: ["new AmountUnreadable({ text })", 'new AmountUnreadable({ text: "" })'],
+    contract: "typed",
+  },
+  {
+    id: "Y2",
+    what: "Effect.try: an unreadable amount is a refusal",
+    change: ["new AmountUnreadable({ text })", "new DepositRefused({ message: text })"],
+    contract: "typed",
+  },
   {
     id: "S1",
     what: "a step inside an expression: the ledger read before the amount is parsed",
     change: ["yield* amountOf(text))", "yield* (yield* Ledger).read(accountId).pipe(Effect.flatMap(() => amountOf(text))))"],
     contract: "typed",
   },
-  { id: "L1", what: "a loop of steps: writes to another account", change: ["yield* ledger.append(accountId, e)", 'yield* ledger.append("*", e)'], contract: "imported" },
-  { id: "L2", what: "a loop of steps: writes every entry, not only the deposits", change: ['if (e.kind === "deposited") yield* ledger.append', "yield* ledger.append"], contract: "imported" },
+  {
+    id: "L1",
+    what: "a loop of steps: writes to another account",
+    change: ["yield* ledger.append(accountId, e)", 'yield* ledger.append("*", e)'],
+    contract: "imported",
+  },
+  {
+    id: "L2",
+    what: "a loop of steps: writes every entry, not only the deposits",
+    change: ['if (e.kind === "deposited") yield* ledger.append', "yield* ledger.append"],
+    contract: "imported",
+  },
   {
     id: "L3",
     what: "a loop of steps: a failed write is passed over",
     change: ["yield* ledger.append(accountId, e)", "yield* ledger.append(accountId, e).pipe(Effect.catch(() => Effect.void))"],
     contract: "imported",
   },
-  { id: "L4", what: "a loop over a known array: the deposit before the opening", change: ['    { kind: "opened", at, owner },\n', ""], contract: "opened" },
-  { id: "A1", what: "async, an `await` inside an expression: the ledger read twice", change: ["accountOf(await ledger.read(accountId))", "accountOf(await ledger.read(accountId) && (await ledger.read(accountId)))"], contract: "balanced", async: true },
-  { id: "A2", what: "async, a loop of `await`s: copies into the source", change: ["await ledger.append(to, e)", "await ledger.append(from, e)"], contract: "copied", async: true },
-  { id: "A3", what: "async, a loop of `await`s: copies every entry, not only the deposits", change: ['if (e.kind === "deposited") await', "await"], contract: "copied", async: true },
+  {
+    id: "L4",
+    what: "a loop over a known array: the deposit before the opening",
+    change: ['    { kind: "opened", at, owner },\n', ""],
+    contract: "opened",
+  },
+  {
+    id: "A1",
+    what: "async, an `await` inside an expression: the ledger read twice",
+    change: ["accountOf(await ledger.read(accountId))", "accountOf(await ledger.read(accountId) && (await ledger.read(accountId)))"],
+    contract: "balanced",
+    async: true,
+  },
+  {
+    id: "A2",
+    what: "async, a loop of `await`s: copies into the source",
+    change: ["await ledger.append(to, e)", "await ledger.append(from, e)"],
+    contract: "copied",
+    async: true,
+  },
+  {
+    id: "A3",
+    what: "async, a loop of `await`s: copies every entry, not only the deposits",
+    change: ['if (e.kind === "deposited") await', "await"],
+    contract: "copied",
+    async: true,
+  },
 ]
 
 /** The planted program, written beside the original so its imports resolve, loaded, then removed. */
-const loaded = async <M,>(file: string, id: string, text: string): Promise<M> => {
+const loaded = async <M>(file: string, id: string, text: string): Promise<M> => {
   const planted = file.replace(/\.ts$/, `.planted-${id}.ts`).replace("imports.async.planted", "imports.planted-async")
   writeFileSync(planted, text)
   try {
@@ -242,9 +313,14 @@ describe("a bug planted in each form", () => {
       assert.equal(v.unsupported, undefined)
       const refuted = v.laws.filter((l) => l.status === "counterexample").map((l) => l.name)
       assert.ok(refuted.length > 0, JSON.stringify(statuses(v)))
-      const [effects, asyncs] = p.async ? [programs, await loaded<AsyncPrograms>(file, p.id, text)] : [await loaded<Programs>(file, p.id, text), asyncPrograms]
+      const [effects, asyncs] = p.async
+        ? [programs, await loaded<AsyncPrograms>(file, p.id, text)]
+        : [await loaded<Programs>(file, p.id, text), asyncPrograms]
       const seen = new Set<string>()
       for (const r of RUNS) for (const l of (await brokenBy(effects, asyncs, r))[p.contract]) seen.add(l)
-      assert.ok(refuted.some((l) => seen.has(l)), `refuted ${refuted.join(", ")}; runs broke ${[...seen].join(", ") || "nothing"}`)
+      assert.ok(
+        refuted.some((l) => seen.has(l)),
+        `refuted ${refuted.join(", ")}; runs broke ${[...seen].join(", ") || "nothing"}`,
+      )
     })
 })

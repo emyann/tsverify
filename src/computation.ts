@@ -104,15 +104,7 @@ export const computationCall = (L: Lowering, fn: FunctionNode, style: Style, env
   run: (trace) => runBody(L, fn, style, env, args, trace, at),
 })
 
-export const runBody = (
-  L: Lowering,
-  fn: FunctionNode,
-  style: Style,
-  env: Env,
-  args: ReadonlyArray<Val>,
-  trace: Val,
-  at: ts.Node,
-): Ran => {
+export const runBody = (L: Lowering, fn: FunctionNode, style: Style, env: Env, args: ReadonlyArray<Val>, trace: Val, at: ts.Node): Ran => {
   if (L.stack.includes(fn)) throw new Unsupported("recursion is not modeled", at)
   L.stack.push(fn)
   try {
@@ -120,7 +112,11 @@ export const runBody = (
     const body = fn.body
     if (body === undefined) throw new Unsupported("a function with no body", fn)
     if (!ts.isBlock(body)) return unran(stepsIn(L, style, body, scope, trace, (stepped, t) => ran(returning(L, style, body, stepped, t))))
-    return unran(statements(L, style, body.statements, 0, scope, trace, (t) => ran({ outcome: success(L, { kind: "nullish", which: "undefined" }), trace: t })))
+    return unran(
+      statements(L, style, body.statements, 0, scope, trace, (t) =>
+        ran({ outcome: success(L, { kind: "nullish", which: "undefined" }), trace: t }),
+      ),
+    )
   } finally {
     L.stack.pop()
   }
@@ -165,7 +161,9 @@ const holdsStep = (style: Style, n: ts.Node): boolean => {
   const memo = held[style]
   let h = memo.get(n)
   if (h === undefined) {
-    h = (style === "gen" ? ts.isYieldExpression(n) : ts.isAwaitExpression(n)) || (ts.forEachChild(n, (c) => holdsStep(style, c) || undefined) ?? false)
+    h =
+      (style === "gen" ? ts.isYieldExpression(n) : ts.isAwaitExpression(n)) ||
+      (ts.forEachChild(n, (c) => holdsStep(style, c) || undefined) ?? false)
     memo.set(n, h)
   }
   return h
@@ -184,12 +182,23 @@ const stepsIn = (L: Lowering, style: Style, n: ts.Node, env: Env, trace: Val, k:
   if (ts.isYieldExpression(n) || ts.isAwaitExpression(n)) {
     const operand = stepOf(style, n)!
     return stepsIn(L, style, operand, env, trace, (env2, t2) =>
-      after(L, step(L, style, operand, env2, t2), n, (value, t3) => k(bound(env2, n, () => value), t3)),
+      after(L, step(L, style, operand, env2, t2), n, (value, t3) =>
+        k(
+          bound(env2, n, () => value),
+          t3,
+        ),
+      ),
     )
   }
   if (ts.isConditionalExpression(n) && (holdsStep(style, n.whenTrue) || holdsStep(style, n.whenFalse)))
     return stepsIn(L, style, n.condition, env, trace, (env2, t2) => {
-      const arm = (b: ts.Expression) => stepsIn(L, style, b, env2, t2, (env3, t3) => k(bound(env3, n, () => lowerExpr(L, b, env3)), t3))
+      const arm = (b: ts.Expression) =>
+        stepsIn(L, style, b, env2, t2, (env3, t3) =>
+          k(
+            bound(env3, n, () => lowerExpr(L, b, env3)),
+            t3,
+          ),
+        )
       return ite(L.u, cond(L, n.condition, env2), arm(n.whenTrue), arm(n.whenFalse), n)
     })
   if (isLogical(n) && holdsStep(style, n.right))
@@ -197,9 +206,28 @@ const stepsIn = (L: Lowering, style: Style, n: ts.Node, env: Env, trace: Val, k:
       const left = lowerExpr(L, n.left, env2)
       const op = n.operatorToken.kind
       const z3 = L.u.z3
-      const stops = op === K.AmpersandAmpersandToken ? z3.Not(truthy(L.u, left)) : op === K.BarBarToken ? truthy(L.u, left) : z3.Not(isNullish(L.u, left))
-      const right = stepsIn(L, style, n.right, env2, t2, (env3, t3) => k(bound(env3, n, () => lowerExpr(L, n.right, env3)), t3))
-      return ite(L.u, stops, k(bound(env2, n, () => left), t2), right, n)
+      const stops =
+        op === K.AmpersandAmpersandToken
+          ? z3.Not(truthy(L.u, left))
+          : op === K.BarBarToken
+            ? truthy(L.u, left)
+            : z3.Not(isNullish(L.u, left))
+      const right = stepsIn(L, style, n.right, env2, t2, (env3, t3) =>
+        k(
+          bound(env3, n, () => lowerExpr(L, n.right, env3)),
+          t3,
+        ),
+      )
+      return ite(
+        L.u,
+        stops,
+        k(
+          bound(env2, n, () => left),
+          t2,
+        ),
+        right,
+        n,
+      )
     })
   const children: Array<ts.Node> = []
   ts.forEachChild(n, (c) => {
@@ -208,7 +236,8 @@ const stepsIn = (L: Lowering, style: Style, n: ts.Node, env: Env, trace: Val, k:
   // In a chain after `?.`, all but the head is evaluated only when what came before is present.
   if ((n.flags & ts.NodeFlags.OptionalChain) !== 0 && children.slice(1).some((c) => holdsStep(style, c)))
     throw new Unsupported("a step after `?.` runs only when what is before it is present, which is not modeled: write an `if`", n)
-  const each = (i: number, scope: Env, t: Val): Val => (i === children.length ? k(scope, t) : stepsIn(L, style, children[i]!, scope, t, (s2, t2) => each(i + 1, s2, t2)))
+  const each = (i: number, scope: Env, t: Val): Val =>
+    i === children.length ? k(scope, t) : stepsIn(L, style, children[i]!, scope, t, (s2, t2) => each(i + 1, s2, t2))
   return each(0, env, trace)
 }
 
@@ -232,7 +261,15 @@ export const onFailure = (L: Lowering, r: Ran, at: ts.Node, handle: (error: Val,
   const error = outcome.field("error")
   if (error === undefined) return r
   if (tag.term.eqIdentity(L.u.z3.String.val("Failure"))) return handle(error, r.trace)
-  return unran(ite(L.u, tag.term.eq(L.u.z3.String.val("Failure")), ran(handle(error, r.trace)), ran({ outcome: asSuccess(outcome), trace: r.trace }), at))
+  return unran(
+    ite(
+      L.u,
+      tag.term.eq(L.u.z3.String.val("Failure")),
+      ran(handle(error, r.trace)),
+      ran({ outcome: asSuccess(outcome), trace: r.trace }),
+      at,
+    ),
+  )
 }
 
 /**
@@ -278,7 +315,12 @@ const statements = (
       if (init === undefined) throw new Unsupported("a `const` with no value", d)
       return stepsIn(L, style, init, scope, t, (stepped, t2) => {
         const inner = new Map(stepped)
-        bindName(L, d.name, later(L, () => lowerExpr(L, init, inner)), inner)
+        bindName(
+          L,
+          d.name,
+          later(L, () => lowerExpr(L, init, inner)),
+          inner,
+        )
         return bindFrom(k + 1, inner, t2)
       })
     }
@@ -296,12 +338,20 @@ const statements = (
   }
   if (ts.isThrowStatement(s)) {
     if (style === "gen") throw new Unsupported("a `throw` in a generator is a defect, which is not modeled; fail instead", s)
-    return stepsIn(L, style, s.expression, env, trace, (stepped, t) => ran({ outcome: failure(L, lowerExpr(L, s.expression, stepped)), trace: t }))
+    return stepsIn(L, style, s.expression, env, trace, (stepped, t) =>
+      ran({ outcome: failure(L, lowerExpr(L, s.expression, stepped)), trace: t }),
+    )
   }
   if (ts.isIfStatement(s))
     return stepsIn(L, style, s.expression, env, trace, (stepped, t) => {
       const branch = (b: ts.Statement) => statements(L, style, ts.isBlock(b) ? b.statements : [b], 0, stepped, t, (t2) => next(t2))
-      return ite(L.u, cond(L, s.expression, stepped), branch(s.thenStatement), s.elseStatement === undefined ? next(t) : branch(s.elseStatement), s)
+      return ite(
+        L.u,
+        cond(L, s.expression, stepped),
+        branch(s.thenStatement),
+        s.elseStatement === undefined ? next(t) : branch(s.elseStatement),
+        s,
+      )
     })
   if (ts.isForOfStatement(s)) return stepsIn(L, style, s.expression, env, trace, (stepped, t) => forOf(L, style, s, stepped, t, next))
   if (ts.isBlock(s)) return statements(L, style, s.statements, 0, env, trace, (t) => next(t))
@@ -358,7 +408,13 @@ const forOf = (L: Lowering, style: Style, s: ts.ForOfStatement, env: Env, trace:
     const scope = new Map(env)
     bindName(L, name, () => xs.elem(z3.Int.val(k)), scope)
     const ran = statements(L, style, body, 0, scope, t, (t2) => through(L, t2))
-    return ite(L.u, z3.Int.val(k).lt(xs.length), whenThrough(L, ran, s, (t2) => iteration(k + 1, t2)), through(L, t), s)
+    return ite(
+      L.u,
+      z3.Int.val(k).lt(xs.length),
+      whenThrough(L, ran, s, (t2) => iteration(k + 1, t2)),
+      through(L, t),
+      s,
+    )
   }
   return whenThrough(L, iteration(0, trace), s, next)
 }

@@ -136,7 +136,9 @@ export const runMutants = async (z3: Ctx, suite: MutantSuite, progress: MutantPr
       if (s === undefined) throw new Error(`${id}: no function \`${name}\` in ${suite.source}`)
       return s.getText(sf)
     })
-    const js = ts.transpileModule(pieces.join("\n\n"), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText
+    const js = ts.transpileModule(pieces.join("\n\n"), {
+      compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext },
+    }).outputText
     const file = path.join(suite.tmp, `${id}.mjs`)
     writeFileSync(file, js)
     return (await import(pathToFileURL(file).href))[main] as Fn
@@ -176,7 +178,8 @@ export const runMutants = async (z3: Ctx, suite: MutantSuite, progress: MutantPr
     const refuted = v.laws.filter((l) => l.status === "counterexample" && !failing.has(l.name))
     for (const l of refuted) {
       const input = l.args!
-      if (suite.laws[l.name]!(...input, fn(...input))) throw new Error(`${m.id}: the counterexample to \`${l.name}\` holds when the planted code runs: the verifier is wrong`)
+      if (suite.laws[l.name]!(...input, fn(...input)))
+        throw new Error(`${m.id}: the counterexample to \`${l.name}\` holds when the planted code runs: the verifier is wrong`)
     }
     const open = v.laws.filter((l) => l.status !== "proved" && l.status !== "counterexample").map((l) => `${l.name}: ${l.status}`)
     const sampled = suite.budgets.map((budget) => {
@@ -189,14 +192,24 @@ export const runMutants = async (z3: Ctx, suite: MutantSuite, progress: MutantPr
     if (refuted.length === 0) {
       const planted = path.join(path.dirname(suite.source), `${path.basename(suite.source, ".ts")}.planted.ts`)
       const sameSpec = path.join(path.dirname(suite.spec), "same.spec.ts")
-      const params = Array.from({ length: arityOf(ts.createSourceFile("source.ts", original, ts.ScriptTarget.Latest, true), main) }, (_, i) => `a${i}`)
+      const params = Array.from(
+        { length: arityOf(ts.createSourceFile("source.ts", original, ts.ScriptTarget.Latest, true), main) },
+        (_, i) => `a${i}`,
+      )
       const sameText = [
         `import { contract } from "tsverify"`,
         `import { ${main} } from ${JSON.stringify(relative(sameSpec, suite.source))}`,
         `import { ${main} as planted } from ${JSON.stringify(relative(sameSpec, planted))}`,
         `export const same = contract(${main}, { ensures: { same: (${[...params, "r"].join(", ")}) => r === planted(${params.join(", ")}) } })`,
       ].join("\n")
-      const p = loadProject([sameSpec], suite.tsconfig, new Map([[planted, text], [sameSpec, sameText]]))
+      const p = loadProject(
+        [sameSpec],
+        suite.tsconfig,
+        new Map([
+          [planted, text],
+          [sameSpec, sameText],
+        ]),
+      )
       const eq = (await verify(z3, p, sameSpec, "same")).laws[0]
       if (eq?.status === "proved") gap = `equivalent in ${main} (proved)`
       else if (eq?.status === "counterexample") {
@@ -224,6 +237,11 @@ export const header = (suite: MutantSuite, report: Pick<MutantReport, "failing" 
 
 export const tableRow = (row: MutantRow): string => {
   const s = row.solver
-  const solver = s.caught.length > 0 ? `caught (${s.caught.join(", ")}), ${fmt(s.ms)}` : s.open.length > 0 ? `open: ${s.open.join("; ")}` : `missed: ${s.gap}`
+  const solver =
+    s.caught.length > 0
+      ? `caught (${s.caught.join(", ")}), ${fmt(s.ms)}`
+      : s.open.length > 0
+        ? `open: ${s.open.join("; ")}`
+        : `missed: ${s.gap}`
   return `| ${row.mutant.id} | ${row.mutant.note} | ${solver} | ${row.sampled.map((x) => (x.caught ? `caught at run ${x.run}` : "missed")).join(" | ")} |`
 }

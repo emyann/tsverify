@@ -41,7 +41,21 @@ import { type Order, compare, isNullish, ite, nullishOr, strictEq, truthy } from
 import { type Purity, purityOf } from "./purity.ts"
 import { type Typing, symbolicOf } from "./symbolic.ts"
 import { type AssumedFn, type Assumptions, coveringViews } from "./trust.ts"
-import { type Env, type FunctionNode, NUM, type Thunk, UNDEFINED, Unsupported, type Val, exactRational, identity, lazy, lazyRecord, memoElems, termId } from "./value.ts"
+import {
+  type Env,
+  type FunctionNode,
+  NUM,
+  type Thunk,
+  UNDEFINED,
+  Unsupported,
+  type Val,
+  exactRational,
+  identity,
+  lazy,
+  lazyRecord,
+  memoElems,
+  termId,
+} from "./value.ts"
 
 /** What a verification trusts, shared by its two sides: the declarations in force, and what came of using them. */
 export interface Trust {
@@ -160,7 +174,14 @@ export const lowerCall = (L: Lowering, fn: FunctionNode, env: Env, args: Readonl
   if (fn.body === undefined) throw new Unsupported("a function with no body", fn)
   L.stack.push(fn)
   try {
-    return runFunction(L, fn, env, args.map((v) => ({ kind: "value", thunk: () => v, owned: false })), undefined, at).value()
+    return runFunction(
+      L,
+      fn,
+      env,
+      args.map((v) => ({ kind: "value", thunk: () => v, owned: false })),
+      undefined,
+      at,
+    ).value()
   } finally {
     L.stack.pop()
   }
@@ -194,7 +215,12 @@ export const bind = (L: Lowering, name: ts.BindingName, value: Thunk, scope: Map
     if (el.dotDotDotToken !== undefined || el.initializer !== undefined)
       throw new Unsupported("rest and default values in destructuring are not modeled", el)
     const key = el.propertyName === undefined ? (el.name as ts.Identifier).text : propertyKey(el.propertyName)
-    bind(L, el.name, later(L, () => member(L, value(), key, el)), scope)
+    bind(
+      L,
+      el.name,
+      later(L, () => member(L, value(), key, el)),
+      scope,
+    )
   }
 }
 
@@ -212,8 +238,7 @@ export const cond = (L: Lowering, e: ts.Expression, env: Env): Bool => {
   if (ts.isPrefixUnaryExpression(e) && e.operator === K.ExclamationToken) return z3.Not(cond(L, e.operand, env))
   if (ts.isBinaryExpression(e) && e.operatorToken.kind === K.AmpersandAmpersandToken)
     return z3.And(cond(L, e.left, env), cond(L, e.right, env))
-  if (ts.isBinaryExpression(e) && e.operatorToken.kind === K.BarBarToken)
-    return z3.Or(cond(L, e.left, env), cond(L, e.right, env))
+  if (ts.isBinaryExpression(e) && e.operatorToken.kind === K.BarBarToken) return z3.Or(cond(L, e.left, env), cond(L, e.right, env))
   return truthy(L.u, lowerExpr(L, e, env))
 }
 
@@ -249,8 +274,15 @@ export const lowerExpr = (L: Lowering, e: ts.Expression, env: Env): Val => {
   if (ts.isAsExpression(e) && ts.isConstTypeReference(e.type)) return lowerExpr(L, e.expression, env)
   if (ts.isSatisfiesExpression(e)) return lowerExpr(L, e.expression, env)
   if (ts.isAsExpression(e) || ts.isTypeAssertionExpression(e))
-    throw new Unsupported("a cast is a claim the verifier would have to trust: check the value instead (`===`, its `_tag`, `x !== undefined`), so its type follows from the check", e)
-  if (ts.isNonNullExpression(e)) throw new Unsupported("`!` is a claim the verifier would have to trust: check the value (`x !== undefined`) and say what happens when it is missing", e)
+    throw new Unsupported(
+      "a cast is a claim the verifier would have to trust: check the value instead (`===`, its `_tag`, `x !== undefined`), so its type follows from the check",
+      e,
+    )
+  if (ts.isNonNullExpression(e))
+    throw new Unsupported(
+      "`!` is a claim the verifier would have to trust: check the value (`x !== undefined`) and say what happens when it is missing",
+      e,
+    )
 
   // Literals.
   if (ts.isBigIntLiteral(e)) return { kind: "int", origin: "bigint", term: z3.Int.val(BigInt(e.text.slice(0, -1).replaceAll("_", ""))) }
@@ -320,7 +352,9 @@ const template = (L: Lowering, e: ts.TemplateExpression, env: Env): Val => {
     }
   })
   const indices = L.u.openBounds()
-  const key = ids.every((i) => i !== undefined) ? `template:${e.getSourceFile().fileName}:${e.pos}(${ids.join(",")})[${indices.map(termId).join(",")}]` : undefined
+  const key = ids.every((i) => i !== undefined)
+    ? `template:${e.getSourceFile().fileName}:${e.pos}(${ids.join(",")})[${indices.map(termId).join(",")}]`
+    : undefined
   const known = key === undefined ? undefined : L.opaque.get(key)
   if (known !== undefined) return known
   const term = L.u.leaf([L.u.fresh("template"), "$"], "str", indices) as never as ReturnType<typeof z3.String.val>
@@ -334,7 +368,11 @@ const template = (L: Lowering, e: ts.TemplateExpression, env: Env): Val => {
 /** `t[k]` for a whole-number literal k on a tuple (or any record): its field `k`. */
 const elementAccess = (L: Lowering, e: ts.ElementAccessExpression, env: Env): Val => {
   const k = literalIndex(e.argumentExpression)
-  if (k === undefined || k < 0n) throw new Unsupported("an element at a computed index is not read: `.at(k)` with a whole-number literal `k`, or `.find`, `.some`, `.every` or a `for…of` loop over the elements", e)
+  if (k === undefined || k < 0n)
+    throw new Unsupported(
+      "an element at a computed index is not read: `.at(k)` with a whole-number literal `k`, or `.find`, `.some`, `.every` or a `for…of` loop over the elements",
+      e,
+    )
   const obj = lowerExpr(L, e.expression, env)
   return optionally(L, obj, e, e.expression, (v) => {
     if (v.kind === "record") {
@@ -342,7 +380,10 @@ const elementAccess = (L: Lowering, e: ts.ElementAccessExpression, env: Env): Va
       if (f === undefined) throw new Unsupported(`no element ${k}`, e)
       return f
     }
-    throw new Unsupported(`\`${e.expression.getText()}[${k}]\` on an array is not read: write \`${e.expression.getText()}.at(${k})\`, whose type says it may be missing`, e)
+    throw new Unsupported(
+      `\`${e.expression.getText()}[${k}]\` on an array is not read: write \`${e.expression.getText()}.at(${k})\`, whose type says it may be missing`,
+      e,
+    )
   })
 }
 
@@ -369,7 +410,8 @@ const namespaceMember = (L: Lowering, e: ts.PropertyAccessExpression, env: Env):
   if (sym === undefined || (sym.flags & ts.SymbolFlags.Alias) === 0) return undefined
   const target = L.checker.getAliasedSymbol(sym)
   const module = target.valueDeclaration ?? target.declarations?.[0]
-  if ((target.flags & ts.SymbolFlags.ValueModule) === 0 || module === undefined || !ts.isSourceFile(module) || module.isDeclarationFile) return undefined
+  if ((target.flags & ts.SymbolFlags.ValueModule) === 0 || module === undefined || !ts.isSourceFile(module) || module.isDeclarationFile)
+    return undefined
   if (module.fileName.includes("/node_modules/")) return undefined
   return ts.isIdentifier(e.name) ? named(L, e.name) : undefined
 }
@@ -396,12 +438,22 @@ const named = (L: Lowering, e: ts.Identifier): Val => {
       return v
     }
   }
-  if (imported && decl !== undefined && (decl.getSourceFile().isDeclarationFile || decl.getSourceFile().fileName.includes("/node_modules/"))) {
+  if (
+    imported &&
+    decl !== undefined &&
+    (decl.getSourceFile().isDeclarationFile || decl.getSourceFile().fileName.includes("/node_modules/"))
+  ) {
     // A namespace's member is named whole (`Effect.gen`): it is the member that is not read.
     const named = ts.isPropertyAccessExpression(e.parent) && e.parent.expression === e ? e.parent.getText() : e.text
-    throw new Unread(`\`${named}\` is a package's, which the verifier does not read: declare what it may assume of it, \`assume(${named}, { pure: true, ensures: { ... } })\`, in the spec or a pack the spec imports`, e)
+    throw new Unread(
+      `\`${named}\` is a package's, which the verifier does not read: declare what it may assume of it, \`assume(${named}, { pure: true, ensures: { ... } })\`, in the spec or a pack the spec imports`,
+      e,
+    )
   }
-  throw new Unsupported(`\`${e.text}\` is a binding the verifier cannot see (a \`let\` or a global): read it from a \`const\` or an argument, or move it into a function the spec declares with \`assume\``, e)
+  throw new Unsupported(
+    `\`${e.text}\` is a binding the verifier cannot see (a \`let\` or a global): read it from a \`const\` or an argument, or move it into a function the spec declares with \`assume\``,
+    e,
+  )
 }
 
 const isModuleConst = (d: ts.VariableDeclaration): boolean =>
@@ -461,7 +513,10 @@ export const member = (L: Lowering, obj: Val, name: string, at: ts.Node, objType
   }
   if (obj.kind === "array" && name === "length") return { kind: "int", origin: "count", term: obj.length }
   if (obj.kind === "str" && name === "length")
-    throw new Unsupported("a string's length counts UTF-16 code units, which is not modeled: compare with `\"\"` to ask whether it is empty, or move it into a function the spec declares with `assume`", at)
+    throw new Unsupported(
+      'a string\'s length counts UTF-16 code units, which is not modeled: compare with `""` to ask whether it is empty, or move it into a function the spec declares with `assume`',
+      at,
+    )
   throw new Unsupported(`member \`${name}\` of a ${obj.kind} is not modeled`, at)
 }
 
@@ -502,9 +557,15 @@ export const applyValue = (L: Lowering, f: Val, args: ReadonlyArray<Val>, at: ts
 const callValue = (L: Lowering, f: Val, e: ts.CallExpression, env: Env): Val => {
   if (e.arguments.some(ts.isSpreadElement)) throw new Unsupported("spread arguments are not modeled", e)
   if (f.kind === "builtin") {
-    const v = f.call(e.arguments.map((a) => lowerExpr(L, a, env)), e)
+    const v = f.call(
+      e.arguments.map((a) => lowerExpr(L, a, env)),
+      e,
+    )
     if (L.mode === "spec" && v.kind === "comp")
-      throw new Unsupported(`spec code calls no operation: \`${f.name}\` is one. A law reads the calls a computation made from the trace it is given`, e)
+      throw new Unsupported(
+        `spec code calls no operation: \`${f.name}\` is one. A law reads the calls a computation made from the trace it is given`,
+        e,
+      )
     return v
   }
   if (f.kind !== "fn") throw new Unsupported(`calling a ${f.kind}`, e)
@@ -513,7 +574,10 @@ const callValue = (L: Lowering, f: Val, e: ts.CallExpression, env: Env): Val => 
     const c = a.computation?.(L, f.node)
     if (c === undefined) continue
     if (L.mode === "spec")
-      throw new Unsupported(`spec code runs no computation: \`${nameOf(c.node)}\` is one. A law reads a computation's outcome and calls from the arguments it is given`, e)
+      throw new Unsupported(
+        `spec code runs no computation: \`${nameOf(c.node)}\` is one. A law reads a computation's outcome and calls from the arguments it is given`,
+        e,
+      )
     return computationCall(L, c.node, c.style, f.env, args, e)
   }
   if (f.env !== EMPTY) return lowerCall(L, f.node, f.env, args, e)
@@ -543,9 +607,13 @@ const assumedFn = (L: Lowering, a: AssumedFn): Val => ({ kind: "builtin", name: 
 const assumedCall = (L: Lowering, a: AssumedFn, args: ReadonlyArray<Val>, at: ts.Node): Val => {
   const { u, checker } = L
   if (L.mode === "spec" && !a.pure)
-    throw new Unsupported(`spec code is deterministic, and \`${a.name}\` is declared \`pure: false\`: call it from the program and pass its result to the law`, at)
+    throw new Unsupported(
+      `spec code is deterministic, and \`${a.name}\` is declared \`pure: false\`: call it from the program and pass its result to the law`,
+      at,
+    )
   if (L.assuming.includes(a)) throw new Unsupported(`a law of \`${a.name}\`'s assumption calls \`${a.name}\` itself`, at)
-  if (!ts.isCallExpression(at)) throw new Unsupported(`\`${a.name}\` is used as a value; a declared function is modeled where it is called`, at)
+  if (!ts.isCallExpression(at))
+    throw new Unsupported(`\`${a.name}\` is used as a value; a declared function is modeled where it is called`, at)
   if (a.pure && a.body !== undefined) {
     let p = L.trust.purity.get(a)
     if (p === undefined) {
@@ -553,13 +621,19 @@ const assumedCall = (L: Lowering, a: AssumedFn, args: ReadonlyArray<Val>, at: ts
       L.trust.purity.set(a, p)
     }
     if (!p.pure)
-      throw new Unsupported(`\`${a.name}\` is declared pure and is not: ${p.why}. Declare it \`pure: false\`, or change it so it changes only what it allocates`, at)
+      throw new Unsupported(
+        `\`${a.name}\` is declared pure and is not: ${p.why}. Declare it \`pure: false\`, or change it so it changes only what it allocates`,
+        at,
+      )
   }
   const views = coveringViews(checker, a, at.arguments)
   if (views.length === 0) {
     const given = at.arguments.map((x) => checker.typeToString(checker.getTypeAtLocation(x))).join(", ")
     const declared = a.views.map((v) => `(${v.params.map((t) => checker.typeToString(t)).join(", ")}) at ${v.where}`).join("; ")
-    throw new Unsupported(`\`${a.name}\` is called with (${given}), which no declaration covers: ${declared}. Add an \`assume\` whose view takes these types`, at)
+    throw new Unsupported(
+      `\`${a.name}\` is called with (${given}), which no declaration covers: ${declared}. Add an \`assume\` whose view takes these types`,
+      at,
+    )
   }
   // Inside a quantifier the result depends on the bound index, as the arguments may: one constant for every element
   // would claim the function constant over them.
@@ -657,7 +731,12 @@ const arrayMethod = (L: Lowering, arr: Extract<Val, { kind: "array" }>, name: st
       return { kind: "maybe", isNull: z3.Bool.val(false), isUndefined: z3.Not(found), value: arr.elem(k) }
     }
     case "slice":
-      return slice(L, arr, e.arguments.map((a) => lowerExpr(L, a, env)), e)
+      return slice(
+        L,
+        arr,
+        e.arguments.map((a) => lowerExpr(L, a, env)),
+        e,
+      )
     case "some":
       return bool(quantify("exists", predicate()))
     case "every":
@@ -667,7 +746,10 @@ const arrayMethod = (L: Lowering, arr: Extract<Val, { kind: "array" }>, name: st
       const x = lowerExpr(L, arg(0), env)
       // `includes` compares as `===` does but for NaN, which only a `number` can be: bigints and counts are whole.
       if (x.kind !== "str" && x.kind !== "bool" && x.kind !== "int")
-        throw new Unsupported("`.includes` of a `number` finds NaN, which `===` does not, and is not modeled: write `.some((y) => y === x)`", e)
+        throw new Unsupported(
+          "`.includes` of a `number` finds NaN, which `===` does not, and is not modeled: write `.some((y) => y === x)`",
+          e,
+        )
       return bool(quantify("exists", (i) => strictEq(u, arr.elem(i), x, e)))
     }
     case "filter": {
@@ -680,7 +762,9 @@ const arrayMethod = (L: Lowering, arr: Extract<Val, { kind: "array" }>, name: st
       if (writtenOut !== undefined) {
         count = z3.Sum(
           z3.Int.val(0),
-          ...Array.from({ length: writtenOut }, (_, k) => z3.If(z3.And(z3.Int.val(k).lt(arr.length), p(z3.Int.val(k))), z3.Int.val(1), z3.Int.val(0))),
+          ...Array.from({ length: writtenOut }, (_, k) =>
+            z3.If(z3.And(z3.Int.val(k).lt(arr.length), p(z3.Int.val(k))), z3.Int.val(1), z3.Int.val(0)),
+          ),
         )
       } else {
         count = z3.Int.const(u.fresh("filtered"))
@@ -710,7 +794,8 @@ const binary = (L: Lowering, e: ts.BinaryExpression, env: Env): Val => {
   if (op === K.AmpersandAmpersandToken || op === K.BarBarToken) {
     const l = lowerExpr(L, e.left, env)
     const r = lowerExpr(L, e.right, env)
-    if (l.kind === "bool" && r.kind === "bool") return bool(op === K.AmpersandAmpersandToken ? z3.And(l.term, r.term) : z3.Or(l.term, r.term))
+    if (l.kind === "bool" && r.kind === "bool")
+      return bool(op === K.AmpersandAmpersandToken ? z3.And(l.term, r.term) : z3.Or(l.term, r.term))
     return op === K.AmpersandAmpersandToken ? ite(u, truthy(u, l), r, l, e) : ite(u, truthy(u, l), l, r, e)
   }
   if (op === K.QuestionQuestionToken) return nullishOr(u, lowerExpr(L, e.left, env), () => lowerExpr(L, e.right, env), e)
@@ -733,7 +818,10 @@ const binary = (L: Lowering, e: ts.BinaryExpression, env: Env): Val => {
     case K.PercentToken:
       return arithmetic(L, op, l, r, e)
     default:
-      throw new Unsupported(`operator ${ts.tokenToString(op)} is not modeled${op === K.EqualsEqualsToken || op === K.ExclamationEqualsToken ? `: write \`${op === K.EqualsEqualsToken ? "===" : "!=="}\` (and \`x === null || x === undefined\` for a nullish check)` : ""}`, e.operatorToken)
+      throw new Unsupported(
+        `operator ${ts.tokenToString(op)} is not modeled${op === K.EqualsEqualsToken || op === K.ExclamationEqualsToken ? `: write \`${op === K.EqualsEqualsToken ? "===" : "!=="}\` (and \`x === null || x === undefined\` for a nullish check)` : ""}`,
+        e.operatorToken,
+      )
   }
 }
 
@@ -753,10 +841,16 @@ export const arithmetic = (L: Lowering, op: ts.SyntaxKind, l: Val, r: Val, e: ts
     if (op === K.PlusToken) return { ...l, term: l.term.add(r.term) }
     if (op === K.MinusToken) return { ...l, term: l.term.sub(r.term) }
     if (op === K.AsteriskToken) return { ...l, term: l.term.mul(r.term) }
-    throw new Unsupported(`bigint \`${ts.tokenToString(op)}\` is not modeled (\`/\` and \`%\` truncate toward zero, which Z3's division does not): keep it out of the code a law reads, or move it into a function the spec declares with \`assume\``, e.operatorToken)
+    throw new Unsupported(
+      `bigint \`${ts.tokenToString(op)}\` is not modeled (\`/\` and \`%\` truncate toward zero, which Z3's division does not): keep it out of the code a law reads, or move it into a function the spec declares with \`assume\``,
+      e.operatorToken,
+    )
   }
   if (l.kind === "num" && r.kind === "num")
-    throw new Unsupported("arithmetic on `number` rounds, which the model of numbers does not see: use `bigint` where the values are whole, or move it into a function the spec declares with `assume`", e.operatorToken)
+    throw new Unsupported(
+      "arithmetic on `number` rounds, which the model of numbers does not see: use `bigint` where the values are whole, or move it into a function the spec declares with `assume`",
+      e.operatorToken,
+    )
   if (op === K.PlusToken && l.kind === "str" && r.kind === "str") return { kind: "str", term: l.term.concat(r.term) }
   throw new Unsupported(`${ts.tokenToString(op)} between a ${l.kind} and a ${r.kind} is not modeled`, e)
 }
@@ -796,7 +890,12 @@ export const firstIndex = (
   u.assume(
     z3.Implies(
       found,
-      z3.And(k.ge(0), k.lt(arr.length), p(k), z3.ForAll([before], z3.Implies(z3.And(before.ge(0), before.lt(k), ...none.facts), z3.Not(none.result)))),
+      z3.And(
+        k.ge(0),
+        k.lt(arr.length),
+        p(k),
+        z3.ForAll([before], z3.Implies(z3.And(before.ge(0), before.lt(k), ...none.facts), z3.Not(none.result))),
+      ),
     ),
   )
   return { found, k }
@@ -863,8 +962,14 @@ const objectLiteral = (L: Lowering, e: ts.ObjectLiteralExpression, env: Env): Va
       if (has !== undefined) return { has, value: v.field(name) }
     }
     // A key its type requires: the value holds it, its own, as a value of its type is taken to be plain data.
-    if (v.kind === "record" && ts.isSpreadAssignment(at) && requiredKey(L.checker, L.checker.getNonNullableType(L.checker.getTypeAtLocation(at.expression)), name)) {
-      u.notes.add("A spread copies each property its value's type requires: the value is taken to be plain data, its properties its own, none a getter.")
+    if (
+      v.kind === "record" &&
+      ts.isSpreadAssignment(at) &&
+      requiredKey(L.checker, L.checker.getNonNullableType(L.checker.getTypeAtLocation(at.expression)), name)
+    ) {
+      u.notes.add(
+        "A spread copies each property its value's type requires: the value is taken to be plain data, its properties its own, none a getter.",
+      )
       return { has: z3.Bool.val(true), value: v.field(name) }
     }
     throw new Unsupported(
@@ -916,7 +1021,9 @@ const arrayLiteral = (L: Lowering, e: ts.ArrayLiteralExpression, env: Env): Val 
     // Past its end the array holds nothing; it is read there only on a path that does not happen (`.find` found
     // nothing in it, a loop's iteration beyond it), where any value of its element type stands in.
     const t = L.checker.getContextualType(e) ?? L.checker.getTypeAtLocation(e)
-    const elementType = L.checker.isArrayType(L.checker.getNonNullableType(t)) ? L.checker.getTypeArguments(L.checker.getNonNullableType(t) as ts.TypeReference)[0] : undefined
+    const elementType = L.checker.isArrayType(L.checker.getNonNullableType(t))
+      ? L.checker.getTypeArguments(L.checker.getNonNullableType(t) as ts.TypeReference)[0]
+      : undefined
     const beyond = new Map<string, Val>()
     const past = (i: Arith): Val => {
       if (elementType === undefined || elementType.flags & ts.TypeFlags.Never) return UNDEFINED
@@ -994,7 +1101,15 @@ const changedNames = (body: ts.Node, checker: ts.TypeChecker): Set<string> => {
     return ts.isIdentifier(x) ? x.text : undefined
   }
   // A value no callee can change: a primitive (`BigInt(text)`, `text.trim()` change nothing).
-  const PRIMITIVE = ts.TypeFlags.StringLike | ts.TypeFlags.NumberLike | ts.TypeFlags.BigIntLike | ts.TypeFlags.BooleanLike | ts.TypeFlags.EnumLike | ts.TypeFlags.Null | ts.TypeFlags.Undefined | ts.TypeFlags.Void
+  const PRIMITIVE =
+    ts.TypeFlags.StringLike |
+    ts.TypeFlags.NumberLike |
+    ts.TypeFlags.BigIntLike |
+    ts.TypeFlags.BooleanLike |
+    ts.TypeFlags.EnumLike |
+    ts.TypeFlags.Null |
+    ts.TypeFlags.Undefined |
+    ts.TypeFlags.Void
   const primitive = (x: ts.Expression): boolean => {
     const t = checker.getTypeAtLocation(x)
     return (t.isUnion() ? t.types : [t]).every((m) => (m.flags & PRIMITIVE) !== 0)
@@ -1005,7 +1120,10 @@ const changedNames = (body: ts.Node, checker: ts.TypeChecker): Set<string> => {
     if (ts.isBinaryExpression(n) && n.operatorToken.kind >= K.FirstAssignment && n.operatorToken.kind <= K.LastAssignment) {
       const r = rootName(n.left)
       if (r !== undefined) found.add(r)
-    } else if ((ts.isPrefixUnaryExpression(n) || ts.isPostfixUnaryExpression(n)) && (n.operator === K.PlusPlusToken || n.operator === K.MinusMinusToken)) {
+    } else if (
+      (ts.isPrefixUnaryExpression(n) || ts.isPostfixUnaryExpression(n)) &&
+      (n.operator === K.PlusPlusToken || n.operator === K.MinusMinusToken)
+    ) {
       const r = rootName(n.operand)
       if (r !== undefined) found.add(r)
     } else if (ts.isDeleteExpression(n)) {
@@ -1050,5 +1168,8 @@ const closureCheck = (L: Lowering, e: ts.ArrowFunction | ts.FunctionExpression):
   }
   visit(e.body)
   if (captured.length > 0)
-    throw new Unsupported(`a closure kept for later over \`${captured[0]}\`, which its function changes: call it where it is written, or pass it the value`, e)
+    throw new Unsupported(
+      `a closure kept for later over \`${captured[0]}\`, which its function changes: call it where it is written, or pass it the value`,
+      e,
+    )
 }

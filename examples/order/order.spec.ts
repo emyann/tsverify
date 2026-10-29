@@ -30,7 +30,6 @@ export const status = contract(statusOf, {
     noSubscriptionNeverWaits: (order, s) => order.subscription === true || s !== "awaiting-reorder",
 
     // 6. Placed: nothing has shipped in the current round.
-    placedHasNoShipmentThisRound: (order, s) =>
-      s !== "placed" || !order.shipments.some((x) => (x.round ?? 0) === order.reorders.length),
+    placedHasNoShipmentThisRound: (order, s) => s !== "placed" || !order.shipments.some((x) => (x.round ?? 0) === order.reorders.length),
   },
 })

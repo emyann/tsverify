@@ -22,7 +22,8 @@ process.on("uncaughtException", (e) => {
   process.exit(3)
 })
 
-const USAGE = "usage: tsverify [<file or folder>...] [--project tsconfig.json] [--bound N] [--timeout MS] [--verbose] [--json]\n       tsverify <spec.ts> <export> [--json]"
+const USAGE =
+  "usage: tsverify [<file or folder>...] [--project tsconfig.json] [--bound N] [--timeout MS] [--verbose] [--json]\n       tsverify <spec.ts> <export> [--json]"
 const argv = process.argv.slice(2)
 const VALUED = new Set(["--project", "--bound", "--timeout"])
 const positional = argv.filter((a, i) => !a.startsWith("--") && !VALUED.has(argv[i - 1] ?? ""))
@@ -83,7 +84,9 @@ const literal = (x: unknown): string =>
             : x !== null && typeof x === "object"
               ? Object.keys(x).length === 0
                 ? "{}"
-                : `{ ${Object.entries(x).map(([k, v]) => `${/^[A-Za-z_$][\w$]*$/.test(k) ? k : JSON.stringify(k)}: ${literal(v)}`).join(", ")} }`
+                : `{ ${Object.entries(x)
+                    .map(([k, v]) => `${/^[A-Za-z_$][\w$]*$/.test(k) ? k : JSON.stringify(k)}: ${literal(v)}`)
+                    .join(", ")} }`
               : x === null || typeof x === "boolean"
                 ? String(x)
                 : `<${typeof x}>`
@@ -147,13 +150,19 @@ const report = (v: Verification, pad: string, full: boolean): Array<string> => {
     out.push(`${pad}${l.status.padEnd(15)} ${l.name}  (${Math.round(l.ms)} ms)`)
     if (l.args !== undefined) out.push(`${under}e.g. ${show(l.args)}`)
     if (l.world !== undefined && Object.keys(l.world).length > 0) out.push(`${under}where ${given(l.world)}`)
-    if (l.abstract !== undefined) out.push(`${under}leans on what is declared of ${l.abstract.join(", ")}: true of them as declared, maybe not as they are`)
+    if (l.abstract !== undefined)
+      out.push(`${under}leans on what is declared of ${l.abstract.join(", ")}: true of them as declared, maybe not as they are`)
     if (l.reason !== undefined) out.push(`${under}${l.reason}`)
   }
   if (v.obligations.length > 0) {
     out.push(`${pad}proof code:`)
     for (const o of v.obligations) {
-      const what = o.kind === "invariant" ? `invariant ${o.phase === "entry" ? "on entry" : "kept by each iteration"}` : o.kind === "requires" ? "lemma's requires" : o.kind
+      const what =
+        o.kind === "invariant"
+          ? `invariant ${o.phase === "entry" ? "on entry" : "kept by each iteration"}`
+          : o.kind === "requires"
+            ? "lemma's requires"
+            : o.kind
       out.push(`${pad}  ${o.status.padEnd(15)} ${what}: ${o.text}  (${rel(o.at)})`)
       if (o.args !== undefined) out.push(`${pad}  ${"".padEnd(15)} e.g. ${show(o.args)}`)
       if (o.reason !== undefined) out.push(`${pad}  ${"".padEnd(15)} ${o.reason}`)
@@ -163,7 +172,12 @@ const report = (v: Verification, pad: string, full: boolean): Array<string> => {
     if (full) {
       out.push(`${pad}trusted (declared, not proved):`)
       for (const t of v.trusted) {
-        const purity = t.purity === "checked" ? `pure, checked from source (read ${t.read?.join(", ")})` : t.purity === "unchecked" ? "pure, unchecked: no source" : "not pure: a fresh result per call"
+        const purity =
+          t.purity === "checked"
+            ? `pure, checked from source (read ${t.read?.join(", ")})`
+            : t.purity === "unchecked"
+              ? "pure, unchecked: no source"
+              : "not pure: a fresh result per call"
         out.push(`${pad}  - ${t.name}: ${purity}${t.laws.length > 0 ? `; laws ${t.laws.join(", ")}` : ""} — ${t.declared.join(", ")}`)
       }
     } else
@@ -172,14 +186,16 @@ const report = (v: Verification, pad: string, full: boolean): Array<string> => {
       )
   }
   if (full) {
-    if (v.cover.length > 0) out.push(`${pad}reaches: ${v.cover.map((c) => (c.status === "reachable" ? c.value : `${c.value} (${c.status})`)).join(", ")}`)
+    if (v.cover.length > 0)
+      out.push(`${pad}reaches: ${v.cover.map((c) => (c.status === "reachable" ? c.value : `${c.value} (${c.status})`)).join(", ")}`)
     out.push(`${pad}assumed:`)
     for (const n of v.notes) out.push(`${pad}  - ${n}`)
   }
   return out
 }
 
-const passed = (v: Verification) => v.unsupported === undefined && v.laws.every((l) => l.status === "proved") && v.obligations.every((o) => o.status === "proved")
+const passed = (v: Verification) =>
+  v.unsupported === undefined && v.laws.every((l) => l.status === "proved") && v.obligations.every((o) => o.status === "proved")
 
 const one = async (z3: Ctx, file: string, name: string, pad: string, full: boolean): Promise<Verification> => {
   const v = relative(await verify(z3, loadProject([file], tsconfigOf(file)), file, name, opts))
@@ -189,7 +205,7 @@ const one = async (z3: Ctx, file: string, name: string, pad: string, full: boole
   return v
 }
 
-const tally = <A,>(xs: ReadonlyArray<A>, key: (x: A) => string): Record<string, number> =>
+const tally = <A>(xs: ReadonlyArray<A>, key: (x: A) => string): Record<string, number> =>
   xs.reduce<Record<string, number>>((m, x) => ({ ...m, [key(x)]: (m[key(x)] ?? 0) + 1 }), {})
 
 /**
@@ -222,8 +238,14 @@ const printReport = (verdicts: ReadonlyArray<{ readonly file: string; readonly v
     totals: {
       contracts: contracts.length,
       files: new Set(contracts.map((c) => c.file)).size,
-      laws: tally(contracts.flatMap((c) => c.laws), (l) => l.status),
-      obligations: tally(contracts.flatMap((c) => c.obligations), (o) => o.status),
+      laws: tally(
+        contracts.flatMap((c) => c.laws),
+        (l) => l.status,
+      ),
+      obligations: tally(
+        contracts.flatMap((c) => c.obligations),
+        (o) => o.status,
+      ),
       unsupported: contracts.filter((c) => c.unsupported !== undefined).length,
     },
   }
@@ -276,7 +298,7 @@ if (json) {
   process.exit(verdicts.every(passed) ? 0 : 1)
 }
 
-const count = <A,>(xs: ReadonlyArray<A>, key: (x: A) => string) =>
+const count = <A>(xs: ReadonlyArray<A>, key: (x: A) => string) =>
   Object.entries(tally(xs, key))
     .map(([k, n]) => `${n} ${k}`)
     .join(", ")
