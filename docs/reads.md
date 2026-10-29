@@ -59,7 +59,7 @@ A check of a value's tag narrows it, as the type checker narrows it. A union who
 kinds, `{ type: "add"; n: bigint } | { type: "name"; n: string }`, is held as one record per member, so `ev.n` is the
 bigint once `ev.type === "add"`, and a counterexample is always one of the members. A call is narrowed by its `op` the
 same way, wherever it stands: once `c.op === "set"`, `c.args[1]` is the `set`'s second argument, inside
-`calls.every((c) => c.op !== "set" || …)` too, where on some runs the call at that place is a `get` of one argument.
+`calls.every((c) => (c.op === "set" ? … : true))` too, where on some runs the call at that place is a `get` of one argument.
 A read takes the paths on which the value can have the type the checker gives the read; no run reaches it on the others.
 
 ## What it refuses, and what to write instead

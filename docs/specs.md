@@ -10,7 +10,7 @@ code takes the spec as its type, so a spec is also where the code's signature co
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="../media/anatomy-dark.svg">
-    <img src="../media/anatomy-light.svg" width="100%" alt="A spec, part by part: spec of the function type (total: number) =&gt; number; requires, what every caller promises; ensures, the laws by name, each given the arguments and then the result, true for every input; and its type, which the code takes as Implementation of ShippingSpec.">
+    <img src="../media/anatomy-light.svg" width="100%" alt="A spec, part by part: spec of the function type (total: number) =&gt; number; requires, what every caller promises; ensures, the laws by name, each given the arguments and then the result, true for every input, written alone or with what it says in words; and its type, which the code takes as Implementation of ShippingSpec.">
   </picture>
 </p>
 
@@ -18,8 +18,12 @@ code takes the spec as its type, so a spec is also where the code's signature co
 | --- | --- |
 | `F`, in `spec<F>` | The function's type: what it takes, and what it returns. The code gets it as its type. |
 | `requires` | What every caller promises, `(...args) => boolean`. The laws are checked only on the inputs that meet it. It may be left out. |
-| `ensures` | The laws, each named for what it says: the report gives each its own line. A law of a pure function is `(...args, result) => boolean`, typed from `F`, so its parameters need no annotation. A law of async code is `(...args, outcome, calls) => boolean` (*Async code*, below). |
+| `ensures` | The laws, each named for what it says: the report gives each its own line. A law of a pure function is `(...args, result) => boolean`, typed from `F`, so its parameters need no annotation. A law of async code is `(...args, outcome, calls) => boolean` (*Async code*, below). A law may also say what it means in words, `{ says: "…", holds: (...args, result) => boolean }`: the report prints the sentence on its line. |
 | `export type StatusSpec = typeof statusSpec` | The spec's type, and all the code imports: it is typed `Implementation<StatusSpec>`, which is `F`. `Implementation<typeof statusSpec>` is the same without the line, the spec exported. |
+
+**"If A, then B" is `A ? B : true`.** A law has nothing to say of an input where A is false, so it is true there.
+`!A || B` says the same, the property-testing way, its premise turned around: `total < 50 || cost === 0` is
+`total >= 50 ? cost === 0 : true`. The type checker narrows in either: once `c.op === "put"`, `c.args[0]` is the `put`'s.
 
 A parcel's status, from a record with two dates that may be missing:
 
@@ -29,10 +33,10 @@ import { spec } from "tsverify"
 import type { Parcel, Status } from "./parcel.ts"
 
 const statusSpec = spec<(parcel: Parcel) => Status>({
-  requires: (parcel) => parcel.deliveredAt === null || (parcel.shippedAt !== null && parcel.deliveredAt >= parcel.shippedAt),
+  requires: (parcel) => (parcel.deliveredAt !== null ? parcel.shippedAt !== null && parcel.deliveredAt >= parcel.shippedAt : true),
   ensures: {
-    deliveredWins: (parcel, status) => parcel.deliveredAt === null || status === "delivered",
-    lostOnlyIfNotDelivered: (parcel, status) => status !== "lost" || (parcel.lost && parcel.deliveredAt === null),
+    deliveredWins: (parcel, status) => (parcel.deliveredAt !== null ? status === "delivered" : true),
+    lostOnlyIfNotDelivered: (parcel, status) => (status === "lost" ? parcel.lost && parcel.deliveredAt === null : true),
     waitingUntilShipped: (parcel, status) => (status === "waiting") === (parcel.shippedAt === null && !parcel.lost),
   },
 })
@@ -224,7 +228,7 @@ which behaviour is meant; the verifier's part is to show that the two differ, an
 
 **A check of `op` narrows a call wherever it stands.** "The last call", `calls.at(-1)`, is a `get` on a run that fails
 and a `put` on one that succeeds; once a law has checked `last.op === "put"`, `last.args[0]` is the user written. Over
-every call it is the same: `calls.every((c) => c.op !== "put" || c.args[0].name === name)` reads each `put`'s argument,
+every call it is the same: `calls.every((c) => (c.op === "put" ? c.args[0].name === name : true))` reads each `put`'s argument,
 and no run reads a `get`'s there.
 
 The Effect adapter reads an Effect program the same way, its operations the methods of the services it requires:
@@ -251,8 +255,8 @@ import { isOverdue } from "./overdue.ts"
 
 export const overdue = contract(isOverdue, {
   ensures: {
-    neverWithoutADate: (due, _now, late) => due !== null || !late,
-    lateOnlyAfter: (due, now, late) => !late || (due !== null && now > due),
+    neverWithoutADate: (due, _now, late) => (due === null ? !late : true),
+    lateOnlyAfter: (due, now, late) => (late ? due !== null && now > due : true),
   },
 })
 ```

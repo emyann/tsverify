@@ -121,7 +121,8 @@ export interface ContractSource {
    */
   readonly target: ts.Node
   readonly requires: FunctionNode | undefined
-  readonly ensures: ReadonlyArray<{ readonly name: string; readonly law: FunctionNode }>
+  /** Each law by name: its predicate, and what it means in words when it says (`{ says, holds }`). */
+  readonly ensures: ReadonlyArray<{ readonly name: string; readonly law: FunctionNode; readonly says?: string }>
 }
 
 /** What kind of contract `init` writes, when it is a call of this package's `contract`, `computation` or `lemma`. */
@@ -267,7 +268,7 @@ const implementationNamed = (project: Project, file: string, name: string): ts.V
 /** A contract's or a spec's `{ requires?, ensures: { law: pred, ... } }`, written in place. */
 const lawsOf = (checker: ts.TypeChecker, lawsArg: ts.Expression): Pick<ContractSource, "requires" | "ensures"> => {
   let requires: FunctionNode | undefined
-  const ensures: Array<{ name: string; law: FunctionNode }> = []
+  const ensures: Array<ContractSource["ensures"][number]> = []
   for (const p of (unwrap(lawsArg) as ts.ObjectLiteralExpression).properties) {
     const value = ts.isPropertyAssignment(p) ? p.initializer : ts.isShorthandPropertyAssignment(p) ? p.name : undefined
     if (value === undefined || !ts.isIdentifier(p.name!)) throw new Unsupported("a contract's parts are `requires` and `ensures`", p)
@@ -276,14 +277,58 @@ const lawsOf = (checker: ts.TypeChecker, lawsArg: ts.Expression): Pick<ContractS
       const laws = unwrap(value)
       if (!ts.isObjectLiteralExpression(laws)) throw new Unsupported("`ensures` is an object of named laws, written in place", p)
       for (const q of laws.properties) {
-        if (ts.isShorthandPropertyAssignment(q)) ensures.push({ name: q.name.text, law: functionOf(checker, q.name) })
+        if (ts.isShorthandPropertyAssignment(q)) ensures.push({ name: q.name.text, ...lawOf(checker, q.name) })
         else if (ts.isPropertyAssignment(q) && (ts.isIdentifier(q.name) || ts.isStringLiteral(q.name)))
-          ensures.push({ name: q.name.text, law: functionOf(checker, q.initializer) })
-        else throw new Unsupported("a law is `name: (args..., result) => boolean`", q)
+          ensures.push({ name: q.name.text, ...lawOf(checker, q.initializer) })
+        else throw new Unsupported("a law is `name: (args..., result) => boolean`, or `name: { says, holds }`", q)
       }
     } else throw new Unsupported(`a contract has no part \`${p.name.text}\``, p)
   }
   return { requires, ensures }
+}
+
+/**
+ * A law as written: a predicate, or `{ says: "…", holds: predicate }`, in place or the `const` a name reads. `says` is
+ * the sentence a report prints for the law.
+ */
+const lawOf = (checker: ts.TypeChecker, e: ts.Expression): { readonly law: FunctionNode; readonly says?: string } => {
+  const x = unwrap(e)
+  const written = ts.isObjectLiteralExpression(x) ? x : constObject(checker, x)
+  if (written === undefined) return { law: functionOf(checker, e) }
+  let says: string | undefined
+  let law: FunctionNode | undefined
+  for (const p of written.properties) {
+    const name = p.name !== undefined && ts.isIdentifier(p.name) ? p.name.text : undefined
+    if (name === "says" && ts.isPropertyAssignment(p)) {
+      const text = unwrap(p.initializer)
+      if (!ts.isStringLiteral(text) && !ts.isNoSubstitutionTemplateLiteral(text))
+        throw new Unsupported('a law\'s `says` is a string written in place: `says: "An order of 50 or more ships free"`', p)
+      says = text.text
+    } else if (name === "holds" && ts.isPropertyAssignment(p)) law = functionOf(checker, p.initializer)
+    else if (name === "holds" && ts.isShorthandPropertyAssignment(p)) law = functionOf(checker, p.name)
+    else throw new Unsupported('a law written as an object is `{ says: "…", holds: (args..., result) => boolean }`', p)
+  }
+  if (law === undefined) throw new Unsupported("a law written as an object has its predicate in `holds`", written)
+  return says === undefined ? { law } : { law, says }
+}
+
+/** The object literal a `const` holds, when `e` names one (in `{ law }`, the shorthand's binding). */
+const constObject = (checker: ts.TypeChecker, e: ts.Expression): ts.ObjectLiteralExpression | undefined => {
+  if (!ts.isIdentifier(e)) return undefined
+  let sym = ts.isShorthandPropertyAssignment(e.parent)
+    ? checker.getShorthandAssignmentValueSymbol(e.parent)
+    : checker.getSymbolAtLocation(e)
+  if (sym !== undefined && sym.flags & ts.SymbolFlags.Alias) sym = checker.getAliasedSymbol(sym)
+  const decl = sym?.valueDeclaration
+  if (
+    decl === undefined ||
+    !ts.isVariableDeclaration(decl) ||
+    decl.initializer === undefined ||
+    (decl.parent.flags & ts.NodeFlags.Const) === 0
+  )
+    return undefined
+  const init = unwrap(decl.initializer)
+  return ts.isObjectLiteralExpression(init) ? init : undefined
 }
 
 export const unwrap = (e: ts.Expression): ts.Expression =>

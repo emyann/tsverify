@@ -50,7 +50,7 @@ describe("statusOf against its doc comment", () => {
     const order = asOrder(v.laws.find((l) => l.name === "onItsWay")!.args?.[0])
     assert.equal(order.shipments.at(-1)?.pickedUpAt, "")
     assert.equal(status.fn(order), "awaiting-pickup")
-    assert.equal(status.ensures["onItsWay"]!(order, status.fn(order)), false)
+    assert.equal(status.ensures["onItsWay"](order, status.fn(order)), false)
   })
 
   it("reaches every status, each witness confirmed by the real code", () => {

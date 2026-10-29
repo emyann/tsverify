@@ -38,7 +38,7 @@ import { spec } from "tsverify"
 const labelSpec = spec<(name: string) => string>({
   ensures: {
     neverEmpty: (_name, label) => label !== "",
-    unnamedWhenEmpty: (name, label) => name !== "" || label == "(unnamed)",
+    unnamedWhenEmpty: (name, label) => (name === "" ? label == "(unnamed)" : true),
   },
 })
 export type LabelSpec = typeof labelSpec
@@ -124,8 +124,8 @@ src/score.ts
 4 contracts in 4 files: laws 3 proved, 1 counterexample, 1 vacuous, 1 unsupported, 1 bounded; obligations 2 proved; 1 not verified
 ```
 
-Each file, then each contract in it, then a line per law: its verdict, its name and how long it took. A line under a law
-says why, or gives an input. The last line counts them all.
+Each file, then each contract in it, then a line per law: its verdict, its name and how long it took, and, first, what
+it says when it is written `{ says, holds }`. A line under a law says why, or gives an input. The last line counts them all.
 
 ## Each verdict, and what to do
 

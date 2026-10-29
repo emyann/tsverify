@@ -151,7 +151,9 @@ const report = (v: Verification, pad: string, full: boolean): Array<string> => {
   const out: Array<string> = []
   const under = `${pad}${"".padEnd(15)} `
   for (const l of v.laws) {
-    out.push(`${pad}${l.status.padEnd(15)} ${l.name}  (${Math.round(l.ms)} ms)`)
+    // A law that says what it means leads with its sentence, and its name, as the code spells it, follows.
+    const ms = `${Math.round(l.ms)} ms`
+    out.push(`${pad}${l.status.padEnd(15)} ${l.says === undefined ? `${l.name}  (${ms})` : `${l.says}  (${l.name}, ${ms})`}`)
     if (l.args !== undefined) out.push(`${under}e.g. ${show(l.args)}`)
     if (l.world !== undefined && Object.keys(l.world).length > 0) out.push(`${under}where ${given(l.world)}`)
     if (l.abstract !== undefined)

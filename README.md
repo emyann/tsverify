@@ -32,10 +32,13 @@ const shippingSpec = spec<(total: number) => number>({
   // What every caller promises: a cart's total is never negative.
   requires: (total) => total >= 0,
   ensures: {
-    // An order of 50 or more ships free.
-    freeFrom50: (total, cost) => total < 50 || cost === 0,
-    // A smaller one pays 5.
-    smallOrdersPay: (total, cost) => total >= 50 || cost === 5,
+    // A law, with what it means in words: the report prints them.
+    freeFrom50: {
+      says: "An order of 50 or more ships free",
+      holds: (total, cost) => (total >= 50 ? cost === 0 : true),
+    },
+    // A law alone: a smaller order pays 5.
+    smallOrdersPay: (total, cost) => (total < 50 ? cost === 5 : true),
   },
 })
 // Its type, which the code takes.
@@ -56,7 +59,7 @@ export const shipping: Implementation<ShippingSpec> = (total) => (total >= 50 ? 
 $ npx tsverify
 src/shipping.ts
   shipping
-    proved          freeFrom50  (98 ms)
+    proved          An order of 50 or more ships free  (freeFrom50, 98 ms)
     proved          smallOrdersPay  (13 ms)
 
 1 contract in 1 file: laws 2 proved
@@ -80,7 +83,7 @@ export const shipping: Implementation<ShippingSpec> = (total) => (total > 50 ? 0
 $ npx tsverify
 src/shipping.ts
   shipping
-    counterexample  freeFrom50  (93 ms)
+    counterexample  An order of 50 or more ships free  (freeFrom50, 93 ms)
                     e.g. (50)
     proved          smallOrdersPay  (14 ms)
 
@@ -96,12 +99,13 @@ agent, knows the work is not done.
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="media/anatomy-dark.svg">
-    <img src="media/anatomy-light.svg" width="100%" alt="A spec, part by part: spec of the function type (total: number) =&gt; number; requires, what every caller promises; ensures, the laws by name, each given the arguments and then the result, true for every input; and its type, which the code takes as Implementation of ShippingSpec.">
+    <img src="media/anatomy-light.svg" width="100%" alt="A spec, part by part: spec of the function type (total: number) =&gt; number; requires, what every caller promises; ensures, the laws by name, each given the arguments and then the result, true for every input, written alone or with what it says in words; and its type, which the code takes as Implementation of ShippingSpec.">
   </picture>
 </p>
 
 That is all there is to it: a law is a function that returns `true`, typed from the function, so its parameters need no
-annotation. A law about async code also gets how the call ended and the calls it made ([below](#laws-about-what-code-did)).
+annotation. Wrapped as `{ says, holds }`, it also says what it means, and the report prints the sentence. A law about async
+code also gets how the call ended and the calls it made ([below](#laws-about-what-code-did)).
 
 ## Why tsverify
 
@@ -138,7 +142,7 @@ export interface Names {
 const renameSpec = spec<(names: Names, id: string, name: string) => Rejects<boolean, Error>>({
   ensures: {
     // An empty name never reaches the store: not a single call.
-    emptyNameTouchesNothing: (_names, _id, name, _out, calls) => name !== "" || calls.length === 0,
+    emptyNameTouchesNothing: (_names, _id, name, _out, calls) => (name === "" ? calls.length === 0 : true),
   },
 })
 export type RenameSpec = typeof renameSpec

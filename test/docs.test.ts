@@ -58,7 +58,7 @@ const stepsOf = (page: string): Array<Step> =>
 /** What a run prints, its timings and the spaces ending a line set aside. */
 const normal = (s: string) =>
   s
-    .replace(/\(\d+ ms\)/g, "(N ms)")
+    .replace(/(\(|, )\d+ ms\)/g, "$1N ms)")
     .split("\n")
     .map((l) => l.trimEnd())
     .join("\n")

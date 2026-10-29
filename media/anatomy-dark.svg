@@ -1,49 +1,67 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 324" width="1000" height="324" role="img" aria-label="A spec, part by part: spec of the function type (total: number) => number; requires, what every caller promises; ensures, the laws by name, each given the arguments and then the result, true for every input; and its type, which the code takes as Implementation of ShippingSpec.">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1060 422" width="1060" height="422" role="img" aria-label="A spec, part by part: spec of the function type (total: number) => number; requires, what every caller promises; ensures, the laws by name, each given the arguments and then the result, true for every input; and its type, which the code takes as Implementation of ShippingSpec.">
 <defs><filter id="shadow" x="-10%" y="-10%" width="120%" height="130%"><feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#000000" flood-opacity="0.35"/></filter></defs>
-<g filter="url(#shadow)"><rect x="16" y="16" width="560" height="240" rx="10" fill="#161b22" stroke="#3d444d"/></g>
-<path d="M16 26 a10 10 0 0 1 10 -10 h540 a10 10 0 0 1 10 10 v20 h-560 z" fill="#1c2128"/>
-<line x1="16" y1="46" x2="576" y2="46" stroke="#3d444d"/>
+<g filter="url(#shadow)"><rect x="16" y="16" width="620" height="344" rx="10" fill="#161b22" stroke="#3d444d"/></g>
+<path d="M16 26 a10 10 0 0 1 10 -10 h600 a10 10 0 0 1 10 10 v20 h-620 z" fill="#1c2128"/>
+<line x1="16" y1="46" x2="636" y2="46" stroke="#3d444d"/>
 <circle cx="32" cy="31" r="4.5" fill="#ff5f57"/>
 <circle cx="46" cy="31" r="4.5" fill="#febc2e"/>
 <circle cx="60" cy="31" r="4.5" fill="#28c840"/>
 <text x="80" y="35.5" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" font-size="12" fill="#9198a1">shipping.contract.ts</text>
 <rect x="241.6" y="61" width="208.5" height="21" rx="5" fill="#132339" stroke="#4493f8" stroke-width="1.2"/>
 <rect x="128.2" y="87" width="176.1" height="21" rx="5" fill="#2f2716" stroke="#d29922" stroke-width="1.2"/>
-<rect x="63.400000000000006" y="139" width="435.29999999999995" height="21" rx="5" fill="#12261e" stroke="#3fb950" stroke-width="1.2"/>
-<rect x="31.0" y="217" width="378.59999999999997" height="21" rx="5" fill="#251c38" stroke="#ab7df8" stroke-width="1.2"/>
+<rect x="79.6" y="165" width="338.09999999999997" height="21" rx="5" fill="#2d1726" stroke="#db61a2" stroke-width="1.2"/>
+<rect x="79.6" y="191" width="467.7" height="21" rx="5" fill="#12261e" stroke="#3fb950" stroke-width="1.2"/>
+<rect x="63.400000000000006" y="243" width="532.5" height="21" rx="5" fill="#0f2a2d" stroke="#39c5cf" stroke-width="1.2"/>
+<rect x="31.0" y="321" width="378.59999999999997" height="21" rx="5" fill="#251c38" stroke="#ab7df8" stroke-width="1.2"/>
 <text x="34" y="76" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" font-size="13.5" textLength="437.4" lengthAdjust="spacingAndGlyphs" xml:space="preserve" style="white-space:pre"><tspan fill="#ff7b72">const</tspan><tspan fill="#e6edf3"> shippingSpec </tspan><tspan fill="#ff7b72">=</tspan><tspan fill="#d2a8ff"> spec</tspan><tspan fill="#e6edf3">&lt;</tspan><tspan fill="#e6edf3">(total: </tspan><tspan fill="#79c0ff">number</tspan><tspan fill="#e6edf3">) </tspan><tspan fill="#ff7b72">=&gt;</tspan><tspan fill="#e6edf3"> </tspan><tspan fill="#79c0ff">number</tspan><tspan fill="#e6edf3">&gt;({</tspan></text>
 <text x="34" y="102" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" font-size="13.5" textLength="275.4" lengthAdjust="spacingAndGlyphs" xml:space="preserve" style="white-space:pre"><tspan fill="#ffa657">  requires</tspan><tspan fill="#e6edf3">: </tspan><tspan fill="#e6edf3">(total) </tspan><tspan fill="#ff7b72">=&gt;</tspan><tspan fill="#e6edf3"> total </tspan><tspan fill="#ff7b72">&gt;=</tspan><tspan fill="#79c0ff"> 0</tspan><tspan fill="#e6edf3">,</tspan></text>
 <text x="34" y="128" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" font-size="13.5" textLength="97.2" lengthAdjust="spacingAndGlyphs" xml:space="preserve" style="white-space:pre"><tspan fill="#ffa657">  ensures</tspan><tspan fill="#e6edf3">: {</tspan></text>
-<text x="34" y="154" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" font-size="13.5" textLength="469.8" lengthAdjust="spacingAndGlyphs" xml:space="preserve" style="white-space:pre"><tspan fill="#d2a8ff">    freeFrom50</tspan><tspan fill="#e6edf3">: </tspan><tspan fill="#e6edf3">(total, cost) </tspan><tspan fill="#ff7b72">=&gt;</tspan><tspan fill="#e6edf3"> total </tspan><tspan fill="#ff7b72">&lt;</tspan><tspan fill="#79c0ff"> 50</tspan><tspan fill="#ff7b72"> || </tspan><tspan fill="#e6edf3">cost </tspan><tspan fill="#ff7b72">===</tspan><tspan fill="#79c0ff"> 0</tspan><tspan fill="#e6edf3">,</tspan></text>
-<text x="34" y="180" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" font-size="13.5" textLength="32.4" lengthAdjust="spacingAndGlyphs" xml:space="preserve" style="white-space:pre"><tspan fill="#e6edf3">  },</tspan></text>
-<text x="34" y="206" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" font-size="13.5" textLength="16.2" lengthAdjust="spacingAndGlyphs" xml:space="preserve" style="white-space:pre"><tspan fill="#e6edf3">})</tspan></text>
-<text x="34" y="232" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" font-size="13.5" textLength="372.6" lengthAdjust="spacingAndGlyphs" xml:space="preserve" style="white-space:pre"><tspan fill="#ff7b72">export</tspan><tspan fill="#ff7b72"> type</tspan><tspan fill="#79c0ff"> ShippingSpec </tspan><tspan fill="#ff7b72">=</tspan><tspan fill="#ff7b72"> typeof</tspan><tspan fill="#e6edf3"> shippingSpec</tspan></text>
-<text x="191.9" y="172" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="10.5" font-weight="600" fill="#3fb950">argument</text>
-<text x="244.6" y="172" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="10.5" font-weight="600" fill="#3fb950">result</text>
-<path d="M479.4 71.5 H586 C608.0 71.5 608.0 50 624 50" fill="none" stroke="#4493f8" stroke-width="1.6"/>
+<text x="34" y="154" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" font-size="13.5" textLength="137.7" lengthAdjust="spacingAndGlyphs" xml:space="preserve" style="white-space:pre"><tspan fill="#d2a8ff">    freeFrom50</tspan><tspan fill="#e6edf3">: {</tspan></text>
+<text x="34" y="180" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" font-size="13.5" textLength="388.8" lengthAdjust="spacingAndGlyphs" xml:space="preserve" style="white-space:pre"><tspan fill="#ffa657">      says</tspan><tspan fill="#e6edf3">: </tspan><tspan fill="#a5d6ff">"An order of 50 or more ships free"</tspan><tspan fill="#e6edf3">,</tspan></text>
+<text x="34" y="206" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" font-size="13.5" textLength="518.4" lengthAdjust="spacingAndGlyphs" xml:space="preserve" style="white-space:pre"><tspan fill="#ffa657">      holds</tspan><tspan fill="#e6edf3">: </tspan><tspan fill="#e6edf3">(total, cost) </tspan><tspan fill="#ff7b72">=&gt;</tspan><tspan fill="#e6edf3"> (total </tspan><tspan fill="#ff7b72">&gt;=</tspan><tspan fill="#79c0ff"> 50</tspan><tspan fill="#ff7b72"> ? </tspan><tspan fill="#e6edf3">cost </tspan><tspan fill="#ff7b72">===</tspan><tspan fill="#79c0ff"> 0</tspan><tspan fill="#ff7b72"> : </tspan><tspan fill="#79c0ff">true</tspan><tspan fill="#e6edf3">),</tspan></text>
+<text x="34" y="232" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" font-size="13.5" textLength="48.6" lengthAdjust="spacingAndGlyphs" xml:space="preserve" style="white-space:pre"><tspan fill="#e6edf3">    },</tspan></text>
+<text x="34" y="258" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" font-size="13.5" textLength="567.0" lengthAdjust="spacingAndGlyphs" xml:space="preserve" style="white-space:pre"><tspan fill="#d2a8ff">    smallOrdersPay</tspan><tspan fill="#e6edf3">: </tspan><tspan fill="#e6edf3">(total, cost) </tspan><tspan fill="#ff7b72">=&gt;</tspan><tspan fill="#e6edf3"> (total </tspan><tspan fill="#ff7b72">&lt;</tspan><tspan fill="#79c0ff"> 50</tspan><tspan fill="#ff7b72"> ? </tspan><tspan fill="#e6edf3">cost </tspan><tspan fill="#ff7b72">===</tspan><tspan fill="#79c0ff"> 5</tspan><tspan fill="#ff7b72"> : </tspan><tspan fill="#79c0ff">true</tspan><tspan fill="#e6edf3">),</tspan></text>
+<text x="34" y="284" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" font-size="13.5" textLength="32.4" lengthAdjust="spacingAndGlyphs" xml:space="preserve" style="white-space:pre"><tspan fill="#e6edf3">  },</tspan></text>
+<text x="34" y="310" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" font-size="13.5" textLength="16.2" lengthAdjust="spacingAndGlyphs" xml:space="preserve" style="white-space:pre"><tspan fill="#e6edf3">})</tspan></text>
+<text x="34" y="336" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" font-size="13.5" textLength="372.6" lengthAdjust="spacingAndGlyphs" xml:space="preserve" style="white-space:pre"><tspan fill="#ff7b72">export</tspan><tspan fill="#ff7b72"> type</tspan><tspan fill="#79c0ff"> ShippingSpec </tspan><tspan fill="#ff7b72">=</tspan><tspan fill="#ff7b72"> typeof</tspan><tspan fill="#e6edf3"> shippingSpec</tspan></text>
+<text x="167.7" y="224" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="10.5" font-weight="600" fill="#3fb950">argument</text>
+<text x="220.3" y="224" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="10.5" font-weight="600" fill="#3fb950">result</text>
+<path d="M479.4 71.5 H646 C668.0 71.5 668.0 50 684 50" fill="none" stroke="#4493f8" stroke-width="1.6"/>
 <circle cx="479.4" cy="71.5" r="3" fill="#4493f8"/>
-<circle cx="638" cy="50" r="11" fill="#4493f8"/>
-<text x="638" y="54.5" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="700" fill="#ffffff">1</text>
-<text x="658" y="55" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="16" font-weight="700" fill="#4493f8">The function's type</text>
-<text x="658" y="76" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="13.5" fill="#9198a1">what it takes, and what it returns</text>
-<path d="M317.4 97.5 H586 C608.0 97.5 608.0 120 624 120" fill="none" stroke="#d29922" stroke-width="1.6"/>
+<circle cx="698" cy="50" r="11" fill="#4493f8"/>
+<text x="698" y="54.5" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="700" fill="#ffffff">1</text>
+<text x="718" y="55" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="16" font-weight="700" fill="#4493f8">The function's type</text>
+<text x="718" y="76" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="13.5" fill="#9198a1">what it takes, and what it returns</text>
+<path d="M317.4 97.5 H646 C668.0 97.5 668.0 114 684 114" fill="none" stroke="#d29922" stroke-width="1.6"/>
 <circle cx="317.4" cy="97.5" r="3" fill="#d29922"/>
-<circle cx="638" cy="120" r="11" fill="#d29922"/>
-<text x="638" y="124.5" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="700" fill="#ffffff">2</text>
-<text x="658" y="125" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="16" font-weight="700" fill="#d29922">What every caller promises</text>
-<text x="658" y="146" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="13.5" fill="#9198a1">the laws are checked on the inputs</text>
-<text x="658" y="164" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="13.5" fill="#9198a1">that meet it (it may be left out)</text>
-<path d="M511.79999999999995 149.5 H586 C608.0 149.5 608.0 190 624 190" fill="none" stroke="#3fb950" stroke-width="1.6"/>
-<circle cx="511.79999999999995" cy="149.5" r="3" fill="#3fb950"/>
-<circle cx="638" cy="190" r="11" fill="#3fb950"/>
-<text x="638" y="194.5" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="700" fill="#ffffff">3</text>
-<text x="658" y="195" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="16" font-weight="700" fill="#3fb950">A law, with its name</text>
-<text x="658" y="216" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="13.5" fill="#9198a1">given the arguments, then the result,</text>
-<text x="658" y="234" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="13.5" fill="#9198a1">it must be true for every input</text>
-<path d="M414.59999999999997 227.5 H586 C608.0 227.5 608.0 260 624 260" fill="none" stroke="#ab7df8" stroke-width="1.6"/>
-<circle cx="414.59999999999997" cy="227.5" r="3" fill="#ab7df8"/>
-<circle cx="638" cy="260" r="11" fill="#ab7df8"/>
-<text x="638" y="264.5" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="700" fill="#ffffff">4</text>
-<text x="658" y="265" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="16" font-weight="700" fill="#ab7df8">Its type, which the code takes</text>
-<text x="658" y="286" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" font-size="12.5" fill="#9198a1">shipping: Implementation&lt;ShippingSpec&gt;</text>
+<circle cx="698" cy="114" r="11" fill="#d29922"/>
+<text x="698" y="118.5" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="700" fill="#ffffff">2</text>
+<text x="718" y="119" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="16" font-weight="700" fill="#d29922">What every caller promises</text>
+<text x="718" y="140" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="13.5" fill="#9198a1">the laws are checked on the inputs</text>
+<text x="718" y="158" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="13.5" fill="#9198a1">that meet it (it may be left out)</text>
+<path d="M430.79999999999995 175.5 H646 C668.0 175.5 668.0 178 684 178" fill="none" stroke="#db61a2" stroke-width="1.6"/>
+<circle cx="430.79999999999995" cy="175.5" r="3" fill="#db61a2"/>
+<circle cx="698" cy="178" r="11" fill="#db61a2"/>
+<text x="698" y="182.5" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="700" fill="#ffffff">3</text>
+<text x="718" y="183" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="16" font-weight="700" fill="#db61a2">What a law means, in words</text>
+<text x="718" y="204" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="13.5" fill="#9198a1">the report prints it on the law's line</text>
+<path d="M560.4 201.5 H646 C668.0 201.5 668.0 242 684 242" fill="none" stroke="#3fb950" stroke-width="1.6"/>
+<circle cx="560.4" cy="201.5" r="3" fill="#3fb950"/>
+<circle cx="698" cy="242" r="11" fill="#3fb950"/>
+<text x="698" y="246.5" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="700" fill="#ffffff">4</text>
+<text x="718" y="247" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="16" font-weight="700" fill="#3fb950">The law</text>
+<text x="718" y="268" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="13.5" fill="#9198a1">given the arguments, then the result,</text>
+<text x="718" y="286" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="13.5" fill="#9198a1">it must be true for every input</text>
+<path d="M609.0 253.5 H646 C668.0 253.5 668.0 306 684 306" fill="none" stroke="#39c5cf" stroke-width="1.6"/>
+<circle cx="609.0" cy="253.5" r="3" fill="#39c5cf"/>
+<circle cx="698" cy="306" r="11" fill="#39c5cf"/>
+<text x="698" y="310.5" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="700" fill="#ffffff">5</text>
+<text x="718" y="311" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="16" font-weight="700" fill="#39c5cf">Or a law alone, with its name</text>
+<text x="718" y="332" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="13.5" fill="#9198a1">no sentence, no object around it</text>
+<path d="M414.59999999999997 331.5 H646 C668.0 331.5 668.0 370 684 370" fill="none" stroke="#ab7df8" stroke-width="1.6"/>
+<circle cx="414.59999999999997" cy="331.5" r="3" fill="#ab7df8"/>
+<circle cx="698" cy="370" r="11" fill="#ab7df8"/>
+<text x="698" y="374.5" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="700" fill="#ffffff">6</text>
+<text x="718" y="375" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="16" font-weight="700" fill="#ab7df8">Its type, which the code takes</text>
+<text x="718" y="396" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" font-size="12.5" fill="#9198a1">shipping: Implementation&lt;ShippingSpec&gt;</text>
 </svg>

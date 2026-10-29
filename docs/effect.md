@@ -119,14 +119,14 @@ import type { BadAmount } from "./amount.ts"
 
 const amountSpec = spec<(text: string) => Effect.Effect<bigint, BadAmount>>({
   ensures: {
-    namesTheText: (text, out) => out._tag === "Success" || out.error.text === text,
+    namesTheText: (text, out) => (out._tag === "Failure" ? out.error.text === text : true),
   },
 })
 export type AmountSpec = typeof amountSpec
 
 const looseAmountSpec = spec<(text: string) => Effect.Effect<bigint, unknown>>({
   ensures: {
-    failsWithSomething: (_text, out) => out._tag === "Success" || out.error !== undefined,
+    failsWithSomething: (_text, out) => (out._tag === "Failure" ? out.error !== undefined : true),
   },
 })
 export type LooseAmountSpec = typeof looseAmountSpec

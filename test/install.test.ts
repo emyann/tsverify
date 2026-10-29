@@ -44,11 +44,12 @@ import type { chargeSpec } from "./charge.contract.ts"
 export const overdraw: Implementation<typeof chargeSpec> = (balance, amount) => balance - amount
 `
 // Runs the law on the counterexample, through what the project installed: no condition, the built JavaScript.
-const REPLAY = `import { chargeSpec } from "./examples/charge/charge.contract.ts"
+const REPLAY = `import { holds } from "tsverify"
+import { chargeSpec } from "./examples/charge/charge.contract.ts"
 import { overdraw } from "./examples/charge/overdraw.ts"
 
 const [balance, amount] = (JSON.parse(process.argv[2]!) as Array<string>).map((x) => BigInt(x.slice(0, -1))) as [bigint, bigint]
-console.log(JSON.stringify(chargeSpec.ensures.neverNegative!(balance, amount, overdraw(balance, amount))))
+console.log(JSON.stringify(holds(chargeSpec.ensures.neverNegative!)(balance, amount, overdraw(balance, amount))))
 `
 
 /** The environment without a `NODE_OPTIONS` of this run's: what runs in the project runs as it would there. */

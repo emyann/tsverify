@@ -63,6 +63,8 @@ export type LawStatus =
 
 export interface LawResult {
   readonly name: string
+  /** What the law means, in words, when it is written `{ says, holds }`. */
+  readonly says?: string
   readonly status: LawStatus
   /** On a counterexample: the arguments, as JavaScript values. */
   readonly args?: ReadonlyArray<unknown>
@@ -262,6 +264,9 @@ const guesser =
         },
       }))
   }
+
+/** A law's `says`, for its result, when it has one. */
+const saying = (law: ContractSource["ensures"][number]): { readonly says?: string } => (law.says === undefined ? {} : { says: law.says })
 
 const lawOn = (side: Lowered, law: ContractSource["ensures"][number]): Bool =>
   side.source.kind === "lemma"
@@ -483,7 +488,7 @@ export const judge = async (
     const { law } = r0
     const started = performance.now()
     if (r0.unsupported !== undefined) {
-      laws.push({ name: law.name, status: "unsupported", reason: r0.unsupported, ms: 0 })
+      laws.push({ name: law.name, ...saying(law), status: "unsupported", reason: r0.unsupported, ms: 0 })
       opts.progress?.(`law ${law.name}: unsupported`)
       continue
     }
@@ -520,7 +525,7 @@ export const judge = async (
               }
             : { status: "unknown", reason: `proof: ${why(proved, proof.u)}; search: ${found.reason}` }
     }
-    laws.push({ name: law.name, ...r, ms: performance.now() - started })
+    laws.push({ name: law.name, ...saying(law), ...r, ms: performance.now() - started })
     searchable.set(law.name, onSearch)
     opts.progress?.(`law ${law.name}: ${r.status} (${Math.round(performance.now() - started)} ms)`)
   }

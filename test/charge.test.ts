@@ -12,6 +12,7 @@ import { after, before, describe, it } from "node:test"
 import { pathToFileURL } from "node:url"
 import ts from "typescript"
 import { chargeSpec } from "../examples/charge/charge.contract.ts"
+import { holds } from "../src/contract.ts"
 import { diagnostics, loadProject } from "../src/project.ts"
 import type { Ctx } from "../src/value.ts"
 import { openZ3, type Verification, verify } from "../src/verify.ts"
@@ -58,7 +59,7 @@ describe("charge, written against its spec", () => {
     try {
       const { charge } = (await import(pathToFileURL(planted).href)) as { charge: (b: bigint, a: bigint) => bigint }
       const [balance, amount] = law.args as [bigint, bigint]
-      assert.equal(chargeSpec.ensures.takesWhatItCan!(balance, amount, charge(balance, amount)), false)
+      assert.equal(holds(chargeSpec.ensures.takesWhatItCan!)(balance, amount, charge(balance, amount)), false)
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }

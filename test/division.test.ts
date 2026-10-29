@@ -84,7 +84,7 @@ describe("bigint division", () => {
     const law = v.laws.find((l) => l.name === "same")
     assert.equal(law?.status, "counterexample")
     const [a, b] = law.args as [bigint, bigint]
-    const same = division.lawUnguarded.ensures.same!
+    const same = division.lawUnguarded.ensures.same
     assert.throws(() => same(a, b, division.lawUnguarded.fn(a, b)), RangeError)
   })
 

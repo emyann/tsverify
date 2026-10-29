@@ -12,6 +12,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import path from "node:path"
 import { pathToFileURL } from "node:url"
 import ts from "typescript"
+import { type Law, holds } from "./contract.ts"
 import { loadProject } from "./project.ts"
 import type { Ctx } from "./value.ts"
 import { verify } from "./verify.ts"
@@ -27,7 +28,7 @@ export interface Mutant {
 }
 
 /** A law of the contract, called with an input and the result: its parameters are the contract's, which differ per suite. */
-type Law = (...args: any) => boolean
+type AnyLaw = Law<(...args: any) => boolean>
 
 export interface MutantSuite {
   readonly tsconfig: string
@@ -35,7 +36,7 @@ export interface MutantSuite {
   readonly spec: string
   readonly contract: string
   /** The contract's laws, imported: property testing runs them on the planted code. */
-  readonly laws: Readonly<Record<string, Law>>
+  readonly laws: Readonly<Record<string, AnyLaw>>
   /** The file of the code under the contract. */
   readonly source: string
   /**
@@ -144,7 +145,7 @@ export const runMutants = async (z3: Ctx, suite: MutantSuite, progress: MutantPr
     return (await import(pathToFileURL(file).href))[main] as Fn
   }
 
-  const laws = Object.entries(suite.laws)
+  const laws = Object.entries(suite.laws).map(([name, law]) => [name, holds(law)] as const)
   const pool = suite.inputs(Math.max(...suite.budgets))
   const sample = (fn: Fn, n: number, skip: ReadonlySet<string>): Omit<Sampled, "budget" | "ms"> => {
     for (let k = 0; k < Math.min(n, pool.length); k++) {
@@ -178,7 +179,7 @@ export const runMutants = async (z3: Ctx, suite: MutantSuite, progress: MutantPr
     const refuted = v.laws.filter((l) => l.status === "counterexample" && !failing.has(l.name))
     for (const l of refuted) {
       const input = l.args!
-      if (suite.laws[l.name]!(...input, fn(...input)))
+      if (holds(suite.laws[l.name]!)(...input, fn(...input)))
         throw new Error(`${m.id}: the counterexample to \`${l.name}\` holds when the planted code runs: the verifier is wrong`)
     }
     const open = v.laws.filter((l) => l.status !== "proved" && l.status !== "counterexample").map((l) => `${l.name}: ${l.status}`)
