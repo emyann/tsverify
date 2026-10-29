@@ -1,54 +1,141 @@
 #!/usr/bin/env node
-// `node src/cli.ts <spec.ts> <export> [--bound 4] [--timeout 10000]`: verifies
-// one contract and prints each law's verdict, the states the result reaches,
-// and what the model assumed. Exits 1 when a law is not proved.
+// tsverify [<file or folder>...] [--project tsconfig.json] [--bound 4] [--timeout 10000] [--verbose]
+//   Verifies every contract each file exports, and every `*.spec.ts` under each folder (the current one by default),
+//   a line per law, then a total. Exits 1 unless every law is proved and says something of its function, and every
+//   obligation of the proof code is proved.
+// tsverify <spec.ts> <export>
+//   Verifies one contract, with everything the verification knows: the states its result reaches, what it trusted
+//   and what it assumed.
+import { existsSync, readdirSync, statSync } from "node:fs"
 import path from "node:path"
-import { loadProject } from "./project.ts"
-import { verify, withZ3 } from "./verify.ts"
+import ts from "typescript"
+import { contractsIn, loadProject } from "./project.ts"
+import type { Ctx } from "./value.ts"
+import { type Options, type Verification, verify, withZ3 } from "./verify.ts"
 
-const [file, name] = process.argv.slice(2).filter((a, i, all) => !a.startsWith("--") && !all[i - 1]?.startsWith("--"))
-if (file === undefined || name === undefined) {
-  console.error("usage: node src/cli.ts <spec.ts> <export> [--bound N] [--timeout MS]")
+const USAGE = "usage: tsverify [<file or folder>...] [--project tsconfig.json] [--bound N] [--timeout MS] [--verbose]\n       tsverify <spec.ts> <export>"
+const argv = process.argv.slice(2)
+const VALUED = new Set(["--project", "--bound", "--timeout"])
+const positional = argv.filter((a, i) => !a.startsWith("--") && !VALUED.has(argv[i - 1] ?? ""))
+const flag = (f: string): string | undefined => {
+  const i = argv.indexOf(f)
+  return i < 0 ? undefined : argv[i + 1]
+}
+const verbose = argv.includes("--verbose")
+const bound = flag("--bound") === undefined ? undefined : Number(flag("--bound"))
+const timeoutMs = flag("--timeout") === undefined ? undefined : Number(flag("--timeout"))
+const opts: Options = { ...(bound ? { bound } : {}), ...(timeoutMs ? { timeoutMs } : {}) }
+
+/** The `tsconfig.json` a file is checked by: `--project`, or the nearest one above it. */
+const tsconfigOf = (file: string): string => {
+  const given = flag("--project")
+  if (given !== undefined) return path.resolve(given)
+  const found = ts.findConfigFile(path.dirname(file), ts.sys.fileExists)
+  if (found === undefined) {
+    console.error(`no tsconfig.json above ${file}: pass one with --project <tsconfig.json>`)
+    process.exit(2)
+  }
+  return found
+}
+
+/** Every `*.spec.ts` under `dir`, outside `node_modules` and dot folders. */
+const specsUnder = (dir: string): Array<string> =>
+  readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
+    const p = path.join(dir, e.name)
+    if (e.isDirectory()) return e.name === "node_modules" || e.name.startsWith(".") ? [] : specsUnder(p)
+    return e.isFile() && e.name.endsWith(".spec.ts") ? [p] : []
+  })
+
+const show = (x: unknown) => JSON.stringify(x, (_, v) => (typeof v === "bigint" ? `${v}n` : typeof v === "number" && !Number.isFinite(v) ? String(v) : v))
+const rel = (p: string) => path.relative(process.cwd(), p) || p
+
+/** The report of one verification, each line indented by `pad`. */
+const report = (v: Verification, pad: string, full: boolean): Array<string> => {
+  const out: Array<string> = []
+  const under = `${pad}${"".padEnd(15)} `
+  for (const l of v.laws) {
+    out.push(`${pad}${l.status.padEnd(15)} ${l.name}  (${Math.round(l.ms)} ms)`)
+    if (l.args !== undefined) out.push(`${under}e.g. ${show(l.args)}`)
+    if (l.abstract !== undefined) out.push(`${under}leans on what is declared of ${l.abstract.join(", ")}: true of them as declared, maybe not as they are`)
+    if (l.reason !== undefined) out.push(`${under}${l.reason}`)
+  }
+  if (v.obligations.length > 0) {
+    out.push(`${pad}proof code:`)
+    for (const o of v.obligations) {
+      const what = o.kind === "invariant" ? `invariant ${o.phase === "entry" ? "on entry" : "kept by each iteration"}` : o.kind === "requires" ? "lemma's requires" : o.kind
+      out.push(`${pad}  ${o.status.padEnd(15)} ${what}: ${o.text}  (${rel(o.at)})`)
+      if (o.args !== undefined) out.push(`${pad}  ${"".padEnd(15)} e.g. ${show(o.args)}`)
+      if (o.reason !== undefined) out.push(`${pad}  ${"".padEnd(15)} ${o.reason}`)
+    }
+  }
+  if (v.trusted.length > 0) {
+    if (full) {
+      out.push(`${pad}trusted (declared, not proved):`)
+      for (const t of v.trusted) {
+        const purity = t.purity === "checked" ? `pure, checked from source (read ${t.read?.join(", ")})` : t.purity === "unchecked" ? "pure, unchecked: no source" : "not pure: a fresh result per call"
+        out.push(`${pad}  - ${t.name}: ${purity}${t.laws.length > 0 ? `; laws ${t.laws.join(", ")}` : ""} — ${t.declared.join(", ")}`)
+      }
+    } else out.push(`${pad}trusted: ${v.trusted.map((t) => `${t.name} (${t.purity}${t.laws.length > 0 ? `, ${t.laws.length} laws` : ""})`).join(", ")}`)
+  }
+  if (full) {
+    if (v.cover.length > 0) out.push(`${pad}reaches: ${v.cover.map((c) => (c.status === "reachable" ? c.value : `${c.value} (${c.status})`)).join(", ")}`)
+    out.push(`${pad}assumed:`)
+    for (const n of v.notes) out.push(`${pad}  - ${n}`)
+  }
+  return out
+}
+
+const passed = (v: Verification) => v.unsupported === undefined && v.laws.every((l) => l.status === "proved") && v.obligations.every((o) => o.status === "proved")
+
+const one = async (z3: Ctx, file: string, name: string, pad: string, full: boolean): Promise<Verification> => {
+  const v = await verify(z3, loadProject([file], tsconfigOf(file)), file, name, opts)
+  if (v.unsupported !== undefined) console.log(`${pad}${name}: not verified — ${v.unsupported}`)
+  else console.log([`${pad}${name}`, ...report(v, `${pad}  `, full)].join("\n"))
+  return v
+}
+
+// One contract, named: everything about it.
+const [first, second] = positional
+if (positional.length === 2 && first !== undefined && second !== undefined && !existsSync(second)) {
+  const v = await withZ3((z3) => one(z3, path.resolve(first), second, "", true))
+  process.exit(passed(v) ? 0 : 1)
+}
+
+// Every contract of every file found.
+const files = (positional.length === 0 ? ["."] : positional).flatMap((p) => {
+  if (!existsSync(p)) {
+    console.error(`${p}: no such file or folder\n${USAGE}`)
+    process.exit(2)
+  }
+  return statSync(p).isDirectory() ? specsUnder(path.resolve(p)) : [path.resolve(p)]
+})
+if (files.length === 0) {
+  console.error(`no *.spec.ts found under ${positional.join(", ") || "."}: name a file, or a folder that holds one\n${USAGE}`)
   process.exit(2)
 }
-const flag = (f: string) => {
-  const i = process.argv.indexOf(f)
-  return i < 0 ? undefined : Number(process.argv[i + 1])
-}
-const tsconfig = path.resolve(import.meta.dirname, "../tsconfig.json")
-const project = loadProject([file], tsconfig)
-const bound = flag("--bound")
-const timeoutMs = flag("--timeout")
-const v = await withZ3((z3) => verify(z3, project, file, name, { ...(bound ? { bound } : {}), ...(timeoutMs ? { timeoutMs } : {}) }))
 
-if (v.unsupported !== undefined) {
-  console.log(`${name}: not verified — ${v.unsupported}`)
-  process.exit(1)
-}
-console.log(`${name}`)
-for (const l of v.laws) {
-  console.log(`  ${l.status.padEnd(15)} ${l.name}  (${Math.round(l.ms)} ms)`)
-  if (l.args !== undefined) console.log(`  ${"".padEnd(15)} e.g. ${JSON.stringify(l.args, (_, x) => (typeof x === "bigint" ? `${x}n` : typeof x === "number" && !Number.isFinite(x) ? String(x) : x))}`)
-  if (l.abstract !== undefined) console.log(`  ${"".padEnd(15)} leans on what is declared of ${l.abstract.join(", ")}: true of them as declared, maybe not as they are`)
-  if (l.reason !== undefined) console.log(`  ${"".padEnd(15)} ${l.reason}`)
-}
-if (v.cover.length > 0) console.log(`  reaches: ${v.cover.map((c) => (c.status === "reachable" ? c.value : `${c.value} (${c.status})`)).join(", ")}`)
-if (v.obligations.length > 0) {
-  console.log("  proof code:")
-  for (const o of v.obligations) {
-    const what = o.kind === "invariant" ? `invariant ${o.phase === "entry" ? "on entry" : "kept by each iteration"}` : o.kind === "requires" ? "lemma's requires" : o.kind
-    console.log(`    ${o.status.padEnd(15)} ${what}: ${o.text}  (${o.at.replace(process.cwd() + "/", "")})`)
-    if (o.args !== undefined) console.log(`    ${"".padEnd(15)} e.g. ${JSON.stringify(o.args, (_, x) => (typeof x === "bigint" ? `${x}n` : x))}`)
-    if (o.reason !== undefined) console.log(`    ${"".padEnd(15)} ${o.reason}`)
+const verdicts: Array<Verification> = []
+await withZ3(async (z3) => {
+  for (const file of files.sort()) {
+    // Each file is its own program: the declarations one spec imports are in force for it alone.
+    const names = contractsIn(loadProject([file], tsconfigOf(file)), file)
+    if (names.length === 0) continue
+    console.log(rel(file))
+    for (const name of names) verdicts.push(await one(z3, file, name, "  ", verbose))
   }
-}
-if (v.trusted.length > 0) {
-  console.log("  trusted (declared, not proved):")
-  for (const t of v.trusted) {
-    const purity = t.purity === "checked" ? `pure, checked from source (read ${t.read?.join(", ")})` : t.purity === "unchecked" ? "pure, unchecked: no source" : "not pure: a fresh result per call"
-    console.log(`    - ${t.name}: ${purity}${t.laws.length > 0 ? `; laws ${t.laws.join(", ")}` : ""} — ${t.declared.join(", ")}`)
-  }
-}
-console.log("  assumed:")
-for (const n of v.notes) console.log(`    - ${n}`)
-process.exit(v.laws.every((l) => l.status === "proved") && v.obligations.every((o) => o.status === "proved") ? 0 : 1)
+})
+
+const count = <A,>(xs: ReadonlyArray<A>, key: (x: A) => string) =>
+  Object.entries(xs.reduce<Record<string, number>>((m, x) => ({ ...m, [key(x)]: (m[key(x)] ?? 0) + 1 }), {}))
+    .map(([k, n]) => `${n} ${k}`)
+    .join(", ")
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`
+const laws = verdicts.flatMap((v) => v.laws)
+const obligations = verdicts.flatMap((v) => v.obligations)
+const unread = verdicts.filter((v) => v.unsupported !== undefined).length
+console.log(
+  `\n${plural(verdicts.length, "contract")} in ${plural(new Set(files).size, "file")}: laws ${count(laws, (l) => l.status) || "none"}` +
+    (obligations.length > 0 ? `; obligations ${count(obligations, (o) => o.status)}` : "") +
+    (unread > 0 ? `; ${unread} not verified` : ""),
+)
+process.exit(verdicts.every(passed) ? 0 : 1)

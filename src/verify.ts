@@ -33,6 +33,11 @@ export type LawStatus =
   | "proved"
   /** An allowed input breaks it; `args` holds one. */
   | "counterexample"
+  /**
+   * Proved, and no result of the law's type would break it either: it says nothing of the function. A law over the
+   * inputs alone, or one whose condition no allowed input meets (`!A || B` with `A` never true).
+   */
+  | "vacuous"
   /** Not proved in time, and no counterexample with arrays of at most `bound` elements. */
   | "bounded"
   | "unknown"
@@ -168,6 +173,28 @@ const lawOn = (side: Lowered, law: ContractSource["ensures"][number]): Bool<"mai
     truthy(side.u, lowerCall(side.L, law.law, emptyEnv, side.trace === undefined ? [...side.args, side.result] : [...side.args, side.result, side.trace], law.law)),
   )
 
+/**
+ * The law with the function's result, and a computation's calls, replaced by any value of the law's own parameter types;
+ * `undefined` when such a value cannot be built.
+ */
+const lawOnAnyResult = (side: Lowered, law: ContractSource["ensures"][number]): Bool<"main"> | undefined => {
+  const params = law.law.parameters
+  const k = side.args.length
+  try {
+    const any = (i: number): Val => {
+      const p = params[i]
+      // A law that does not name it cannot read it: any value will do.
+      if (p === undefined) return i === k ? side.result : side.trace!
+      return symbolicOf(side.L, side.L.checker.getTypeAtLocation(p), [side.u.fresh("any-result")], side.u.openBounds(), p)
+    }
+    const replaced = side.trace === undefined ? [any(k)] : [any(k), any(k + 1)]
+    return inSpec(side.L, () => truthy(side.u, lowerCall(side.L, law.law, emptyEnv, [...side.args, ...replaced], law.law)))
+  } catch (e) {
+    if (e instanceof Unsupported) return undefined
+    throw e
+  }
+}
+
 export const verify = async (z3: Ctx, project: Project, file: string, name: string, opts: Options = {}): Promise<Verification> => {
   const source = readContract(project, file, name)
   const bound = opts.bound ?? 4
@@ -209,7 +236,15 @@ export const verify = async (z3: Ctx, project: Project, file: string, name: stri
     }
     const proved = await solve(proof, [proof.pre, z3.Not(onProof)], opts)
     let r: Omit<LawResult, "name" | "ms">
-    if (proved.status === "unsat" && leaning === undefined) r = { status: "proved" }
+    if (proved.status === "unsat" && leaning === undefined) {
+      // A proof of a law no result could break is a proof of nothing about the function.
+      const onAny = source.kind === "lemma" ? undefined : lawOnAnyResult(proof, law)
+      const breakable = onAny === undefined ? undefined : await solve(proof, [proof.pre, z3.Not(onAny)], opts)
+      r =
+        breakable?.status === "unsat"
+          ? { status: "vacuous", reason: "no result breaks it, whatever the function returns: it says nothing of the function" }
+          : { status: "proved" }
+    }
     else if (proved.status === "sat" && !proof.u.abstracted) r = { status: "counterexample", ...proved.witness }
     else {
       const found = await solve(search, [search.pre, z3.Not(onSearch)], opts)

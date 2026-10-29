@@ -12,16 +12,27 @@ Pinned: Node ≥ 24.16, `z3-solver` 5.3.2, `typescript` 6.0.3. Optional: `effect
 types) and `lodash-es` 4.18.1 (the lodash pack).
 
 ```sh
-npm test            # 122 tests, ~30 s
+npm run verify      # every contract of every *.spec.ts below here, a line per law, then a total (~7 s)
+npm run verify -- examples/account                                   # one folder, or one file
+npm test            # 130 tests, ~30 s
 npm run verify -- examples/order/order.spec.ts status                # a state machine, its doc comment as laws
 npm run verify -- examples/account/account.spec.ts folded            # a loop, through its invariants
 npm run verify -- examples/account/withdraw.spec.ts effectWithdraw   # an Effect program
 npm run verify -- examples/account/withdraw.spec.ts asyncWithdraw    # the same program, async
 npm run bench       # planted bugs: the solver beside property testing (~15 s)
 npm run coverage -- <tsconfig.json> [--modular]                      # how much of a code base it reads
-npm run verify -- <spec.ts> <export>
+npm run verify -- <spec.ts> <export>                                 # one contract, with all it knows
 npm run typecheck
 ```
+
+The command (`tsverify` where the package is installed) exits 0 only when every law is proved and every obligation of the proof code is. Each spec file is verified as
+a program of its own, read through the nearest `tsconfig.json` (or `--project`), so the declarations one spec imports are
+in force for it alone. On this repository it exits 1, on purpose: two examples keep a law the solver refutes, and
+`fixtures/vacuous` holds three vacuous laws.
+
+**A law that says nothing is not proved.** A law no result could break, whatever the function returned, is reported
+`vacuous`: a law over the inputs alone, or `!A || B` whose `A` no allowed input meets. The verifier asks it of every law
+it proves, by giving the law any value of its result's type in place of the function's.
 
 What a program imports:
 - `tsverify`: what a spec author writes. `contract`, `computation`, `assume`, and the proof code `invariant`, `assert`,
@@ -291,7 +302,7 @@ The core never names a library. What no adapter reads is refused where the code 
 | `src/verify.ts` | the queries: laws, reachability, the translator check |
 | `src/computation.ts` | outcomes, traces, operations, and the lowering of a computation's body step by step |
 | `src/adapter.ts`, `src/adapters/` | the adapter interface and the three adapters |
-| `src/cli.ts` | `npm run verify` |
+| `src/cli.ts` | `tsverify`: every contract found, or one by name |
 | `bench/mutants.ts` | the planted-bug benchmark on the order example (`npm run bench`) |
 | `bench/coverage.ts` | how much of a code base the verifier reads (`npm run coverage -- <tsconfig>`) |
 
@@ -302,7 +313,8 @@ The core never names a library. What no adapter reads is refused where the code 
 - The **search side** holds arrays to 4 elements, writes quantifiers out element by element, counts filtered elements
   exactly, and keeps numbers to values a double holds exactly. Every model it finds is a real input.
 
-A law the proof side can't settle in time, and the search side can't break, is reported as `bounded`, never as `proved`.
+A law the proof side can't settle in time, and the search side can't break, is reported as `bounded`, never as `proved`. A
+law proved that no result could break is reported as `vacuous`.
 
 **Numbers.** A `number` is a class (finite, NaN, +∞ or −∞) plus a real value. `===`, `<` and truthiness follow IEEE-754
 exactly. Every double is such a value, so proofs cover all doubles. Arithmetic on `number` is refused, since its rounding

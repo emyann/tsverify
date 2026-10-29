@@ -79,6 +79,30 @@ export interface ContractSource {
   readonly ensures: ReadonlyArray<{ readonly name: string; readonly law: FunctionNode }>
 }
 
+/** What kind of contract `init` writes, when it is a call of this package's `contract`, `computation` or `lemma`. */
+const contractKind = (checker: ts.TypeChecker, init: ts.Expression): ContractSource["kind"] | undefined => {
+  if (!ts.isCallExpression(init)) return undefined
+  if (declared(checker, init.expression, CONTRACT_MODULE, "lemma")) return "lemma"
+  if (declared(checker, init.expression, CONTRACT_MODULE, "contract")) return "function"
+  if (
+    ts.isCallExpression(init.expression) &&
+    (declared(checker, init.expression.expression, CONTRACT_MODULE, "computation") ||
+      declared(checker, init.expression.expression, EFFECT_CONTRACT_MODULE, "computation"))
+  )
+    return "computation"
+  return undefined
+}
+
+/** The names of every contract `file` exports (`export const x = contract(...)`, a computation's, a lemma), in order. */
+export const contractsIn = (project: Project, file: string): Array<string> =>
+  sourceFile(project, file).statements.flatMap((stmt) =>
+    ts.isVariableStatement(stmt) && stmt.modifiers?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword)
+      ? stmt.declarationList.declarations.flatMap((d) =>
+          ts.isIdentifier(d.name) && d.initializer !== undefined && contractKind(project.checker, unwrap(d.initializer)) !== undefined ? [d.name.text] : [],
+        )
+      : [],
+  )
+
 /**
  * Reads, from source, `export const <name> = contract(fn, { requires?, ensures: { law: pred, ... } })` or
  * `computation<Ops>()(fn, { ... })`: every part written in place, the predicates functions, `fn` a function or a
@@ -101,16 +125,8 @@ export const readContract = (project: Project, file: string, name: string): Cont
     }
     return { name, kind: "lemma", target: statement, requires, ensures: [{ name: "holds", law: statement }] }
   }
-  const helper = !ts.isCallExpression(init)
-    ? undefined
-    : declared(checker, init.expression, CONTRACT_MODULE, "contract")
-      ? "function"
-      : ts.isCallExpression(init.expression) &&
-          (declared(checker, init.expression.expression, CONTRACT_MODULE, "computation") ||
-            declared(checker, init.expression.expression, EFFECT_CONTRACT_MODULE, "computation"))
-        ? "computation"
-        : undefined
-  if (helper === undefined || !ts.isCallExpression(init))
+  const helper = contractKind(checker, init)
+  if (helper === undefined || helper === "lemma" || !ts.isCallExpression(init))
     throw new Unsupported(`\`${name}\` is not a \`contract(...)\`, a \`computation<...>()(...)\` or a \`lemma(...)\` of this package`, init)
   const [fnArg, lawsArg] = init.arguments
   if (fnArg === undefined || lawsArg === undefined || !ts.isObjectLiteralExpression(unwrap(lawsArg)))

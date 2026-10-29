@@ -11,7 +11,7 @@
       ],
       "open": [],
       "gap": "",
-      "ms": 576.947584
+      "ms": 821.875941
     },
     "sampled": [
       {
@@ -19,21 +19,21 @@
         "caught": true,
         "run": 5,
         "law": "fulfilledCompletes",
-        "ms": 0.06702500000005784
+        "ms": 0.07266600000002654
       },
       {
         "budget": 1000,
         "caught": true,
         "run": 5,
         "law": "fulfilledCompletes",
-        "ms": 0.013118999999960579
+        "ms": 0.012639000000035594
       },
       {
         "budget": 10000,
         "caught": true,
         "run": 5,
         "law": "fulfilledCompletes",
-        "ms": 0.013782999999875756
+        "ms": 0.013809000000037486
       }
     ]
   },
@@ -49,7 +49,7 @@
       ],
       "open": [],
       "gap": "",
-      "ms": 551.655675
+      "ms": 792.8012429999999
     },
     "sampled": [
       {
@@ -57,21 +57,21 @@
         "caught": true,
         "run": 3,
         "law": "refundedRefunds",
-        "ms": 0.05977699999994002
+        "ms": 0.051468000000113534
       },
       {
         "budget": 1000,
         "caught": true,
         "run": 3,
         "law": "refundedRefunds",
-        "ms": 0.006778999999824009
+        "ms": 0.006808000000091852
       },
       {
         "budget": 10000,
         "caught": true,
         "run": 3,
         "law": "refundedRefunds",
-        "ms": 0.005067999999937456
+        "ms": 0.005004999999982829
       }
     ]
   },
@@ -87,7 +87,7 @@
       ],
       "open": [],
       "gap": "",
-      "ms": 541.4837769999999
+      "ms": 810.1458340000004
     },
     "sampled": [
       {
@@ -95,21 +95,21 @@
         "caught": true,
         "run": 45,
         "law": "cancelOutranks",
-        "ms": 0.19943199999988792
+        "ms": 0.26351599999998143
       },
       {
         "budget": 1000,
         "caught": true,
         "run": 45,
         "law": "cancelOutranks",
-        "ms": 0.31022299999995084
+        "ms": 0.10865900000044348
       },
       {
         "budget": 10000,
         "caught": true,
         "run": 45,
         "law": "cancelOutranks",
-        "ms": 0.2358950000002551
+        "ms": 0.07869599999958155
       }
     ]
   },
@@ -125,7 +125,7 @@
       ],
       "open": [],
       "gap": "",
-      "ms": 547.8828290000001
+      "ms": 895.0106429999996
     },
     "sampled": [
       {
@@ -133,21 +133,21 @@
         "caught": true,
         "run": 11,
         "law": "cancelingOnlyWhenAsked",
-        "ms": 0.06951699999990524
+        "ms": 0.07283600000027945
       },
       {
         "budget": 1000,
         "caught": true,
         "run": 11,
         "law": "cancelingOnlyWhenAsked",
-        "ms": 0.018246999999973923
+        "ms": 0.021400000000539876
       },
       {
         "budget": 10000,
         "caught": true,
         "run": 11,
         "law": "cancelingOnlyWhenAsked",
-        "ms": 0.021296999999776745
+        "ms": 0.0284510000001319
       }
     ]
   },
@@ -163,7 +163,7 @@
       ],
       "open": [],
       "gap": "",
-      "ms": 574.5049469999999
+      "ms": 883.3764780000001
     },
     "sampled": [
       {
@@ -171,21 +171,21 @@
         "caught": true,
         "run": 4,
         "law": "movingMeansAnOpenShipment",
-        "ms": 0.07051300000011906
+        "ms": 0.06116500000007363
       },
       {
         "budget": 1000,
         "caught": true,
         "run": 4,
         "law": "movingMeansAnOpenShipment",
-        "ms": 0.006191000000399072
+        "ms": 0.006402999999409076
       },
       {
         "budget": 10000,
         "caught": true,
         "run": 4,
         "law": "movingMeansAnOpenShipment",
-        "ms": 0.005425000000286673
+        "ms": 0.0057500000002619345
       }
     ]
   },
@@ -198,24 +198,24 @@
     "solver": {
       "caught": [],
       "open": [],
-      "gap": "changes a result no law forbids: \"settling\" becomes \"paused\" on {\"resolution\":null,\"cancelRequested\":false,\"shipments\":[{\"outcome\":\"delivered\",\"round\":null,\"pickedUpAt\":\"\"},{\"outcome\":\"delivered\",\"round\":null,\"pickedUpAt\":\"\"},{\"outcome\":\"delivered\",\"pickedUpAt\":\"\"},{\"outcome\":\"delivered\",\"round\":0.0009765625,\"pickedUpAt\":\"\"}],\"subscription\":true,\"paused\":false,\"reorders\":[]}",
-      "ms": 457.87782500000003
+      "gap": "changes a result no law forbids: \"settling\" becomes \"paused\" on {\"resolution\":null,\"cancelRequested\":false,\"shipments\":[{\"outcome\":\"returned\",\"pickedUpAt\":\"\"},{\"outcome\":\"returned\",\"pickedUpAt\":\"\"},{\"outcome\":\"returned\",\"pickedUpAt\":\"\"},{\"outcome\":\"returned\",\"pickedUpAt\":\"\"}],\"subscription\":true,\"paused\":false,\"reorders\":[]}",
+      "ms": 722.9630590000006
     },
     "sampled": [
       {
         "budget": 100,
         "caught": false,
-        "ms": 0.23671999999987747
+        "ms": 0.3112350000001243
       },
       {
         "budget": 1000,
         "caught": false,
-        "ms": 1.2852759999996124
+        "ms": 1.3736829999998008
       },
       {
         "budget": 10000,
         "caught": false,
-        "ms": 13.143089999999575
+        "ms": 14.15710399999989
       }
     ]
   },
@@ -231,7 +231,7 @@
       ],
       "open": [],
       "gap": "",
-      "ms": 565.6645799999997
+      "ms": 775.1710949999997
     },
     "sampled": [
       {
@@ -239,21 +239,21 @@
         "caught": true,
         "run": 53,
         "law": "placedHasNoShipmentThisRound",
-        "ms": 0.10295099999984814
+        "ms": 0.11402799999996205
       },
       {
         "budget": 1000,
         "caught": true,
         "run": 53,
         "law": "placedHasNoShipmentThisRound",
-        "ms": 0.05234999999993306
+        "ms": 0.09825799999998708
       },
       {
         "budget": 10000,
         "caught": true,
         "run": 53,
         "law": "placedHasNoShipmentThisRound",
-        "ms": 0.046141000000716303
+        "ms": 0.06679100000019389
       }
     ]
   },
@@ -269,7 +269,7 @@
       ],
       "open": [],
       "gap": "",
-      "ms": 663.6764350000003
+      "ms": 878.7523409999994
     },
     "sampled": [
       {
@@ -277,21 +277,21 @@
         "caught": true,
         "run": 53,
         "law": "placedHasNoShipmentThisRound",
-        "ms": 0.07342200000039156
+        "ms": 0.07052800000019488
       },
       {
         "budget": 1000,
         "caught": true,
         "run": 53,
         "law": "placedHasNoShipmentThisRound",
-        "ms": 0.046529000000191445
+        "ms": 0.02978900000016438
       },
       {
         "budget": 10000,
         "caught": true,
         "run": 53,
         "law": "placedHasNoShipmentThisRound",
-        "ms": 0.02938300000005256
+        "ms": 0.025013000000399188
       }
     ]
   },
@@ -308,7 +308,7 @@
       ],
       "open": [],
       "gap": "",
-      "ms": 583.01685
+      "ms": 761.8802890000006
     },
     "sampled": [
       {
@@ -316,21 +316,21 @@
         "caught": true,
         "run": 11,
         "law": "awaitingNeedsASubscription",
-        "ms": 0.07789299999967625
+        "ms": 0.06111400000008871
       },
       {
         "budget": 1000,
         "caught": true,
         "run": 11,
         "law": "awaitingNeedsASubscription",
-        "ms": 0.02852199999961158
+        "ms": 0.021589000001768
       },
       {
         "budget": 10000,
         "caught": true,
         "run": 11,
         "law": "awaitingNeedsASubscription",
-        "ms": 0.0219809999998688
+        "ms": 0.016409999998359126
       }
     ]
   },
@@ -344,23 +344,23 @@
       "caught": [],
       "open": [],
       "gap": "equivalent in statusOf (proved)",
-      "ms": 524.2744229999998
+      "ms": 781.8858170000003
     },
     "sampled": [
       {
         "budget": 100,
         "caught": false,
-        "ms": 0.17923500000051718
+        "ms": 0.21305900000152178
       },
       {
         "budget": 1000,
         "caught": false,
-        "ms": 0.6650410000002012
+        "ms": 0.5222059999996418
       },
       {
         "budget": 10000,
         "caught": false,
-        "ms": 5.795689000000493
+        "ms": 12.669198999999935
       }
     ]
   },
@@ -374,23 +374,23 @@
       "caught": [],
       "open": [],
       "gap": "changes a result no law forbids: \"settling\" becomes \"awaiting-reorder\" on {\"resolution\":null,\"cancelRequested\":false,\"shipments\":[{\"outcome\":\"lost\",\"pickedUpAt\":\"\"},{\"outcome\":\"lost\",\"pickedUpAt\":\"\"}],\"subscription\":true,\"paused\":false,\"reorders\":[]}",
-      "ms": 505.5162049999999
+      "ms": 766.567685
     },
     "sampled": [
       {
         "budget": 100,
         "caught": false,
-        "ms": 0.18750600000021223
+        "ms": 0.1916639999999461
       },
       {
         "budget": 1000,
         "caught": false,
-        "ms": 0.6551990000007208
+        "ms": 0.8334150000009686
       },
       {
         "budget": 10000,
         "caught": false,
-        "ms": 4.927711000000272
+        "ms": 4.91174300000057
       }
     ]
   },
@@ -403,24 +403,24 @@
     "solver": {
       "caught": [],
       "open": [],
-      "gap": "changes a result no law forbids: \"awaiting-reorder\" becomes \"settling\" on {\"resolution\":null,\"cancelRequested\":false,\"shipments\":[{\"outcome\":\"delivered\",\"pickedUpAt\":\"\"},{\"outcome\":\"delivered\",\"pickedUpAt\":\"\"}],\"subscription\":true,\"paused\":false,\"reorders\":[]}",
-      "ms": 501.50222399999984
+      "gap": "changes a result no law forbids: \"awaiting-reorder\" becomes \"settling\" on {\"resolution\":null,\"cancelRequested\":false,\"shipments\":[{\"outcome\":\"delivered\",\"pickedUpAt\":\"\"},{\"outcome\":\"delivered\",\"pickedUpAt\":\"\"},{\"outcome\":\"delivered\",\"pickedUpAt\":\"\"},{\"outcome\":\"delivered\",\"pickedUpAt\":\"\"}],\"subscription\":true,\"paused\":false,\"reorders\":[]}",
+      "ms": 771.8414139999986
     },
     "sampled": [
       {
         "budget": 100,
         "caught": false,
-        "ms": 0.19977499999913562
+        "ms": 0.17885600000045088
       },
       {
         "budget": 1000,
         "caught": false,
-        "ms": 0.48416300000099
+        "ms": 0.48803100000077393
       },
       {
         "budget": 10000,
         "caught": false,
-        "ms": 5.027103000000352
+        "ms": 4.8643970000011905
       }
     ]
   },
@@ -433,24 +433,24 @@
     "solver": {
       "caught": [],
       "open": [],
-      "gap": "changes a result no law forbids: \"settling\" becomes \"awaiting-reorder\" on {\"resolution\":null,\"cancelRequested\":false,\"shipments\":[{\"outcome\":\"delivered\",\"round\":null,\"pickedUpAt\":\"\"},{\"outcome\":\"delivered\",\"round\":null,\"pickedUpAt\":\"\"},{\"outcome\":\"delivered\",\"pickedUpAt\":\"\"},{\"outcome\":\"delivered\",\"round\":null,\"pickedUpAt\":\"\"}],\"subscription\":true,\"paused\":false,\"reorders\":[]}",
-      "ms": 561.4427730000007
+      "gap": "changes a result no law forbids: \"settling\" becomes \"awaiting-reorder\" on {\"resolution\":null,\"cancelRequested\":false,\"shipments\":[{\"outcome\":\"delivered\",\"pickedUpAt\":\"\"},{\"outcome\":\"delivered\",\"pickedUpAt\":\"\"},{\"outcome\":\"delivered\",\"pickedUpAt\":\"\"},{\"outcome\":\"delivered\",\"round\":null,\"pickedUpAt\":\"\"}],\"subscription\":true,\"paused\":false,\"reorders\":[]}",
+      "ms": 835.310958
     },
     "sampled": [
       {
         "budget": 100,
         "caught": false,
-        "ms": 0.1725559999995312
+        "ms": 0.19168199999876379
       },
       {
         "budget": 1000,
         "caught": false,
-        "ms": 0.416639999999461
+        "ms": 0.484056999999666
       },
       {
         "budget": 10000,
         "caught": false,
-        "ms": 5.042505000001256
+        "ms": 4.930365000000165
       }
     ]
   },
@@ -464,23 +464,23 @@
       "caught": [],
       "open": [],
       "gap": "equivalent in statusOf (proved)",
-      "ms": 461.44972999999845
+      "ms": 856.0550409999996
     },
     "sampled": [
       {
         "budget": 100,
         "caught": false,
-        "ms": 0.19213099999979022
+        "ms": 0.19511600000078033
       },
       {
         "budget": 1000,
         "caught": false,
-        "ms": 0.45250900000064576
+        "ms": 0.3870409999999538
       },
       {
         "budget": 10000,
         "caught": false,
-        "ms": 4.69333799999913
+        "ms": 4.065268000000287
       }
     ]
   },
@@ -493,24 +493,24 @@
     "solver": {
       "caught": [],
       "open": [],
-      "gap": "changes a result no law forbids: \"placed\" becomes \"settling\" on {\"resolution\":null,\"cancelRequested\":false,\"shipments\":[{\"outcome\":\"delivered\",\"round\":null,\"pickedUpAt\":\"\"},{\"outcome\":\"delivered\",\"round\":null,\"pickedUpAt\":\"\"}],\"paused\":false,\"reorders\":[{}]}",
-      "ms": 470.97601399999985
+      "gap": "changes a result no law forbids: \"placed\" becomes \"settling\" on {\"resolution\":null,\"cancelRequested\":false,\"shipments\":[{\"outcome\":\"delivered\",\"round\":0.0009765625,\"pickedUpAt\":\"\"},{\"outcome\":\"delivered\",\"round\":null,\"pickedUpAt\":\"\"},{\"outcome\":\"delivered\",\"round\":12.041015625,\"pickedUpAt\":\"\"},{\"outcome\":\"delivered\",\"round\":0.0009765625,\"pickedUpAt\":\"\"}],\"paused\":false,\"reorders\":[]}",
+      "ms": 763.6899250000006
     },
     "sampled": [
       {
         "budget": 100,
         "caught": false,
-        "ms": 0.16490599999997357
+        "ms": 0.21442799999931594
       },
       {
         "budget": 1000,
         "caught": false,
-        "ms": 0.45665099999860104
+        "ms": 0.49708299999838346
       },
       {
         "budget": 10000,
         "caught": false,
-        "ms": 4.49821300000076
+        "ms": 5.0892970000022615
       }
     ]
   },
@@ -526,7 +526,7 @@
       ],
       "open": [],
       "gap": "",
-      "ms": 494.49246200000016
+      "ms": 746.0699619999978
     },
     "sampled": [
       {
@@ -534,21 +534,21 @@
         "caught": true,
         "run": 98,
         "law": "placedHasNoShipmentThisRound",
-        "ms": 0.0879930000010063
+        "ms": 0.09717299999829265
       },
       {
         "budget": 1000,
         "caught": true,
         "run": 98,
         "law": "placedHasNoShipmentThisRound",
-        "ms": 0.03756799999973737
+        "ms": 0.04592000000047847
       },
       {
         "budget": 10000,
         "caught": true,
         "run": 98,
         "law": "placedHasNoShipmentThisRound",
-        "ms": 0.04071699999985867
+        "ms": 0.043772000000899425
       }
     ]
   },
@@ -564,7 +564,7 @@
       ],
       "open": [],
       "gap": "",
-      "ms": 514.4324149999993
+      "ms": 779.8265240000001
     },
     "sampled": [
       {
@@ -572,21 +572,21 @@
         "caught": true,
         "run": 93,
         "law": "placedHasNoShipmentThisRound",
-        "ms": 0.10121699999945122
+        "ms": 0.08312200000000303
       },
       {
         "budget": 1000,
         "caught": true,
         "run": 93,
         "law": "placedHasNoShipmentThisRound",
-        "ms": 0.037871000000450294
+        "ms": 0.03980799999771989
       },
       {
         "budget": 10000,
         "caught": true,
         "run": 93,
         "law": "placedHasNoShipmentThisRound",
-        "ms": 0.06269600000086939
+        "ms": 0.03352900000027148
       }
     ]
   },
@@ -600,23 +600,23 @@
       "caught": [],
       "open": [],
       "gap": "equivalent in statusOf (proved)",
-      "ms": 526.7266010000003
+      "ms": 838.9582990000017
     },
     "sampled": [
       {
         "budget": 100,
         "caught": false,
-        "ms": 0.21134899999924528
+        "ms": 0.18816199999855598
       },
       {
         "budget": 1000,
         "caught": false,
-        "ms": 0.3940280000006169
+        "ms": 0.5872579999995651
       },
       {
         "budget": 10000,
         "caught": false,
-        "ms": 4.069713000000775
+        "ms": 4.967810999998619
       }
     ]
   }
