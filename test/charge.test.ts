@@ -1,9 +1,9 @@
 // A spec written before the code (examples/charge): the implementation takes the
-// spec as its type, `Implementation<typeof ChargeSpec>`, through a type-only
-// import, so nothing of the spec runs. The verifier finds the spec from that
-// type and proves its laws; a wrong body is refuted with an input the real code
-// breaks on; a wrong signature does not type-check; and a type that names no
-// spec is refused.
+// spec as its type, `Implementation<ChargeSpec>` (`ChargeSpec` the spec's type,
+// or `typeof chargeSpec` in place), through a type-only import, so nothing of the
+// spec runs. The verifier finds the spec from that type and proves its laws; a
+// wrong body is refuted with an input the real code breaks on; a wrong signature
+// does not type-check; and a type that names no spec is refused.
 import assert from "node:assert/strict"
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
@@ -11,7 +11,7 @@ import path from "node:path"
 import { after, before, describe, it } from "node:test"
 import { pathToFileURL } from "node:url"
 import ts from "typescript"
-import { ChargeSpec } from "../examples/charge/charge.contract.ts"
+import { chargeSpec } from "../examples/charge/charge.contract.ts"
 import { diagnostics, loadProject } from "../src/project.ts"
 import type { Ctx } from "../src/value.ts"
 import { openZ3, type Verification, verify } from "../src/verify.ts"
@@ -58,7 +58,7 @@ describe("charge, written against its spec", () => {
     try {
       const { charge } = (await import(pathToFileURL(planted).href)) as { charge: (b: bigint, a: bigint) => bigint }
       const [balance, amount] = law.args as [bigint, bigint]
-      assert.equal(ChargeSpec.ensures.takesWhatItCan!(balance, amount, charge(balance, amount)), false)
+      assert.equal(chargeSpec.ensures.takesWhatItCan!(balance, amount, charge(balance, amount)), false)
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
@@ -75,9 +75,30 @@ describe("charge, written against its spec", () => {
     assert.deepEqual(diagnostics(loadProject([spec], tsconfig, new Map([[spec, text]])), spec), [])
   })
 
+  it("finds the spec through `typeof` in place, and through a type of the spec's own name", async () => {
+    const inPlace = readFileSync(source, "utf8")
+      .replace("import type { ChargeSpec }", "import type { chargeSpec }")
+      .replace("Implementation<ChargeSpec>", "Implementation<typeof chargeSpec>")
+    const spec = path.join(root, "examples/charge/charge.contract.ts")
+    const oneName = readFileSync(spec, "utf8")
+      .replace("export const chargeSpec = spec", "export const ChargeSpec = spec")
+      .replace("export type ChargeSpec = typeof chargeSpec", "export type ChargeSpec = typeof ChargeSpec")
+    for (const files of [new Map([[source, inPlace]]), new Map([[spec, oneName]])]) {
+      const project = loadProject([source], tsconfig, files)
+      assert.deepEqual(diagnostics(project, source), [])
+      assert.deepEqual(statuses(await verify(z3, project, source, "charge")), { neverNegative: "proved", takesWhatItCan: "proved" })
+    }
+  })
+
   it("a type that names no spec is refused, saying what it takes", async () => {
     const text = `import type { Implementation } from "tsverify"\nconst notASpec = { "~fn": (x: bigint) => x }\nexport const f: Implementation<typeof notASpec> = (x) => x\n`
     const v = await verify(z3, loadProject([source], tsconfig, new Map([[source, text]])), source, "f")
-    assert.match(v.unsupported ?? "", /`notASpec` is no spec: write `export const notASpec = spec<F>\(\{ \.\.\. \}\)`/)
+    assert.match(v.unsupported ?? "", /`notASpec` is no spec: write `const notASpec = spec<F>\(\{ \.\.\. \}\)`/)
+    const typed = `import type { Implementation } from "tsverify"\nexport const f: Implementation<{ "~fn"?: (x: bigint) => bigint }> = (x) => x\n`
+    const w = await verify(z3, loadProject([source], tsconfig, new Map([[source, typed]])), source, "f")
+    assert.match(
+      w.unsupported ?? "",
+      /an implementation names its spec: `Implementation<ChargeSpec>`, where `export type ChargeSpec = typeof chargeSpec`/,
+    )
   })
 })

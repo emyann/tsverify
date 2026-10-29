@@ -139,8 +139,8 @@ const contractKind = (checker: ts.TypeChecker, init: ts.Expression): ContractSou
 }
 
 /**
- * The names of every contract `file` exports, in order: a spec's implementation (`export const f: Implementation<typeof
- * S> = ...`), a `contract(...)`, a computation's, a lemma.
+ * The names of every contract `file` exports, in order: a spec's implementation (`export const f: Implementation<S> =
+ * ...`), a `contract(...)`, a computation's, a lemma.
  */
 export const contractsIn = (project: Project, file: string): Array<string> =>
   sourceFile(project, file).statements.flatMap((stmt) =>
@@ -163,7 +163,20 @@ const isImplementation = (checker: ts.TypeChecker, d: ts.VariableDeclaration): b
   declared(checker, d.type.typeName, CONTRACT_MODULE, "Implementation")
 
 /**
- * The spec an implementation is typed by: `const f: Implementation<typeof S>` where `S` is `spec<F>({ ... })` of this
+ * The `typeof S` an implementation's type argument is: written in place, or the type it names when that type is one
+ * (`export type ChargeSpec = typeof chargeSpec`, imported or not).
+ */
+const specQuery = (checker: ts.TypeChecker, arg: ts.TypeNode): ts.TypeQueryNode | undefined => {
+  if (ts.isTypeQueryNode(arg)) return arg
+  if (!ts.isTypeReferenceNode(arg) || arg.typeArguments !== undefined) return undefined
+  let sym = checker.getSymbolAtLocation(arg.typeName)
+  if (sym !== undefined && sym.flags & ts.SymbolFlags.Alias) sym = checker.getAliasedSymbol(sym)
+  const alias = sym?.declarations?.find(ts.isTypeAliasDeclaration)
+  return alias !== undefined && ts.isTypeQueryNode(alias.type) ? alias.type : undefined
+}
+
+/**
+ * The spec an implementation is typed by: `const f: Implementation<S>` (or `<typeof S>`) where `S` is `spec<F>({ ... })` of this
  * package or its Effect adapter; the call, and whether its function is a computation (an Effect program, or a function
  * that returns a promise).
  */
@@ -173,16 +186,20 @@ const specOf = (
 ): { readonly call: ts.CallExpression; readonly computation: boolean } => {
   const t = d.type as ts.TypeReferenceNode
   const arg = t.typeArguments?.[0]
-  if (arg === undefined || !ts.isTypeQueryNode(arg) || !ts.isIdentifier(arg.exprName))
-    throw new Unsupported("an implementation names its spec: `Implementation<typeof ChargeSpec>`", t)
-  let sym = checker.getSymbolAtLocation(arg.exprName)
+  const query = arg === undefined ? undefined : specQuery(checker, arg)
+  if (arg === undefined || query === undefined || !ts.isIdentifier(query.exprName))
+    throw new Unsupported(
+      "an implementation names its spec: `Implementation<ChargeSpec>`, where `export type ChargeSpec = typeof chargeSpec`, or `Implementation<typeof chargeSpec>`",
+      t,
+    )
+  let sym = checker.getSymbolAtLocation(query.exprName)
   if (sym !== undefined && sym.flags & ts.SymbolFlags.Alias) sym = checker.getAliasedSymbol(sym)
   const decl = sym?.valueDeclaration
   const call = decl !== undefined && ts.isVariableDeclaration(decl) && decl.initializer !== undefined ? unwrap(decl.initializer) : undefined
-  const named = arg.exprName.text
+  const named = query.exprName.text
   const notASpec = () =>
     new Unsupported(
-      `\`${named}\` is no spec: write \`export const ${named} = spec<F>({ ... })\`, with \`spec\` from "tsverify" (or "tsverify/effect" for an Effect program)`,
+      `\`${named}\` is no spec: write \`const ${named} = spec<F>({ ... })\`, with \`spec\` from "tsverify" (or "tsverify/effect" for an Effect program)`,
       arg,
     )
   if (call === undefined || !ts.isCallExpression(call)) throw notASpec()
@@ -229,7 +246,7 @@ export const readContract = (project: Project, file: string, name: string): Cont
   const helper = contractKind(checker, init)
   if (helper === undefined || helper === "lemma" || !ts.isCallExpression(init))
     throw new Unsupported(
-      `\`${name}\` is not a \`contract(...)\`, a \`computation<...>()(...)\`, a \`lemma(...)\` or an \`Implementation<typeof S>\` of this package`,
+      `\`${name}\` is not a \`contract(...)\`, a \`computation<...>()(...)\`, a \`lemma(...)\` or an \`Implementation<S>\` of this package`,
       init,
     )
   const [fnArg, lawsArg] = init.arguments

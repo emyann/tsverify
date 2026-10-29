@@ -5,12 +5,12 @@ import type { Implementation } from "tsverify"
 import { emptyName, notFound, ok } from "../users.ts"
 import type { GetUserSpec, RenameUserSpec } from "./handlers.contract.ts"
 
-export const getUser: Implementation<typeof GetUserSpec> = async (users, id) => {
+export const getUser: Implementation<GetUserSpec> = async (users, id) => {
   const user = await users.get(id)
   return user === undefined ? notFound() : ok(user)
 }
 
-export const renameUser: Implementation<typeof RenameUserSpec> = async (users, id, name) => {
+export const renameUser: Implementation<RenameUserSpec> = async (users, id, name) => {
   if (name === "") return emptyName()
   const user = await users.get(id)
   if (user === undefined) return notFound()

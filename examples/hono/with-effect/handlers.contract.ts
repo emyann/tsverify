@@ -8,16 +8,17 @@ import type { Reply } from "../users.ts"
 import type { StoreDown, Users } from "./store.ts"
 
 /** GET /users/:id */
-export const GetUserSpec = spec<(id: string) => Effect.Effect<Reply, StoreDown, Users>>({
+const getUserSpec = spec<(id: string) => Effect.Effect<Reply, StoreDown, Users>>({
   ensures: {
     readsTheUserOnce: laws.readsTheUserOnce,
     answersWhatItFound: laws.answersWhatItFound,
     failsAsTheStoreFails: laws.getFailsAsTheStoreFails,
   },
 })
+export type GetUserSpec = typeof getUserSpec
 
 /** PATCH /users/:id with `{ name }` */
-export const RenameUserSpec = spec<(id: string, name: string) => Effect.Effect<Reply, StoreDown, Users>>({
+const renameUserSpec = spec<(id: string, name: string) => Effect.Effect<Reply, StoreDown, Users>>({
   ensures: {
     emptyNameTouchesNothing: laws.emptyNameTouchesNothing,
     readsTheUserFirst: laws.readsTheUserFirst,
@@ -26,3 +27,4 @@ export const RenameUserSpec = spec<(id: string, name: string) => Effect.Effect<R
     failsAsTheStoreFails: laws.renameFailsAsTheStoreFails,
   },
 })
+export type RenameUserSpec = typeof renameUserSpec

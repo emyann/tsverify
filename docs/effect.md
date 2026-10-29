@@ -41,7 +41,7 @@ import type { Effect } from "effect"
 import { spec } from "tsverify/effect"
 import type { NotFound, StoreDown, Users } from "./users.ts"
 
-export const RenameSpec = spec<(id: string, name: string) => Effect.Effect<void, NotFound | StoreDown, Users>>({
+const renameSpec = spec<(id: string, name: string) => Effect.Effect<void, NotFound | StoreDown, Users>>({
   ensures: {
     readsTheUserFirst: (id, _name, _out, calls) => {
       const first = calls.at(0)
@@ -61,6 +61,7 @@ export const RenameSpec = spec<(id: string, name: string) => Effect.Effect<void,
     },
   },
 })
+export type RenameSpec = typeof renameSpec
 ```
 
 The program takes the spec as its type, as any implementation does. Its generator's parameters are typed from the spec,
@@ -73,7 +74,7 @@ import type { Implementation } from "tsverify"
 import type { RenameSpec } from "./rename.contract.ts"
 import { NotFound, Users } from "./users.ts"
 
-export const rename: Implementation<typeof RenameSpec> = Effect.fn("rename")(function* (id, name) {
+export const rename: Implementation<RenameSpec> = Effect.fn("rename")(function* (id, name) {
   const users = yield* Users
   const user = yield* users.get(id)
   if (user === undefined) return yield* Effect.fail(new NotFound({ id }))
@@ -116,17 +117,19 @@ import type { Effect } from "effect"
 import { spec } from "tsverify/effect"
 import type { BadAmount } from "./amount.ts"
 
-export const AmountSpec = spec<(text: string) => Effect.Effect<bigint, BadAmount>>({
+const amountSpec = spec<(text: string) => Effect.Effect<bigint, BadAmount>>({
   ensures: {
     namesTheText: (text, out) => out._tag === "Success" || out.error.text === text,
   },
 })
+export type AmountSpec = typeof amountSpec
 
-export const LooseAmountSpec = spec<(text: string) => Effect.Effect<bigint, unknown>>({
+const looseAmountSpec = spec<(text: string) => Effect.Effect<bigint, unknown>>({
   ensures: {
     failsWithSomething: (_text, out) => out._tag === "Success" || out.error !== undefined,
   },
 })
+export type LooseAmountSpec = typeof looseAmountSpec
 ```
 
 <!-- file: src/amount.ts -->
@@ -138,10 +141,10 @@ import type { AmountSpec, LooseAmountSpec } from "./amount.contract.ts"
 export class BadAmount extends Data.TaggedError("BadAmount")<{ readonly text: string }> {}
 
 /** The amount a person typed: its error says what they typed. */
-export const amountOf: Implementation<typeof AmountSpec> = (text) => Effect.try({ try: () => BigInt(text), catch: () => new BadAmount({ text }) })
+export const amountOf: Implementation<AmountSpec> = (text) => Effect.try({ try: () => BigInt(text), catch: () => new BadAmount({ text }) })
 
 /** The same, passing on whatever `BigInt` threw. */
-export const looseAmountOf: Implementation<typeof LooseAmountSpec> = (text) => Effect.try({ try: () => BigInt(text), catch: (err) => err })
+export const looseAmountOf: Implementation<LooseAmountSpec> = (text) => Effect.try({ try: () => BigInt(text), catch: (err) => err })
 ```
 
 <!-- run, exits 1 -->
@@ -152,7 +155,7 @@ src/amount.ts
     proved          namesTheText  (140 ms)
   looseAmountOf
     unsupported     failsWithSomething  (0 ms)
-                    src/amount.contract.ts:13:67: `===` of a value of type `unknown` is not modeled: such a value is carried and never read; give it a type where it is made (for an error, a `catch` that builds a typed one)
+                    src/amount.contract.ts:14:67: `===` of a value of type `unknown` is not modeled: such a value is carried and never read; give it a type where it is made (for an error, a `catch` that builds a typed one)
 
 2 contracts in 1 file: laws 1 proved, 1 unsupported
 ```
@@ -189,11 +192,12 @@ import type { Effect } from "effect"
 import { spec } from "tsverify/effect"
 import type { StoreDown, Users } from "./users.ts"
 
-export const RenameAllSpec = spec<(ids: ReadonlyArray<string>, name: string) => Effect.Effect<void, StoreDown, Users>>({
+const renameAllSpec = spec<(ids: ReadonlyArray<string>, name: string) => Effect.Effect<void, StoreDown, Users>>({
   ensures: {
     readsBeforeWriting: (_ids, _name, _out, calls) => calls.at(0)?.op !== "put",
   },
 })
+export type RenameAllSpec = typeof renameAllSpec
 ```
 
 <!-- file: src/renameAll.ts -->
@@ -203,7 +207,7 @@ import type { Implementation } from "tsverify"
 import type { RenameAllSpec } from "./renameAll.contract.ts"
 import { Users } from "./users.ts"
 
-export const renameAll: Implementation<typeof RenameAllSpec> = Effect.fn("renameAll")(function* (ids, name) {
+export const renameAll: Implementation<RenameAllSpec> = Effect.fn("renameAll")(function* (ids, name) {
   const users = yield* Users
   yield* Effect.forEach(ids, (id) => users.get(id))
 })
@@ -233,7 +237,7 @@ import type { Implementation } from "tsverify"
 import type { RenameAllSpec } from "./renameAll.contract.ts"
 import { Users } from "./users.ts"
 
-export const renameAll: Implementation<typeof RenameAllSpec> = Effect.fn("renameAll")(function* (ids, name) {
+export const renameAll: Implementation<RenameAllSpec> = Effect.fn("renameAll")(function* (ids, name) {
   const users = yield* Users
   for (const id of ids) {
     const user = yield* users.get(id)

@@ -25,14 +25,15 @@ export const accountOfIsPure = assume(accountOf, { pure: true })
  * Pays out `amount` from the account, as the withdrawal `id`, through the `Ledger` service: refused when the guard says
  * why, failing as the ledger fails. The calls its laws read are `Ledger`'s, typed from the service.
  */
-export const WithdrawSpec = effectSpec<
+const withdrawSpec = effectSpec<
   (accountId: string, id: string, amount: bigint) => Effect.Effect<void, WithdrawalRefused | LedgerError, Ledger>
 >({
   ensures: { readsFirst, readFailurePassesThrough, refusedWritesNothing, paidWritesOneWithdrawal, refusedExactlyWhenTheGuardSays },
 })
+export type WithdrawSpec = typeof withdrawSpec
 
 /** Its async twin, whose ledger is its first argument: the calls its laws read are that argument's. */
-export const AsyncWithdrawSpec = spec<
+const asyncWithdrawSpec = spec<
   (ledger: Async.LedgerPort, accountId: string, id: string, amount: bigint) => Rejects<void, Async.WithdrawalRefused | Async.LedgerError>
 >({
   ensures: {
@@ -44,3 +45,4 @@ export const AsyncWithdrawSpec = spec<
       refusedExactlyWhenTheGuardSays(accountId, id, amount, out, calls),
   },
 })
+export type AsyncWithdrawSpec = typeof asyncWithdrawSpec

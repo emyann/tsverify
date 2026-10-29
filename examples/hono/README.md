@@ -28,7 +28,7 @@ written; a store that fails ends the handler with that failure.
 The signature is each build's own. An async handler is handed the store as an argument, `(users, id) =>
 Promise<Reply>`; an Effect program requires it as a service, `(id) => Effect<Reply, StoreDown, Users>`. So each folder's
 `handlers.contract.ts` gives the shared laws its signature, and its `handlers.ts` takes its types from there
-(`Implementation<typeof GetUserSpec>`). Nothing at the top imports either folder, nor `effect`, nor `hono`: a third
+(`Implementation<GetUserSpec>`). Nothing at the top imports either folder, nor `effect`, nor `hono`: a third
 build, over another store or another library, would be a folder beside these two.
 
 The routes are not verified. They are Hono's API (`c.req`, `c.json`), which the verifier does not read, so a route only

@@ -7,13 +7,13 @@ import { emptyName, notFound, ok } from "../users.ts"
 import type { GetUserSpec, RenameUserSpec } from "./handlers.contract.ts"
 import { Users } from "./store.ts"
 
-export const getUser: Implementation<typeof GetUserSpec> = Effect.fn("getUser")(function* (id) {
+export const getUser: Implementation<GetUserSpec> = Effect.fn("getUser")(function* (id) {
   const users = yield* Users
   const user = yield* users.get(id)
   return user === undefined ? notFound() : ok(user)
 })
 
-export const renameUser: Implementation<typeof RenameUserSpec> = Effect.fn("renameUser")(function* (id, name) {
+export const renameUser: Implementation<RenameUserSpec> = Effect.fn("renameUser")(function* (id, name) {
   if (name === "") return emptyName()
   const users = yield* Users
   const user = yield* users.get(id)

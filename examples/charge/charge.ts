@@ -3,4 +3,4 @@
 import type { Implementation } from "tsverify"
 import type { ChargeSpec } from "./charge.contract.ts"
 
-export const charge: Implementation<typeof ChargeSpec> = (balance, amount) => (amount > balance ? 0n : balance - amount)
+export const charge: Implementation<ChargeSpec> = (balance, amount) => (amount > balance ? 0n : balance - amount)

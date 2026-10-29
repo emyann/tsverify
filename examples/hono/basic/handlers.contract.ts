@@ -6,16 +6,17 @@ import type { Reply } from "../users.ts"
 import type { StoreDown, UsersPort } from "./store.ts"
 
 /** GET /users/:id */
-export const GetUserSpec = spec<(users: UsersPort, id: string) => Rejects<Reply, StoreDown>>({
+const getUserSpec = spec<(users: UsersPort, id: string) => Rejects<Reply, StoreDown>>({
   ensures: {
     readsTheUserOnce: (_users, id, out, calls) => laws.readsTheUserOnce(id, out, calls),
     answersWhatItFound: (_users, id, out, calls) => laws.answersWhatItFound(id, out, calls),
     failsAsTheStoreFails: (_users, id, out, calls) => laws.getFailsAsTheStoreFails(id, out, calls),
   },
 })
+export type GetUserSpec = typeof getUserSpec
 
 /** PATCH /users/:id with `{ name }` */
-export const RenameUserSpec = spec<(users: UsersPort, id: string, name: string) => Rejects<Reply, StoreDown>>({
+const renameUserSpec = spec<(users: UsersPort, id: string, name: string) => Rejects<Reply, StoreDown>>({
   ensures: {
     emptyNameTouchesNothing: (_users, id, name, out, calls) => laws.emptyNameTouchesNothing(id, name, out, calls),
     readsTheUserFirst: (_users, id, name, out, calls) => laws.readsTheUserFirst(id, name, out, calls),
@@ -24,3 +25,4 @@ export const RenameUserSpec = spec<(users: UsersPort, id: string, name: string) 
     failsAsTheStoreFails: (_users, id, name, out, calls) => laws.renameFailsAsTheStoreFails(id, name, out, calls),
   },
 })
+export type RenameUserSpec = typeof renameUserSpec

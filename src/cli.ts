@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // tsverify [<file or folder>...] [--project tsconfig.json] [--bound 4] [--timeout 10000] [--verbose] [--json]
-//   Verifies every contract each file exports: every implementation of a spec (`const f: Implementation<typeof S>`),
+//   Verifies every contract each file exports: every implementation of a spec (`const f: Implementation<S>`),
 //   and every `contract`, computation and lemma, in each file that imports tsverify under each folder (the current one
 //   by default), a line per law, then a total. Exits 1 unless every law is proved and says something of its function, and every
 //   obligation of the proof code is proved.
@@ -301,7 +301,7 @@ await withZ3(async (z3) => {
 const verdicts = found.map((f) => f.v)
 if (verdicts.length === 0) {
   console.error(
-    `no contract in ${files.map(rel).join(", ")}: a spec is verified through its implementation, \`const f: Implementation<typeof S> = ...\`, or a \`contract\`, \`computation\` or lemma the file exports\n${USAGE}`,
+    `no contract in ${files.map(rel).join(", ")}: a spec is verified through its implementation, \`const f: Implementation<S> = ...\`, or a \`contract\`, \`computation\` or lemma the file exports\n${USAGE}`,
   )
   process.exit(2)
 }

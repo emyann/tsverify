@@ -38,17 +38,17 @@ const FILES = [
 const VERIFIED = FILES.filter((f) => /\.contract\.ts$|withdraw(\.async)?\.ts$|charge\.ts$/.test(f))
 
 const PLANTED = `import type { Implementation } from "tsverify"
-import type { ChargeSpec } from "./charge.contract.ts"
+import type { chargeSpec } from "./charge.contract.ts"
 
-/** A bug planted: takes the amount whatever the balance. */
-export const overdraw: Implementation<typeof ChargeSpec> = (balance, amount) => balance - amount
+/** A bug planted: takes the amount whatever the balance. Its spec named by \`typeof\`, as the examples' are not. */
+export const overdraw: Implementation<typeof chargeSpec> = (balance, amount) => balance - amount
 `
 // Runs the law on the counterexample, through what the project installed: no condition, the built JavaScript.
-const REPLAY = `import { ChargeSpec } from "./examples/charge/charge.contract.ts"
+const REPLAY = `import { chargeSpec } from "./examples/charge/charge.contract.ts"
 import { overdraw } from "./examples/charge/overdraw.ts"
 
 const [balance, amount] = (JSON.parse(process.argv[2]!) as Array<string>).map((x) => BigInt(x.slice(0, -1))) as [bigint, bigint]
-console.log(JSON.stringify(ChargeSpec.ensures.neverNegative!(balance, amount, overdraw(balance, amount))))
+console.log(JSON.stringify(chargeSpec.ensures.neverNegative!(balance, amount, overdraw(balance, amount))))
 `
 
 /** The environment without a `NODE_OPTIONS` of this run's: what runs in the project runs as it would there. */

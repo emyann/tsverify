@@ -40,7 +40,7 @@ export type EffectLawOf<F> = F extends (...args: infer A) => Effect.Effect<infer
 // `any`: any Effect program; a spec constrains it through its laws.
 type AnyProgram = (...args: any) => Effect.Effect<any, any, any>
 
-/** A spec of an Effect program: what it must do. `Implementation<typeof S>` (from `tsverify`) is its type. */
+/** A spec of an Effect program: what it must do. `Implementation<S>` (from `tsverify`) is its type. */
 export interface EffectSpec<F extends AnyProgram> {
   readonly requires?: (...args: Parameters<F>) => boolean
   readonly ensures: Readonly<Record<string, EffectLawOf<F>>>
@@ -51,8 +51,8 @@ export interface EffectSpec<F extends AnyProgram> {
 /**
  * A spec of an Effect program of type `F`, written before the code: `spec<(accountId: string) =>
  * Effect.Effect<bigint, LedgerError, Ledger>>({ ensures: { law: (accountId, out, calls) => ... } })`. The calls a law
- * reads are those of the services `F` requires (`Ledger`'s methods), typed from them. The code is `const balanceOf:
- * Implementation<typeof BalanceSpec> = ...`.
+ * reads are those of the services `F` requires (`Ledger`'s methods), typed from them. Beside it, its type, `export
+ * type BalanceSpec = typeof balanceSpec`; the code is `const balanceOf: Implementation<BalanceSpec> = ...`.
  */
 export const spec = <F extends AnyProgram>(laws: Omit<EffectSpec<F>, "~fn">): EffectSpec<F> => laws
 

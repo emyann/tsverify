@@ -12,12 +12,13 @@ The largest element of an array, and a spec of it:
 ```ts
 import { spec } from "tsverify"
 
-export const LargestSpec = spec<(xs: ReadonlyArray<bigint>) => bigint>({
+const largestSpec = spec<(xs: ReadonlyArray<bigint>) => bigint>({
   ensures: {
     noneLarger: (xs, largest) => xs.every((x) => x <= largest),
     oneOfThem: (xs, largest) => xs.length === 0 || xs.includes(largest),
   },
 })
+export type LargestSpec = typeof largestSpec
 ```
 
 <!-- file: src/largest.ts -->
@@ -25,7 +26,7 @@ export const LargestSpec = spec<(xs: ReadonlyArray<bigint>) => bigint>({
 import type { Implementation } from "tsverify"
 import type { LargestSpec } from "./largest.contract.ts"
 
-export const largest: Implementation<typeof LargestSpec> = (xs) => {
+export const largest: Implementation<LargestSpec> = (xs) => {
   let best = xs.at(0) ?? 0n
   for (const x of xs) if (x > best) best = x
   return best
@@ -74,7 +75,7 @@ import { invariant } from "tsverify"
 import type { Implementation } from "tsverify"
 import type { LargestSpec } from "./largest.contract.ts"
 
-export const largest: Implementation<typeof LargestSpec> = (xs) => {
+export const largest: Implementation<LargestSpec> = (xs) => {
   let best = xs.at(0) ?? 0n
   for (const x of xs) {
     invariant(() => xs.length === 0 || xs.includes(best))
@@ -188,10 +189,11 @@ import { lemma, spec } from "tsverify"
 /** A product of two numbers not below zero is not below zero: proved once, then known where it is called. */
 export const productNotNegative = lemma((a: bigint, b: bigint) => a * b >= 0n, { requires: (a, b) => a >= 0n && b >= 0n })
 
-export const AreaSpec = spec<(width: bigint, height: bigint) => bigint>({
+const areaSpec = spec<(width: bigint, height: bigint) => bigint>({
   requires: (width, height) => width >= 0n && height >= 0n,
   ensures: { notNegative: (_width, _height, area) => area >= 0n },
 })
+export type AreaSpec = typeof areaSpec
 ```
 
 <!-- file: src/area.ts -->
@@ -199,7 +201,7 @@ export const AreaSpec = spec<(width: bigint, height: bigint) => bigint>({
 import type { Implementation } from "tsverify"
 import { type AreaSpec, productNotNegative } from "./area.contract.ts"
 
-export const area: Implementation<typeof AreaSpec> = (width, height) => {
+export const area: Implementation<AreaSpec> = (width, height) => {
   productNotNegative(width, height)
   return width * height
 }

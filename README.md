@@ -20,7 +20,7 @@ flowchart LR
 // src/shipping.contract.ts: what `shipping` must do, written before the code.
 import { spec } from "tsverify"
 
-export const ShippingSpec = spec<(total: number) => number>({
+const shippingSpec = spec<(total: number) => number>({
   // What every caller promises: a cart's total is never negative.
   requires: (total) => total >= 0,
   ensures: {
@@ -30,6 +30,8 @@ export const ShippingSpec = spec<(total: number) => number>({
     smallOrdersPay: (total, cost) => total >= 50 || cost === 5,
   },
 })
+// Its type, which the code takes.
+export type ShippingSpec = typeof shippingSpec
 ```
 
 <!-- file: src/shipping.ts -->
@@ -38,7 +40,7 @@ export const ShippingSpec = spec<(total: number) => number>({
 import type { Implementation } from "tsverify"
 import type { ShippingSpec } from "./shipping.contract.ts"
 
-export const shipping: Implementation<typeof ShippingSpec> = (total) => (total >= 50 ? 0 : 5)
+export const shipping: Implementation<ShippingSpec> = (total) => (total >= 50 ? 0 : 5)
 ```
 
 <!-- run -->
@@ -62,7 +64,7 @@ Now make the mistake everyone makes once, `>` where `>=` was meant:
 import type { Implementation } from "tsverify"
 import type { ShippingSpec } from "./shipping.contract.ts"
 
-export const shipping: Implementation<typeof ShippingSpec> = (total) => (total > 50 ? 0 : 5)
+export const shipping: Implementation<ShippingSpec> = (total) => (total > 50 ? 0 : 5)
 ```
 
 <!-- run, exits 1 -->
@@ -113,12 +115,13 @@ export interface Names {
   readonly set: (id: string, name: string) => Rejects<void, Error>
 }
 
-export const RenameSpec = spec<(names: Names, id: string, name: string) => Rejects<boolean, Error>>({
+const renameSpec = spec<(names: Names, id: string, name: string) => Rejects<boolean, Error>>({
   ensures: {
     // An empty name never reaches the store: not a single call.
     emptyNameTouchesNothing: (_names, _id, name, _out, calls) => name !== "" || calls.length === 0,
   },
 })
+export type RenameSpec = typeof renameSpec
 ```
 
 <!-- file: src/rename.ts -->
@@ -126,7 +129,7 @@ export const RenameSpec = spec<(names: Names, id: string, name: string) => Rejec
 import type { Implementation } from "tsverify"
 import type { RenameSpec } from "./rename.contract.ts"
 
-export const rename: Implementation<typeof RenameSpec> = async (names, id, name) => {
+export const rename: Implementation<RenameSpec> = async (names, id, name) => {
   const current = await names.get(id)
   if (current === undefined || name === "") return false
   await names.set(id, name)
@@ -156,7 +159,7 @@ With an empty name, the code still read the store before it said no. Check the n
 import type { Implementation } from "tsverify"
 import type { RenameSpec } from "./rename.contract.ts"
 
-export const rename: Implementation<typeof RenameSpec> = async (names, id, name) => {
+export const rename: Implementation<RenameSpec> = async (names, id, name) => {
   if (name === "") return false
   const current = await names.get(id)
   if (current === undefined) return false

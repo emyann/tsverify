@@ -3,8 +3,8 @@
 //
 // - `spec<F>({ requires?, ensures })`: a spec written before the code, over a
 //   function of type `F`, pure or async. The code takes it as its type,
-//   `const f: Implementation<typeof S> = ...`, through a type-only import: the
-//   spec is never part of what runs. The Effect adapter's `spec` is the same
+//   `const f: Implementation<S> = ...` (`export type S = typeof s` beside the
+//   spec), through a type-only import: the spec is never part of what runs. The Effect adapter's `spec` is the same
 //   for an Effect program.
 // - `contract(fn, { requires?, ensures })`: laws over a pure function's
 //   arguments and result, the spec pointing at code that already exists (a
@@ -69,7 +69,7 @@ type ParameterCallsOf<A extends ReadonlyArray<unknown>> = {
     : never
 }[number]
 
-/** A spec: what a function of type `F` must do. `Implementation<typeof S>` is `F`, for the code to take as its type. */
+/** A spec: what a function of type `F` must do. `Implementation<S>` (`S` the spec's type) is `F`, for the code to take. */
 export interface Spec<F extends AnyFn> {
   readonly requires?: (...args: Parameters<F>) => boolean
   readonly ensures: Readonly<Record<string, LawOf<F>>>
@@ -78,13 +78,17 @@ export interface Spec<F extends AnyFn> {
 }
 
 /**
- * A spec of a function of type `F`, written before the code: `spec<(balance: bigint, amount: bigint) => bigint>({
- * requires, ensures: { law: (balance, amount, result) => ... } })`. The code is `const charge:
- * Implementation<typeof ChargeSpec> = ...`, and `tsverify` verifies it against the laws.
+ * A spec of a function of type `F`, written before the code: `const chargeSpec = spec<(balance: bigint, amount:
+ * bigint) => bigint>({ requires, ensures: { law: (balance, amount, result) => ... } })`, and its type beside it,
+ * `export type ChargeSpec = typeof chargeSpec`. The code is `const charge: Implementation<ChargeSpec> = ...`, and
+ * `tsverify` verifies it against the laws.
  */
 export const spec = <F extends AnyFn>(laws: Omit<Spec<F>, "~fn">): Spec<F> => laws
 
-/** The type of the function a spec is about: the type its implementation takes, `const f: Implementation<typeof S>`. */
+/**
+ * The type of the function a spec is about: the type its implementation takes, `const f: Implementation<S>`, where `S`
+ * is the spec's type (`export type ChargeSpec = typeof chargeSpec`), or `Implementation<typeof chargeSpec>` without one.
+ */
 export type Implementation<S extends { readonly "~fn"?: unknown }> = NonNullable<S["~fn"]>
 
 /** How a computation ended. */

@@ -10,6 +10,8 @@ code takes the spec as its type, so a spec is also where the code's signature co
 - **`ensures`** holds the laws, each named for what it says: the report gives each its own line. A law of a pure function
   is `(...args, result) => boolean`, typed from `F`, so its parameters need no annotation.
 - **`requires`** is what a caller promises, `(...args) => boolean`. The laws are checked only on the inputs that meet it.
+- **Its type**, `export type StatusSpec = typeof statusSpec`, goes beside it, and is all the code imports: it is typed
+  `Implementation<StatusSpec>`. `Implementation<typeof statusSpec>` is the same without the line, the spec exported.
 
 A parcel's status, from a record with two dates that may be missing:
 
@@ -18,7 +20,7 @@ A parcel's status, from a record with two dates that may be missing:
 import { spec } from "tsverify"
 import type { Parcel, Status } from "./parcel.ts"
 
-export const StatusSpec = spec<(parcel: Parcel) => Status>({
+const statusSpec = spec<(parcel: Parcel) => Status>({
   requires: (parcel) => parcel.deliveredAt === null || (parcel.shippedAt !== null && parcel.deliveredAt >= parcel.shippedAt),
   ensures: {
     deliveredWins: (parcel, status) => parcel.deliveredAt === null || status === "delivered",
@@ -26,9 +28,10 @@ export const StatusSpec = spec<(parcel: Parcel) => Status>({
     waitingUntilShipped: (parcel, status) => (status === "waiting") === (parcel.shippedAt === null && !parcel.lost),
   },
 })
+export type StatusSpec = typeof statusSpec
 ```
 
-The code declares itself an implementation of the spec, `Implementation<typeof StatusSpec>`, and `tsc` gives it the spec's
+The code declares itself an implementation of the spec, `Implementation<StatusSpec>`, and `tsc` gives it the spec's
 type. Both files import only the other's types, so nothing of the spec is in what runs:
 
 <!-- file: src/parcel.ts -->
@@ -43,7 +46,7 @@ export interface Parcel {
 }
 export type Status = "waiting" | "in-transit" | "delivered" | "lost"
 
-export const statusOf: Implementation<typeof StatusSpec> = (parcel) => {
+export const statusOf: Implementation<StatusSpec> = (parcel) => {
   if (parcel.deliveredAt !== null) return "delivered"
   if (parcel.lost) return "lost"
   return parcel.shippedAt === null ? "waiting" : "in-transit"
@@ -62,7 +65,7 @@ src/parcel.ts
 1 contract in 1 file: laws 3 proved
 ```
 
-Given files, the command verifies every contract they export: each `const` typed `Implementation<typeof S>`, and each
+Given files, the command verifies every contract they export: each `const` typed `Implementation<S>`, and each
 `contract`, `computation` or lemma. Given a folder, or nothing (the current folder), it reads every file under it that
 imports `tsverify`, whatever its name, outside `node_modules` and dot folders. The names are the project's: these pages
 write a spec in `*.contract.ts`, which no test runner claims, where Jest and Vitest run every `*.spec.ts` as a test.
@@ -116,7 +119,7 @@ Renaming a user reads it, fails if it is missing, and writes it back renamed. A 
 import { type Rejects, spec } from "tsverify"
 import type { NotFound, StoreDown, Users } from "./users.ts"
 
-export const RenameSpec = spec<(users: Users, id: string, name: string) => Rejects<void, NotFound | StoreDown>>({
+const renameSpec = spec<(users: Users, id: string, name: string) => Rejects<void, NotFound | StoreDown>>({
   ensures: {
     readsTheUserFirst: (_users, id, _name, _out, calls) => {
       const first = calls.at(0)
@@ -134,6 +137,7 @@ export const RenameSpec = spec<(users: Users, id: string, name: string) => Rejec
     },
   },
 })
+export type RenameSpec = typeof renameSpec
 ```
 
 <!-- file: src/rename.ts -->
@@ -142,7 +146,7 @@ import type { Implementation } from "tsverify"
 import type { RenameSpec } from "./rename.contract.ts"
 import { NotFound } from "./users.ts"
 
-export const rename: Implementation<typeof RenameSpec> = async (users, id, name) => {
+export const rename: Implementation<RenameSpec> = async (users, id, name) => {
   const user = await users.get(id)
   if (user === undefined) throw new NotFound(id)
   await users.put({ ...user, name })
@@ -172,7 +176,7 @@ should say what the code means, that it writes the user it read:
 import { type Rejects, spec } from "tsverify"
 import type { NotFound, StoreDown, Users } from "./users.ts"
 
-export const RenameSpec = spec<(users: Users, id: string, name: string) => Rejects<void, NotFound | StoreDown>>({
+const renameSpec = spec<(users: Users, id: string, name: string) => Rejects<void, NotFound | StoreDown>>({
   ensures: {
     readsTheUserFirst: (_users, id, _name, _out, calls) => {
       const first = calls.at(0)
@@ -192,6 +196,7 @@ export const RenameSpec = spec<(users: Users, id: string, name: string) => Rejec
     },
   },
 })
+export type RenameSpec = typeof renameSpec
 ```
 
 <!-- run -->

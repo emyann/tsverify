@@ -17,7 +17,7 @@ export interface LedgerPort {
   readonly append: (accountId: string, entry: Entry) => Rejects<void, LedgerError>
 }
 
-export const withdraw: Implementation<typeof AsyncWithdrawSpec> = async (ledger, accountId, id, amount) => {
+export const withdraw: Implementation<AsyncWithdrawSpec> = async (ledger, accountId, id, amount) => {
   const entries = await ledger.read(accountId)
   const refused = withdrawalRefusalOf(accountOf(entries), amount)
   if (refused) throw new WithdrawalRefused(refused)

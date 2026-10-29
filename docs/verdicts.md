@@ -12,7 +12,7 @@ Four small specs, one law of each kind:
 ```ts
 import { spec } from "tsverify"
 
-export const CapSpec = spec<(value: bigint, limit: bigint) => bigint>({
+const capSpec = spec<(value: bigint, limit: bigint) => bigint>({
   requires: (_value, limit) => limit >= 0n,
   ensures: {
     withinTheLimit: (_value, limit, capped) => capped <= limit,
@@ -20,6 +20,7 @@ export const CapSpec = spec<(value: bigint, limit: bigint) => bigint>({
     limitNotNegative: (_value, limit, _capped) => limit >= 0n,
   },
 })
+export type CapSpec = typeof capSpec
 ```
 
 <!-- file: src/cap.ts -->
@@ -27,19 +28,20 @@ export const CapSpec = spec<(value: bigint, limit: bigint) => bigint>({
 import type { Implementation } from "tsverify"
 import type { CapSpec } from "./cap.contract.ts"
 
-export const cap: Implementation<typeof CapSpec> = (value, limit) => (value > limit ? limit : value)
+export const cap: Implementation<CapSpec> = (value, limit) => (value > limit ? limit : value)
 ```
 
 <!-- file: src/label.contract.ts -->
 ```ts
 import { spec } from "tsverify"
 
-export const LabelSpec = spec<(name: string) => string>({
+const labelSpec = spec<(name: string) => string>({
   ensures: {
     neverEmpty: (_name, label) => label !== "",
     unnamedWhenEmpty: (name, label) => name !== "" || label == "(unnamed)",
   },
 })
+export type LabelSpec = typeof labelSpec
 ```
 
 <!-- file: src/label.ts -->
@@ -47,19 +49,20 @@ export const LabelSpec = spec<(name: string) => string>({
 import type { Implementation } from "tsverify"
 import type { LabelSpec } from "./label.contract.ts"
 
-export const label: Implementation<typeof LabelSpec> = (name) => (name === "" ? "(unnamed)" : name)
+export const label: Implementation<LabelSpec> = (name) => (name === "" ? "(unnamed)" : name)
 ```
 
 <!-- file: src/largest.contract.ts -->
 ```ts
 import { spec } from "tsverify"
 
-export const LargestSpec = spec<(xs: ReadonlyArray<bigint>) => bigint>({
+const largestSpec = spec<(xs: ReadonlyArray<bigint>) => bigint>({
   ensures: {
     noneLarger: (xs, largest) => xs.every((x) => x <= largest),
     oneOfThem: (xs, largest) => xs.length === 0 || xs.includes(largest),
   },
 })
+export type LargestSpec = typeof largestSpec
 ```
 
 <!-- file: src/largest.ts -->
@@ -67,7 +70,7 @@ export const LargestSpec = spec<(xs: ReadonlyArray<bigint>) => bigint>({
 import type { Implementation } from "tsverify"
 import type { LargestSpec } from "./largest.contract.ts"
 
-export const largest: Implementation<typeof LargestSpec> = (xs) => {
+export const largest: Implementation<LargestSpec> = (xs) => {
   let best = xs.at(0) ?? 0n
   for (const x of xs) if (x > best) best = x
   return best
@@ -78,9 +81,10 @@ export const largest: Implementation<typeof LargestSpec> = (xs) => {
 ```ts
 import { spec } from "tsverify"
 
-export const ScoreSpec = spec<(points: number) => number>({
+const scoreSpec = spec<(points: number) => number>({
   ensures: { notNegative: (_points, score) => score >= 0 },
 })
+export type ScoreSpec = typeof scoreSpec
 ```
 
 <!-- file: src/score.ts -->
@@ -88,7 +92,7 @@ export const ScoreSpec = spec<(points: number) => number>({
 import type { Implementation } from "tsverify"
 import type { ScoreSpec } from "./score.contract.ts"
 
-export const score: Implementation<typeof ScoreSpec> = (points) => Math.max(points, 0)
+export const score: Implementation<ScoreSpec> = (points) => Math.max(points, 0)
 ```
 
 <!-- run, exits 1 -->
@@ -115,7 +119,7 @@ src/largest.ts
       proved          invariant on entry: noneLarger, of the elements gone through  (src/largest.ts:6:3)
       proved          invariant kept by each iteration: noneLarger, of the elements gone through  (src/largest.ts:6:3)
 src/score.ts
-  score: not verified — src/score.ts:4:68: `Math` is a binding the verifier cannot see (a `let` or a global): read it from a `const` or an argument, or move it into a function the spec declares with `assume`
+  score: not verified — src/score.ts:4:61: `Math` is a binding the verifier cannot see (a `let` or a global): read it from a `const` or an argument, or move it into a function the spec declares with `assume`
 
 4 contracts in 4 files: laws 3 proved, 1 counterexample, 1 vacuous, 1 unsupported, 1 bounded; obligations 2 proved; 1 not verified
 ```
