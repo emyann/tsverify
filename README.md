@@ -12,9 +12,9 @@ Pinned: Node ≥ 24.16, `z3-solver` 5.3.2, `typescript` 6.0.3. Optional: `effect
 types) and `lodash-es` 4.18.1 (the lodash pack).
 
 ```sh
-npm run verify      # every contract of every *.spec.ts below here, a line per law, then a total (~7 s)
+npm run verify      # every contract of every *.spec.ts below here, a line per law, then a total (~12 s)
 npm run verify -- examples/account                                   # one folder, or one file
-npm test            # 130 tests, ~30 s
+npm test            # 132 tests, ~40 s
 npm run verify -- examples/order/order.spec.ts status                # a state machine, its doc comment as laws
 npm run verify -- examples/account/account.spec.ts folded            # a loop, through its invariants
 npm run verify -- examples/account/withdraw.spec.ts effectWithdraw   # an Effect program
@@ -315,6 +315,13 @@ The core never names a library. What no adapter reads is refused where the code 
 
 A law the proof side can't settle in time, and the search side can't break, is reported as `bounded`, never as `proved`. A
 law proved that no result could break is reported as `vacuous`.
+
+**Every proof is checked against the search side.** The proof side's encoding (havoc, loops read through invariants) is
+where a verifier's own bugs hide, and one did: a loop left early was once read as having run to its end. So each proof
+is checked against the search side, whose every model is a real input: one query for all the proved laws, one for all the
+proved obligations, each obligation asked as the first of the proof code to fail on a run. A proof the search side breaks
+is reported `inconsistent`, with the input, as a bug of tsverify rather than a verdict on the code. It costs about a
+second on the account fold.
 
 **Numbers.** A `number` is a class (finite, NaN, +∞ or −∞) plus a real value. `===`, `<` and truthiness follow IEEE-754
 exactly. Every double is such a value, so proofs cover all doubles. Arithmetic on `number` is refused, since its rounding

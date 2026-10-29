@@ -34,6 +34,11 @@ export type LawStatus =
   /** An allowed input breaks it; `args` holds one. */
   | "counterexample"
   /**
+   * The two sides disagree: the proof side proved it, and the search side found an input that breaks it (`args`). One
+   * of them is wrong, which is a bug of the verifier, never a verdict on the code.
+   */
+  | "inconsistent"
+  /**
    * Proved, and no result of the law's type would break it either: it says nothing of the function. A law over the
    * inputs alone, or one whose condition no allowed input meets (`!A || B` with `A` never true).
    */
@@ -73,8 +78,8 @@ export interface ObligationResult {
   readonly text: string
   readonly at: string
   readonly phase: Obligation["phase"]
-  readonly status: "proved" | "counterexample" | "bounded" | "unknown"
-  /** On a counterexample: arguments on which it fails. */
+  readonly status: "proved" | "counterexample" | "bounded" | "unknown" | "inconsistent"
+  /** On a counterexample, or when the sides disagree: arguments on which it fails. */
   readonly args?: ReadonlyArray<unknown>
   readonly reason?: string
 }
@@ -211,7 +216,40 @@ export const verify = async (z3: Ctx, project: Project, file: string, name: stri
   }
   if (source.kind === "lemma" && opts.within?.includes(`${file}#${name}`))
     return { contract: name, laws: [], cover: [], notes: ALWAYS, trusted: [], obligations: [], unsupported: `the lemma \`${name}\` leans on itself` }
+  return judge(z3, project, file, proof, search, trust, opts)
+}
 
+/**
+ * Which of `items` the search side breaks, each with the input that does: one query for all of them, then one for each
+ * only when that finds something. A proved item broken there means one side is wrong.
+ */
+const contradicted = async (
+  search: Lowered,
+  items: ReadonlyArray<{ readonly key: string; readonly broken: Bool<"main"> }>,
+  opts: Options,
+  hints?: ReadonlyArray<Bool<"main">>,
+): Promise<Map<string, ReadonlyArray<unknown> | undefined>> => {
+  const z3 = search.u.z3
+  const out = new Map<string, ReadonlyArray<unknown> | undefined>()
+  if (items.length === 0) return out
+  const any = await solve(search, [search.pre, z3.Or(...items.map((i) => i.broken))], opts, hints)
+  if (any.status !== "sat") return out
+  for (const i of items) {
+    const one = await solve(search, [search.pre, i.broken], opts, hints)
+    if (one.status === "sat") out.set(i.key, one.witness.args)
+  }
+  return out
+}
+
+/** What it says when the two sides disagree: what to do with the input. */
+const DISAGREE =
+  "the proof side proved it, and the search side found this input breaking it: one side is wrong, a bug of tsverify. Run the code on the input: if it breaks the law, the proof is wrong; if not, the search side is. Report it with the input"
+
+/** Decides a contract both sides have lowered: its obligations, its laws, what its result reaches. */
+export const judge = async (z3: Ctx, project: Project, file: string, proof: Lowered, search: Lowered, trust: Trust, opts: Options = {}): Promise<Verification> => {
+  const source = proof.source
+  const name = source.name
+  const bound = opts.bound ?? 4
   // The proof code's obligations first: a law the proof side proves leans on them, and stands only if they do.
   const obligations = await obligationsOf(z3, project, proof, search, bound, { ...opts, within: [...(opts.within ?? []), `${file}#${name}`] })
   const open = obligations.filter((o) => o.status !== "proved")
@@ -221,6 +259,7 @@ export const verify = async (z3: Ctx, project: Project, file: string, name: stri
       : `proved only if the proof code's obligations hold, and ${open.length} of them ${open.length === 1 ? "is" : "are"} not proved (${open[0]!.kind} ${open[0]!.text} at ${open[0]!.at}: ${open[0]!.status}); no counterexample with arrays of at most ${bound} elements`
 
   const laws: Array<LawResult> = []
+  const searchable = new Map<string, Bool<"main">>()
   for (const law of source.ensures) {
     const started = performance.now()
     let onProof: Bool<"main">
@@ -256,7 +295,27 @@ export const verify = async (z3: Ctx, project: Project, file: string, name: stri
             : { status: "unknown", reason: `proof: ${why(proved)}; search: ${found.reason}` }
     }
     laws.push({ name: law.name, ...r, ms: performance.now() - started })
+    searchable.set(law.name, onSearch)
     opts.progress?.(`law ${law.name}: ${r.status} (${Math.round(performance.now() - started)} ms)`)
+  }
+
+  // Every law proved is checked against the search side, all in one query. One proved through an obligation the sides
+  // disagree on is no proof: it is broken on the search side, or bounded.
+  const provedLaws = laws.flatMap((l, k) => (l.status === "proved" || l.status === "vacuous" ? [k] : []))
+  const failing = await contradicted(
+    search,
+    provedLaws.map((k) => ({ key: String(k), broken: z3.Not(searchable.get(laws[k]!.name)!) })),
+    opts,
+  )
+  const shaken = obligations.some((o) => o.status === "inconsistent")
+  for (const k of provedLaws) {
+    const l = laws[k]!
+    const found = failing.get(String(k))
+    if (failing.has(String(k)))
+      laws[k] = shaken
+        ? { ...l, status: "counterexample", ...(found === undefined ? {} : { args: found }), reason: "proved only through an obligation the two sides disagree on" }
+        : { ...l, status: "inconsistent", ...(found === undefined ? {} : { args: found }), reason: DISAGREE }
+    else if (shaken) laws[k] = { ...l, status: "bounded", reason: `proved only through an obligation the two sides disagree on; no counterexample with arrays of at most ${bound} elements` }
   }
 
   const cover: Array<CoverResult> = []
@@ -323,6 +382,16 @@ const obligationsOf = async (
     const os = side.L.obligations.filter((o) => o.key === key)
     return os.length === 0 ? undefined : z3.Or(...os.map((o) => z3.And(o.cond, z3.Not(o.goal), ...side.L.hints.slice(0, o.hints))))
   }
+  /**
+   * The obligation `key` failing on the search side as the first of the proof code to fail on that run: every obligation
+   * met before it held. A loop's `kept` is proved from any state its invariants allow; a run on which they all held up to
+   * here, and this one fails, breaks that step, where a run that failed an earlier one need not.
+   */
+  const firstToFail = (key: string): Bool<"main"> | undefined => {
+    const os = search.L.obligations
+    const each = os.flatMap((o, k) => (o.key !== key ? [] : [z3.And(o.cond, z3.Not(o.goal), ...os.slice(0, k).map((p) => z3.Implies(p.cond, p.goal)))]))
+    return each.length === 0 ? undefined : z3.Or(...each)
+  }
   const out: Array<ObligationResult> = []
   for (const key of keys) {
     const o = [...proof.L.obligations, ...search.L.obligations].find((x) => x.key === key)!
@@ -352,6 +421,21 @@ const obligationsOf = async (
     else out.push({ ...head, status: "unknown", reason: found?.status === "unknown" ? found.reason : "not met on either side" })
     opts.progress?.(`${o.kind} ${o.at}: ${out.at(-1)!.status}`)
   }
+  // Every proof is checked against the search side, all in one query: a run on which one of them is the first to fail.
+  const provedKeys = keys.filter((_, k) => out[k]?.status === "proved")
+  const disagreements = await contradicted(
+    search,
+    provedKeys.flatMap((key) => {
+      const f = firstToFail(key)
+      return f === undefined ? [] : [{ key, broken: f }]
+    }),
+    opts,
+    [],
+  )
+  for (const [key, args] of disagreements) {
+    const k = keys.indexOf(key)
+    out[k] = { ...out[k]!, status: "inconsistent", reason: DISAGREE, ...(args === undefined ? {} : { args }) }
+  }
   const lemmas = new Map([...proof.L.lemmas, ...search.L.lemmas])
   for (const [key, lem] of lemmas) {
     const v = await verify(z3, project, lem.file, lem.name, opts)
@@ -360,9 +444,11 @@ const obligationsOf = async (
         ? "unknown"
         : v.laws.every((l) => l.status === "proved") && v.obligations.every((x) => x.status === "proved")
           ? "proved"
-          : v.laws.some((l) => l.status === "counterexample")
-            ? "counterexample"
-            : "bounded"
+          : [...v.laws, ...v.obligations].some((l) => l.status === "inconsistent")
+            ? "inconsistent"
+              : v.laws.some((l) => l.status === "counterexample")
+              ? "counterexample"
+              : "bounded"
     const failed = v.laws.find((l) => l.status === "counterexample")
     out.push({
       kind: "lemma",
