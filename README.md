@@ -6,73 +6,86 @@ You write a spec in plain TypeScript: a function's type, and the laws it must ke
 as they are, and asks the [Z3](https://github.com/Z3Prover/z3) solver, for each law, whether any input breaks it. The
 answer is a proof, or that input.
 
-<!-- file: src/charge.contract.ts -->
+```mermaid
+flowchart LR
+  spec["<b>Spec</b><br/>a type and its laws"] --> tsverify
+  code["<b>Your code</b><br/>typed by the spec"] --> tsverify
+  tsverify["<b>tsverify</b><br/>reads both, and asks Z3:<br/>does any input break a law?"]
+  tsverify -->|no| proved["<b>proved</b><br/>for every input"]
+  tsverify -->|yes| counterexample["<b>counterexample</b><br/>an input your real code breaks on"]
+```
+
+<!-- file: src/shipping.contract.ts -->
 ```ts
-// src/charge.contract.ts: what `charge` must do, written before the code.
+// src/shipping.contract.ts: what `shipping` must do, written before the code.
 import { spec } from "tsverify"
 
-export const ChargeSpec = spec<(balance: bigint, amount: bigint) => bigint>({
-  // What every caller promises.
-  requires: (balance, amount) => balance >= 0n && amount >= 0n,
-  // What the code must keep, for every input the promise allows.
+export const ShippingSpec = spec<(total: number) => number>({
+  // What every caller promises: a cart's total is never negative.
+  requires: (total) => total >= 0,
   ensures: {
-    neverNegative: (_balance, _amount, left) => left >= 0n,
-    takesWhatItCan: (balance, amount, left) => (amount > balance ? left === 0n : left === balance - amount),
+    // An order of 50 or more ships free.
+    freeFrom50: (total, cost) => total < 50 || cost === 0,
+    // A smaller one pays 5.
+    smallOrdersPay: (total, cost) => total >= 50 || cost === 5,
   },
 })
 ```
 
-<!-- file: src/charge.ts -->
+<!-- file: src/shipping.ts -->
 ```ts
-// src/charge.ts: the code takes its type from the spec, and imports nothing that runs.
+// src/shipping.ts: the code takes its type from the spec, and imports nothing that runs.
 import type { Implementation } from "tsverify"
-import type { ChargeSpec } from "./charge.contract.ts"
+import type { ShippingSpec } from "./shipping.contract.ts"
 
-export const charge: Implementation<typeof ChargeSpec> = (balance, amount) => (amount > balance ? 0n : balance - amount)
+export const shipping: Implementation<typeof ShippingSpec> = (total) => (total >= 50 ? 0 : 5)
 ```
 
 <!-- run -->
 ```text
 $ npx tsverify
-src/charge.ts
-  charge
-    proved          neverNegative  (107 ms)
-    proved          takesWhatItCan  (18 ms)
+src/shipping.ts
+  shipping
+    proved          freeFrom50  (98 ms)
+    proved          smallOrdersPay  (13 ms)
 
 1 contract in 1 file: laws 2 proved
 ```
 
-Proved means for *every* balance and amount, not for a sample of them. Now drop the guard:
+Proved means for *every* total, not for a sample: 49.99, 50, 10 billion, and every other number the promise allows.
+Without the promise, it would have answered `e.g. (NaN)`, a total that is not a number.
 
-<!-- file: src/charge.ts -->
+Now make the mistake everyone makes once, `>` where `>=` was meant:
+
+<!-- file: src/shipping.ts -->
 ```ts
 import type { Implementation } from "tsverify"
-import type { ChargeSpec } from "./charge.contract.ts"
+import type { ShippingSpec } from "./shipping.contract.ts"
 
-export const charge: Implementation<typeof ChargeSpec> = (balance, amount) => balance - amount
+export const shipping: Implementation<typeof ShippingSpec> = (total) => (total > 50 ? 0 : 5)
 ```
 
 <!-- run, exits 1 -->
 ```text
 $ npx tsverify
-src/charge.ts
-  charge
-    counterexample  neverNegative  (93 ms)
-                    e.g. (0n, 1n)
-    counterexample  takesWhatItCan  (12 ms)
-                    e.g. (0n, 1n)
+src/shipping.ts
+  shipping
+    counterexample  freeFrom50  (93 ms)
+                    e.g. (50)
+    proved          smallOrdersPay  (14 ms)
 
-1 contract in 1 file: laws 2 counterexample
+1 contract in 1 file: laws 1 counterexample, 1 proved
 ```
 
-`charge(0n, 1n)` returns `-1n`. A counterexample is never a false alarm: it is found on an exact model of JavaScript,
-so your real code breaks on it. The command exits 1, so a CI step, or a coding agent, knows the work is not done.
+`shipping(50)` returns `5`: an order of exactly 50 pays for shipping. A counterexample is never a false alarm: it is
+found on an exact model of JavaScript, so your real code breaks on it. The command exits 1, so a CI step, or a coding
+agent, knows the work is not done.
 
 ## Why tsverify
 
-- **Every input, not a sample.** A unit test checks the inputs you wrote down, and a property test (with
-  [fast-check](https://github.com/dubzzz/fast-check), say) checks a few thousand random ones. A proved law holds for all of them: arrays of any length, every string, every bigint, every number with
-  `NaN` and `-0` among them.
+- **Every input, not a sample.** A unit test checks the inputs you wrote down, and a property test checks a few
+  thousand random ones. A proved law holds for all of them: arrays of any length, every string, every number with `NaN`
+  and `-0` among them, every bigint.
 - **Plain TypeScript.** A law is a predicate, a spec is a value, and the code implements it as a type. No new language,
   no annotations, no comments to parse. `tsc` keeps the code and its spec in step, and nothing of tsverify runs in your
   app.
