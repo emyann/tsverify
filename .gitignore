@@ -3,3 +3,4 @@ node_modules/
 bench/.tmp/
 examples/account/account.planted-*.ts
 examples/account/withdraw.planted-*.ts
+examples/account/effects.planted-*.ts

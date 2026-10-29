@@ -2,8 +2,9 @@
 
 **Date:** 28 October 2026, revised 29 October. **Status:** the core and both adapters are built for the subset the
 withdrawal example needs, and the proof below holds (`test/withdraw.test.ts`). Spec, proof and exec modes and
-declarations of unread functions are built, after Verus (*Modes and trust*, *Proof mode*). Operation contracts and the
-wider Effect forms are not.
+declarations of unread functions are built, after Verus (*Modes and trust*, *Proof mode*), and the Effect forms
+`Effect.gen`, `pipe`, `map`, `flatMap`, `catch`, `catchTag` and `sync`. Operation contracts, `Effect.try`, loops in a
+generator and concurrency are not.
 
 ## The answer in one paragraph
 

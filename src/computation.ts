@@ -157,9 +157,39 @@ const returning = (L: Lowering, style: Style, e: ts.Expression, env: Env, trace:
   const operand = stepOf(style, e)
   if (operand !== undefined) return step(L, style, operand, env, trace)
   const v = lowerExpr(L, e, env)
-  if (style === "async" && v.kind === "comp") return v.run(trace)
+  if ((style === "async" || style === "returns") && v.kind === "comp") return v.run(trace)
   return { outcome: success(L, v), trace }
 }
+
+/** Runs the computation `v` from `trace`; a value that is none is refused. */
+export const runComp = (v: Val, trace: Val, at: ts.Node): Ran => {
+  if (v.kind !== "comp") throw new Unsupported(`a ${v.kind} where a computation is expected`, at)
+  return v.run(trace)
+}
+
+/** `r`, continued by `next` from its success, with its value and the trace so far; a failure ends it as it is. */
+export const onSuccess = (L: Lowering, r: Ran, at: ts.Node, next: (value: Val, trace: Val) => Ran): Ran =>
+  unran(after(L, r, at, (value, trace) => ran(next(value, trace))))
+
+/** `r`, handled by `handle` from its failure, with its error and the trace so far; a success passes as it is. */
+export const onFailure = (L: Lowering, r: Ran, at: ts.Node, handle: (error: Val, trace: Val) => Ran): Ran => {
+  const outcome = r.outcome
+  if (outcome.kind !== "record") throw new Error("an outcome is a record")
+  const tag = outcome.field("_tag")!
+  if (tag.kind !== "str") throw new Error("an outcome's _tag is a string")
+  if (tag.term.eqIdentity(L.u.z3.String.val("Success"))) return r
+  const error = outcome.field("error")
+  if (error === undefined) return r
+  if (tag.term.eqIdentity(L.u.z3.String.val("Failure"))) return handle(error, r.trace)
+  return unran(ite(L.u, tag.term.eq(L.u.z3.String.val("Failure")), ran(handle(error, r.trace)), ran({ outcome: asSuccess(outcome), trace: r.trace }), at))
+}
+
+/**
+ * An outcome seen on the path where it failed, or where it succeeded: the other path's part left out, so the ends of two
+ * paths merge field by field (an operation's outcome holds a value of its success type even where it fails).
+ */
+const asFailure = (o: Val): Val => (o.kind === "record" ? lazyRecord((n) => (n === "value" ? undefined : o.field(n))) : o)
+const asSuccess = (o: Val): Val => (o.kind === "record" ? lazyRecord((n) => (n === "error" ? undefined : o.field(n))) : o)
 
 /** Continues after a step, unless it failed: then its failure is the computation's end. */
 const after = (L: Lowering, r: Ran, at: ts.Node, next: (value: Val, trace: Val) => Val): Val => {
@@ -171,7 +201,7 @@ const after = (L: Lowering, r: Ran, at: ts.Node, next: (value: Val, trace: Val) 
   if (tag.term.eqIdentity(L.u.z3.String.val("Failure"))) return ran(r)
   if (tag.term.eqIdentity(L.u.z3.String.val("Success")) && value !== undefined) return next(value, r.trace)
   const failed = tag.term.eq(L.u.z3.String.val("Failure"))
-  return ite(L.u, failed, ran(r), value === undefined ? ran(r) : next(value, r.trace), at)
+  return ite(L.u, failed, ran({ outcome: asFailure(outcome), trace: r.trace }), value === undefined ? ran(r) : next(value, r.trace), at)
 }
 
 const statements = (

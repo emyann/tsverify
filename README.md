@@ -14,7 +14,7 @@ types) and `lodash-es` 4.18.1 (the lodash pack).
 ```sh
 npm run verify      # every contract of every *.spec.ts below here, a line per law, then a total (~12 s)
 npm run verify -- examples/account                                   # one folder, or one file
-npm test            # 132 tests, ~40 s
+npm test            # 146 tests, ~40 s
 npm run verify -- examples/order/order.spec.ts status                # a state machine, its doc comment as laws
 npm run verify -- examples/account/account.spec.ts folded            # a loop, through its invariants
 npm run verify -- examples/account/withdraw.spec.ts effectWithdraw   # an Effect program
@@ -191,6 +191,20 @@ ones accepted; `test/account.test.ts` accepts the account fold.
 A counterexample that leans on a declared function is marked as such: it holds of the function as declared, and may not
 hold of the real one.
 
+### The other ways Effect is written
+
+`examples/account/effects.ts` holds four more programs over the same ledger, each written another way: `balanceOf`, a
+function returning `Effect.gen`; `balanceOrZero`, `.pipe` with `Effect.catch`; `doubledBalance`, `pipe(...)` with
+`Effect.map`; and `deposit`, an `Effect.fn` whose read is a pipeline of `map` and `catchTag` and whose write is a `flatMap`
+of `Effect.sync`. `effects.spec.ts` gives them 13 laws. `test/effects.test.ts` shows:
+- **All 13 are proved**, and each program's ends are what its types and handlers allow: `balanceOrZero` can never fail,
+  which the verifier proves rather than assumes.
+- **The laws hold on 32 runs of each** against a stand-in ledger.
+- **A bug planted in each form is caught**, and each planted program, run, breaks a law the solver refuted: a generator
+  that reads twice, a `catch` that answers 1, a `map` that triples, a `map` asking the guard of the wrong amount, a
+  `catchTag` that lets an unreadable ledger through and one left out, a `flatMap` that writes twice the amount, and a
+  `catch` that swallows a failed write.
+
 ### A package: lodash
 
 `examples/lodash/labels.ts` calls lodash's `uniq` and `clamp`. `packs/lodash.ts` declares what they do on strings and on
@@ -276,10 +290,11 @@ An adapter (`src/adapter.ts`) tells the core which forms are which:
 |---|---|
 | `src/adapters/ts.ts` | `new Date()`, `Date.now()` (a fresh time per call); `Error` subclasses with field initializers |
 | `src/adapters/async.ts` | async functions as computations; `await` steps; methods returning a promise as operations; `Rejects<A, E>` for what a promise rejects with |
-| `src/adapters/effect/` | `Effect.fn(...)(function* ...)`; `yield*`; `Context.Service` keys as services; methods returning an Effect as operations; `Effect.succeed`, `fail`, `void`; `Schema.TaggedError` and `Data.TaggedError` construction; a `computation` helper typed from the Effect |
+| `src/adapters/effect/` | `Effect.fn(...)(function* ...)` and `fnUntraced`; `Effect.gen`, and a function that returns an Effect; `yield*`; `Context.Service` keys as services; methods returning an Effect as operations; `Effect.succeed`, `fail`, `void`, `sync`; `map`, `flatMap`, `catch`, `catchTag`, effect first or last; `x.pipe(f, g)` and `pipe(x, f, g)`; `Schema.TaggedError` and `Data.TaggedError` construction; a `computation` helper typed from the Effect |
 
-The core never names a library. What no adapter reads is refused where the code uses it: for Effect today, `pipe`, `map`,
-`catch`, concurrency and resources.
+The core never names a library. What no adapter reads is refused where the code uses it, naming the function: for Effect
+today, `Effect.try`, `forEach`, `exit`, `mapError`, `catchCause`, concurrency, resources and defects; and, in a
+generator's body, loops and a `yield*` inside an expression.
 
 ## How it works
 
@@ -394,7 +409,8 @@ one declaration per helper. The refusals are the verifier's to-do list for that 
 
 ## Next
 
-- The Effect adapter's next forms: `Effect.gen`, `pipe`, `map`, `flatMap`, `catchTag`, `catch`.
+- The Effect adapter's next forms, by how often they stop real code: `Effect.try`; loops and a `yield*` inside an expression
+  in a generator's body; `Effect.exit`, `forEach`, `mapError`, `catchCause`, `suspend`.
 - Contracts on operations, assumed by every caller and proved by each implementation (a layer, a class).
 - Invariants in the spec, attached to a loop by its position, for code that cannot carry them.
 - Termination: a `decreases` measure for `while` loops and recursion, as Verus has.

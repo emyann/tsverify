@@ -414,6 +414,17 @@ const call = (L: Lowering, e: ts.CallExpression, env: Env): Val => {
   return callValue(L, lowerExpr(L, callee, env), e, env)
 }
 
+/** `f` applied to values already lowered: a library's function, a closure, or a function that defines a computation. */
+export const applyValue = (L: Lowering, f: Val, args: ReadonlyArray<Val>, at: ts.Node): Val => {
+  if (f.kind === "builtin") return f.call(args, at)
+  if (f.kind !== "fn") throw new Unsupported(`calling a ${f.kind}`, at)
+  for (const a of L.adapters) {
+    const c = a.computation?.(L, f.node)
+    if (c !== undefined) return computationCall(L, c.node, c.style, f.env, args, at)
+  }
+  return lowerCall(L, f.node, f.env, args, at)
+}
+
 const callValue = (L: Lowering, f: Val, e: ts.CallExpression, env: Env): Val => {
   if (e.arguments.some(ts.isSpreadElement)) throw new Unsupported("spread arguments are not modeled", e)
   if (f.kind === "builtin") {

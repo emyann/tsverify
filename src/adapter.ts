@@ -9,8 +9,12 @@ import ts from "typescript"
 import type { Lowering } from "./lower.ts"
 import type { Env, FunctionNode, Val } from "./value.ts"
 
-/** How a computation's body marks its steps: `yield*` in a generator, `await` in an async function. */
-export type Style = "gen" | "async"
+/**
+ * How a computation's body marks its steps: `yield*` in a generator, `await` in an async function. `returns`: a plain
+ * function that returns a computation (`(id) => Effect.gen(...)`), which has no steps of its own; running it runs the
+ * computation it returns.
+ */
+export type Style = "gen" | "async" | "returns"
 
 export interface ComputationFn {
   readonly node: FunctionNode

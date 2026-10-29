@@ -22,7 +22,7 @@ it("verifies every contract under a folder, and exits 1 on a vacuous law", () =>
 it("exits 0 when every law and every obligation is proved", () => {
   const r = cli("examples/account")
   assert.equal(r.code, 0, r.out + r.err)
-  assert.match(r.out, /\n3 contracts in 2 files: laws 15 proved; obligations 10 proved\n$/)
+  assert.match(r.out, /\n7 contracts in 3 files: laws 28 proved; obligations 10 proved\n$/)
 })
 
 it("verifies one contract by name, with what it reaches, trusted and assumed", () => {
