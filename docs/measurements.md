@@ -88,13 +88,14 @@ the request and writes the reply. What to answer is its handler's, a function of
 returns a status and a body, and the handlers are verified. The routes are not: they are Hono's API, `c.req` and
 `c.json`, which the verifier does not read, so they are kept to reading and writing and checked by running them.
 
-The handlers are written twice. `handlers.ts` holds async functions given the store as an interface; `handlers.effect.ts`
-holds Effect programs that require it as a service, and `app.effect.ts` runs them, turning the store's failure into a 503.
-Each takes its type from a spec in `handlers.spec.ts`, and the four specs hold the same laws, written once over the reply
-and the store's calls in `laws.ts`: an empty name is a 400 that touches nothing; the user asked for is read first; a user
-not found is a 404 and nothing is written; a 200 is the user read, renamed, written once and sent back as written; a store
-that fails ends the handler with that failure. `test/hono.test.ts` shows:
-- **All 16 laws are proved on both**, and a reply and the store's failure are both reachable.
+The API is built twice, a folder each: `basic/` holds its handlers as async functions handed the store as an interface,
+and `with-effect/` as Effect programs that require it as a service, its app turning the store's failure into a 503. The
+laws are written once, in `laws.ts`, over the reply and the store's calls: an empty name is a 400 that touches nothing;
+the user asked for is read first; a user not found is a 404 and nothing is written; a 200 is the user read, renamed,
+written once and sent back as written; a store that fails ends the handler with that failure. Each build's
+`handlers.spec.ts` gives those laws its own signature, and its handlers take their types from there; nothing shared
+imports either build (`examples/hono/README.md`). `test/hono.test.ts` shows:
+- **All 16 laws are proved in both builds**, and a reply and the store's failure are both reachable.
 - **Three bugs planted in each are caught**: a name check against the wrong value, a rename that keeps the old name, a 404
   for a user found.
 - **The two apps answer eight requests alike**, run through Hono against a store that keeps every call: a user found and

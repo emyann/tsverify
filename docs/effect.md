@@ -260,8 +260,8 @@ proved. Reading a loop of steps through invariants over its calls, as a fold's l
 
 ## The same laws, async
 
-`examples/hono` is a users API in Hono whose handlers are written both ways, async functions over a store and Effect
-programs requiring it as a service, the routes running them; the four specs hold the same laws
+`examples/hono` is a users API in Hono built both ways, its handlers async functions over a store in `basic/` and Effect
+programs requiring it as a service in `with-effect/`; each build's specs hold the same laws, written once in `laws.ts`
 ([What the examples show](measurements.md), *An HTTP API*). `examples/account/withdraw.ts` is a larger Effect program, a
 withdrawal against a ledger service, and `examples/account/withdraw.async.ts` the same program as async TypeScript. Their two specs hold the same five laws, written
 once over the outcome and the calls (`examples/account/laws.ts`), and both programs are proved against them: the laws say

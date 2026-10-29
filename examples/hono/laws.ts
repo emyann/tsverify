@@ -1,7 +1,10 @@
-// The laws of the API's two handlers, written once and held against both
-// sets: the async handlers (handlers.ts) and the Effect ones
-// (handlers.effect.ts). They speak of the reply and of the store's calls,
-// never of how a handler is written or of HTTP.
+// What each handler of the API must do, written once for every build of it.
+// A law reads the request's values, the handler's outcome (a reply, or the
+// store's failure) and the calls the handler made to the store, as the
+// verifier records them; it says nothing of how the handler is written, async
+// or Effect, nor of HTTP. A spec is a signature and the laws it holds: each
+// build's handlers.spec.ts (basic/, with-effect/) gives these laws its own
+// signature, and each build is proved against them.
 import type { Outcome } from "tsverify"
 import type { Reply, User } from "./users.ts"
 

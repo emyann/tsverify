@@ -1,6 +1,6 @@
-// A users API's domain: a user, the reply a handler gives, and the store an
-// async handler is given. The Effect handlers' store is in users.effect.ts.
-import type { Rejects } from "tsverify"
+// What every build of the users API shares: a user, the replies a handler
+// gives, and the check of a request's body at the edge. It knows no store, no
+// error class, and neither async nor Effect: those are each build's own.
 
 export interface User {
   readonly id: string
@@ -16,12 +16,6 @@ export const ok = (user: User): Reply => ({ status: 200, body: user })
 export const notFound = (): Reply => ({ status: 404, body: { error: "no such user" } })
 export const emptyName = (): Reply => ({ status: 400, body: { error: "a name is not empty" } })
 
-export class StoreDown extends Error {
-  readonly _tag = "StoreDown" as const
-}
-
-/** Where users are kept, for the async handlers: each method an operation the verifier records. */
-export interface UsersPort {
-  readonly get: (id: string) => Rejects<User | undefined, StoreDown>
-  readonly put: (user: User) => Rejects<void, StoreDown>
-}
+/** `{ "name": "..." }`'s name, or `undefined` for any other body: the edge, where a value from outside is checked. */
+export const nameIn = (body: unknown): string | undefined =>
+  typeof body === "object" && body !== null && "name" in body && typeof body.name === "string" ? body.name : undefined

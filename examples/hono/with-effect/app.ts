@@ -1,12 +1,12 @@
-// The same API, its handlers Effect programs: each route runs one, the store
-// given as a layer, and turns the store's failure into a 503. As in app.ts,
-// the routes are Hono's and run by the test; the programs are verified.
+// The users API in Hono, its handlers Effect programs: each route runs one,
+// the store given as a layer, and turns the store's failure into a 503. As in
+// the basic build, the routes are Hono's and run by the test; the programs are
+// verified.
 import { Effect, Layer } from "effect"
 import { Hono } from "hono"
-import { nameIn } from "./app.ts"
-import { getUser, renameUser } from "./handlers.effect.ts"
-import { type StoreDown, Users } from "./users.effect.ts"
-import type { Reply } from "./users.ts"
+import { nameIn, type Reply } from "../users.ts"
+import { getUser, renameUser } from "./handlers.ts"
+import { type StoreDown, Users } from "./store.ts"
 
 const down = { status: 503, body: { error: "the store is down" } } as const
 

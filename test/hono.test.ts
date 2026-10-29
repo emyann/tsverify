@@ -1,21 +1,23 @@
-// A users API in Hono (examples/hono), its handlers twice: async functions
-// over a store, and Effect programs requiring it as a service, both typed by
-// specs that hold the same laws, imported through a namespace (`laws.*`).
-// Shown: every law proved on both; a bug planted in each handler caught on
-// both; and the real apps, run through Hono against a store that keeps what it
-// is asked, answer the same requests the same way, the laws holding of every
-// run a handler made.
+// A users API in Hono (examples/hono), built twice from one set of laws: the
+// basic build's handlers are async functions handed a store, the with-effect
+// build's are Effect programs requiring it as a service. Each build's specs
+// give the shared laws (laws.ts, imported through a namespace) its signature.
+// Shown: every law proved in both builds; a bug planted in each handler caught
+// in both; and the real apps, run through Hono against a store that keeps what
+// it is asked, answer the same requests the same way, the laws holding of
+// every run a handler made.
 import assert from "node:assert/strict"
 import { readFileSync } from "node:fs"
 import path from "node:path"
 import { after, before, describe, it } from "node:test"
 import { Effect } from "effect"
-import { appOf as asyncApp } from "../examples/hono/app.ts"
-import { appOf as effectApp } from "../examples/hono/app.effect.ts"
+import { appOf as basicApp } from "../examples/hono/basic/app.ts"
+import { StoreDown, type UsersPort } from "../examples/hono/basic/store.ts"
 import * as laws from "../examples/hono/laws.ts"
 import type { UsersCall } from "../examples/hono/laws.ts"
-import * as Fx from "../examples/hono/users.effect.ts"
-import { StoreDown, type User, type UsersPort } from "../examples/hono/users.ts"
+import type { User } from "../examples/hono/users.ts"
+import { appOf as effectApp } from "../examples/hono/with-effect/app.ts"
+import * as Fx from "../examples/hono/with-effect/store.ts"
 import { diagnostics, loadProject } from "../src/project.ts"
 import type { Ctx } from "../src/value.ts"
 import { openZ3, type Verification, verify } from "../src/verify.ts"
@@ -23,7 +25,8 @@ import { openZ3, type Verification, verify } from "../src/verify.ts"
 const root = path.resolve(import.meta.dirname, "..")
 const dir = path.join(root, "examples/hono")
 const tsconfig = path.join(root, "tsconfig.json")
-const handlers = { async: path.join(dir, "handlers.ts"), effect: path.join(dir, "handlers.effect.ts") }
+const BUILDS = ["basic", "with-effect"] as const
+const handlers = Object.fromEntries(BUILDS.map((b) => [b, path.join(dir, b, "handlers.ts")]))
 const statuses = (v: Verification) => Object.fromEntries(v.laws.map((l) => [l.name, l.status]))
 
 let z3: Ctx
@@ -35,7 +38,7 @@ after(() => close())
 
 describe("the handlers, verified", () => {
   it("every file of the example type-checks", () => {
-    const files = ["users.ts", "users.effect.ts", "laws.ts", "handlers.spec.ts", "handlers.ts", "handlers.effect.ts", "app.ts", "app.effect.ts"].map((f) => path.join(dir, f))
+    const files = ["users.ts", "laws.ts", ...BUILDS.flatMap((b) => ["store.ts", "handlers.spec.ts", "handlers.ts", "app.ts"].map((f) => `${b}/${f}`))].map((f) => path.join(dir, f))
     const project = loadProject(files, tsconfig)
     for (const f of files) assert.deepEqual(diagnostics(project, f), [], f)
   })
@@ -48,11 +51,11 @@ describe("the handlers, verified", () => {
         assert.ok(v.laws.length >= 3 && v.laws.every((l) => l.status === "proved"), JSON.stringify(statuses(v)))
         const reached = v.cover.filter((c) => c.status === "reachable").map((c) => c.value)
         // An Effect program's failures are reached tag by tag; an async function's as one, `Failure`.
-        assert.ok(reached.includes("Success") && reached.includes(kind === "effect" ? "Failure StoreDown" : "Failure"), JSON.stringify(v.cover))
+        assert.ok(reached.includes("Success") && reached.includes(kind === "with-effect" ? "Failure StoreDown" : "Failure"), JSON.stringify(v.cover))
       })
 })
 
-/** Bugs planted in both handler files, each the same text in either: what it breaks, and the law that says so. */
+/** Bugs planted in both builds' handlers, each the same text in either: what it breaks, and the law that says so. */
 const PLANTS = [
   { id: "H1", what: "refuses the wrong name", fn: "renameUser", find: 'if (name === "") return emptyName()', replace: 'if (name === " ") return emptyName()', law: "emptyNameTouchesNothing" },
   { id: "H2", what: "keeps the old name", fn: "renameUser", find: "{ ...user, name }", replace: "{ ...user, name: user.name }", law: "renamedAsWritten" },
@@ -62,7 +65,7 @@ const PLANTS = [
 describe("bugs planted in the handlers", () => {
   for (const p of PLANTS)
     for (const [kind, file] of Object.entries(handlers))
-      it(`${p.id}, ${p.what}: caught in the ${kind} handler by ${p.law}`, async () => {
+      it(`${p.id}, ${p.what}: caught in the ${kind} build by ${p.law}`, async () => {
         const text = readFileSync(file, "utf8")
         assert.equal(text.split(p.find).length - 1, 1, `${p.id}: \`${p.find}\` must occur once in ${file}`)
         const project = loadProject([file], tsconfig, new Map([[file, text.replace(p.find, p.replace)]]))
@@ -125,7 +128,7 @@ describe("the apps, run through Hono", () => {
   for (const [what, ask, status] of ASKS)
     it(`${what}: ${status} from both apps, the store asked the same, the laws holding of the run`, async () => {
       const answers = []
-      for (const make of [(s: ReturnType<typeof keeping>) => asyncApp(s.port), (s: ReturnType<typeof keeping>) => effectApp(s.service)]) {
+      for (const make of [(s: ReturnType<typeof keeping>) => basicApp(s.port), (s: ReturnType<typeof keeping>) => effectApp(s.service)]) {
         const store = keeping([ANN], ask.down)
         const res = await make(store).request(`/users/${ask.id}`, { method: ask.method, ...(ask.body === undefined ? {} : { body: ask.body }) })
         const body = (await res.json()) as unknown

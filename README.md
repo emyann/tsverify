@@ -157,11 +157,11 @@ The ones that matter most; [all of them](docs/reads.md#caveats).
 ## In this repository
 
 ```sh
-npm test            # 214 tests, ~50 s, the documentation's examples among them
+npm test            # 233 tests, ~50 s, the documentation's examples among them
 npm run verify      # every contract below here, a line per law, then a total
 npm run verify -- examples/account                                   # one folder, or one file
 npm run verify -- examples/account/withdraw.ts withdraw              # one contract, with all it knows
-npm run verify -- examples/hono                                      # a Hono API's handlers, async and Effect
+npm run verify -- examples/hono                                      # a Hono API built twice, basic and with Effect
 npm run bench       # planted bugs: the solver beside property testing (~15 s)
 npm run coverage -- <tsconfig.json> [--modular]                      # how much of a code base it reads
 npm run typecheck
