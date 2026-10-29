@@ -4,6 +4,44 @@ A contract is read twice from source, through the TypeScript compiler API, into 
 once to search. Neither runs the code: the verifier never imports what it judges, so nothing in a module can change what
 it reads.
 
+## In logic
+
+A spec of a function f : A₁ × … × Aₙ → R, with `requires` P and laws Q₁ … Qₖ, says for each law:
+
+```text
+∀ x̄ ∈ A₁ × … × Aₙ.  P(x̄)  ⟹  Qᵢ(x̄, f(x̄))
+```
+
+A law's parameters, the arguments and then the result, are x̄ and f(x̄). The README's `shipping`, over 𝔻, JavaScript's
+numbers (`NaN` and ±∞ among them):
+
+```text
+∀ t ∈ 𝔻.  t ≥ 0  ⟹  ( t ≥ 50 ⟹ f(t) = 0 )      freeFrom50
+∀ t ∈ 𝔻.  t ≥ 0  ⟹  ( t < 50 ⟹ f(t) = 5 )      smallOrdersPay
+```
+
+JavaScript has no implication, so a law writes A ⟹ B as `A ? B : true`, or as `!A || B`: `total < 50 || cost === 0`
+is ¬(t ≥ 50) ∨ f(t) = 0.
+
+The verifier never checks the ∀ itself. It lowers f's code to a term, f(t) = (t ≥ 50 ? 0 : 5), and asks Z3 whether the
+negation has a model:
+
+```text
+∃ x̄.  P(x̄) ∧ ¬Qᵢ(x̄, f(x̄))
+```
+
+`unsat` is a proof: no input breaks the law. A model is an input that does, the counterexample: for `t > 50 ? 0 : 5` it is
+t = 50. A law that would hold whatever f returned, ∀ x̄. P(x̄) ⟹ ∀ r. Qᵢ(x̄, r), is `vacuous`.
+
+A computation's result depends on what its calls returned, so that is quantified too. With w the world, the outcome of
+each call it makes, and (o, c) its outcome and the calls it made when it runs in w:
+
+```text
+∀ x̄, w.  P(x̄)  ⟹  Qᵢ(x̄, o, c)
+```
+
+A counterexample's `where names.get gave ""` is the part of w the model chose.
+
 ## The source
 
 | File | Role |
