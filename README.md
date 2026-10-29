@@ -1,6 +1,16 @@
-# tsverify
+<div align="center">
+  <img src="media/logo.svg" alt="tsverify logo" width="160" height="160"/>
+  <h1>tsverify</h1>
+  <h3><em>Prove that your TypeScript code keeps its spec for every input, or get the input that breaks it.</em></h3>
+</div>
 
-**Prove that your TypeScript code keeps its spec for every input, or get the input that breaks it.**
+<p align="center">
+  <a href="https://github.com/emyann/tsverify/actions/workflows/ci.yml"><img src="https://github.com/emyann/tsverify/actions/workflows/ci.yml/badge.svg" alt="CI"/></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/emyann/tsverify" alt="License: MIT"/></a>
+  <img src="https://img.shields.io/badge/node-%E2%89%A5%2024.16-339933?logo=nodedotjs&logoColor=white" alt="Node 24.16 or later"/>
+  <img src="https://img.shields.io/badge/solver-Z3-6f42c1" alt="Solver: Z3"/>
+  <a href="#status"><img src="https://img.shields.io/badge/status-prototype-orange" alt="Status: prototype"/></a>
+</p>
 
 You write a spec in plain TypeScript: a function's type, and the laws it must keep. tsverify reads the spec and your code
 as they are, and asks the [Z3](https://github.com/Z3Prover/z3) solver, for each law, whether any input breaks it. The

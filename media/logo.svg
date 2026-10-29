@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200" role="img" aria-label="tsverify">
+  <title>tsverify</title>
+  <defs>
+    <linearGradient id="shield" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#22c55e"/>
+      <stop offset="1" stop-color="#15803d"/>
+    </linearGradient>
+  </defs>
+  <!-- A shield: what is proved holds for every input. -->
+  <path d="M100 12 L172 38 V94 C172 140 142 172 100 190 C58 172 28 140 28 94 V38 Z" fill="url(#shield)"/>
+  <path d="M100 26 L160 48 V94 C160 132 135 159 100 175 C65 159 40 132 40 94 V48 Z" fill="none" stroke="#ffffff" stroke-opacity="0.25" stroke-width="2"/>
+  <!-- ∀, "for all": the two strokes of an inverted A, and its bar. -->
+  <g fill="none" stroke="#ffffff" stroke-width="14" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M66 58 L100 144 L134 58"/>
+    <path d="M80 92 H120"/>
+  </g>
+</svg>
