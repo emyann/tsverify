@@ -1,61 +1,20 @@
 # tsverify
 
-Prove that TypeScript code keeps its laws for every input, or get an input that breaks one.
+**Prove that your TypeScript code keeps its spec for every input, or get the input that breaks it.**
 
-A spec says what a function must do: its type, and laws written as plain TypeScript predicates. The code takes the spec
-as its type and carries nothing else of it. `tsverify` reads both from source, through the TypeScript compiler, and asks
-the Z3 solver whether any input the spec allows breaks a law. It answers with a proof, or with the input.
-
-It reads pure functions, loops, async functions and Effect programs over the operations they are given. What it does not
-read, it refuses, saying where and what to write instead: it never takes a part it cannot read for one that is fine.
-
-**A prototype.** Version 0.0.0, not on a registry, its API not settled. It reads a subset of TypeScript
-([what it reads](docs/reads.md)). Every example in these pages is run by its tests, the output shown included.
-
-## Install
-
-`npm pack` here builds the package and writes `tsverify-0.0.0.tgz`, which a project installs as it would any tarball.
-
-```sh
-npm install --save-dev ./tsverify-0.0.0.tgz   # in the project; `effect` too for an Effect program
-npx tsverify                                  # every spec and implementation under the current folder
-```
-
-It needs Node 24.16 or later. It brings its own `typescript` (6.0.3) and `z3-solver` (5.3.2); `effect` 4 and `lodash-es` 4
-are optional peers, for Effect programs and for the lodash pack.
-
-## Five minutes
-
-The project needs two things of its `tsconfig.json`: `strictNullChecks`, on with `strict` and by default in TypeScript 6
-(the verifier reads types with `null` and `undefined` in them, and refuses a project that turns it off), and a module
-resolution that reads a package's `exports` (`nodenext`, `node16` or `bundler`). This one runs TypeScript files with Node directly:
-
-<!-- file: tsconfig.json -->
-```json
-{
-  "compilerOptions": {
-    "target": "es2023",
-    "module": "nodenext",
-    "moduleResolution": "nodenext",
-    "strict": true,
-    "noEmit": true,
-    "allowImportingTsExtensions": true,
-    "skipLibCheck": true,
-    "types": []
-  }
-}
-```
-
-The spec comes first: the function's type, what a caller promises (`requires`), and the laws (`ensures`), each a
-predicate over the arguments and the result. Its file may have any name, since the command reads every file that imports
-`tsverify`; these pages use `*.contract.ts`, which no test runner takes for a test.
+You write a spec in plain TypeScript: a function's type, and the laws it must keep. tsverify reads the spec and your code
+as they are, and asks the [Z3](https://github.com/Z3Prover/z3) solver, for each law, whether any input breaks it. The
+answer is a proof, or that input.
 
 <!-- file: src/charge.contract.ts -->
 ```ts
+// src/charge.contract.ts: what `charge` must do, written before the code.
 import { spec } from "tsverify"
 
 export const ChargeSpec = spec<(balance: bigint, amount: bigint) => bigint>({
+  // What every caller promises.
   requires: (balance, amount) => balance >= 0n && amount >= 0n,
+  // What the code must keep, for every input the promise allows.
   ensures: {
     neverNegative: (_balance, _amount, left) => left >= 0n,
     takesWhatItCan: (balance, amount, left) => (amount > balance ? left === 0n : left === balance - amount),
@@ -63,11 +22,9 @@ export const ChargeSpec = spec<(balance: bigint, amount: bigint) => bigint>({
 })
 ```
 
-The code takes the spec as its type. The import is a type, so nothing of the spec runs, and `tsc` holds the code to the
-spec's signature:
-
 <!-- file: src/charge.ts -->
 ```ts
+// src/charge.ts: the code takes its type from the spec, and imports nothing that runs.
 import type { Implementation } from "tsverify"
 import type { ChargeSpec } from "./charge.contract.ts"
 
@@ -85,8 +42,7 @@ src/charge.ts
 1 contract in 1 file: laws 2 proved
 ```
 
-Each law is proved for every balance and amount the spec allows, not for a sample of them. Now break the code: drop the
-guard.
+Proved means for *every* balance and amount, not for a sample of them. Now drop the guard:
 
 <!-- file: src/charge.ts -->
 ```ts
@@ -109,117 +65,199 @@ src/charge.ts
 1 contract in 1 file: laws 2 counterexample
 ```
 
-`charge(0n, 1n)` returns `-1n`. A counterexample is an input the real code breaks on, not a guess: the verifier takes one
-only from a side that models JavaScript exactly. One that leans on a declaration says so, and holds of the function as
-declared. The command exits 1, so a CI step or an agent knows the
-code is not done.
+`charge(0n, 1n)` returns `-1n`. A counterexample is never a false alarm: it is found on an exact model of JavaScript,
+so your real code breaks on it. The command exits 1, so a CI step, or a coding agent, knows the work is not done.
+
+## Why tsverify
+
+- **Every input, not a sample.** A unit test checks the inputs you wrote down, and a property test (with
+  [fast-check](https://github.com/dubzzz/fast-check), say) checks a few thousand random ones. A proved law holds for all of them: arrays of any length, every string, every bigint, every number with
+  `NaN` and `-0` among them.
+- **Plain TypeScript.** A law is a predicate, a spec is a value, and the code implements it as a type. No new language,
+  no annotations, no comments to parse. `tsc` keeps the code and its spec in step, and nothing of tsverify runs in your
+  app.
+- **Laws about what code did.** For async code and Effect programs, a law reads the calls the code made, in order, with
+  their arguments and results: "a refused withdrawal writes nothing".
+- **Answers you can act on.** A counterexample comes with the input, and with what each call returned on that run. A law
+  that says nothing of the function is flagged `vacuous`. The full report shows which outcomes the function can reach,
+  each with an input that reaches it.
+- **Loops too.** It guesses the invariants a loop needs, and you write one when its guess is not enough.
+- **It says what it cannot do.** Code it cannot read is refused, at its line, with what to write instead. It never treats
+  a part it cannot read as correct, and every report lists what it took on trust.
+
+## Laws about what code did
+
+Here the store is an interface, and each of its methods is an operation: tsverify records every call the code makes to
+it.
+
+<!-- file: src/rename.contract.ts -->
+```ts
+import { type Rejects, spec } from "tsverify"
+
+/** Where names are kept. Each method is an operation: tsverify records every call. */
+export interface Names {
+  readonly get: (id: string) => Rejects<string | undefined, Error>
+  readonly set: (id: string, name: string) => Rejects<void, Error>
+}
+
+export const RenameSpec = spec<(names: Names, id: string, name: string) => Rejects<boolean, Error>>({
+  ensures: {
+    // An empty name never reaches the store: not a single call.
+    emptyNameTouchesNothing: (_names, _id, name, _out, calls) => name !== "" || calls.length === 0,
+  },
+})
+```
+
+<!-- file: src/rename.ts -->
+```ts
+import type { Implementation } from "tsverify"
+import type { RenameSpec } from "./rename.contract.ts"
+
+export const rename: Implementation<typeof RenameSpec> = async (names, id, name) => {
+  const current = await names.get(id)
+  if (current === undefined || name === "") return false
+  await names.set(id, name)
+  return true
+}
+```
+
+<!-- run, exits 1 -->
+```text
+$ npx tsverify src/rename.ts
+src/rename.ts
+  rename
+    counterexample  emptyNameTouchesNothing  (94 ms)
+                    e.g. ({}, "", "")
+                    where names.get gave "", names.set succeeded
+
+1 contract in 1 file: laws 1 counterexample
+```
+
+With an empty name, the code still read the store before it said no. Check the name first, and the law is proved:
+
+<details>
+<summary>The fix</summary>
+
+<!-- file: src/rename.ts -->
+```ts
+import type { Implementation } from "tsverify"
+import type { RenameSpec } from "./rename.contract.ts"
+
+export const rename: Implementation<typeof RenameSpec> = async (names, id, name) => {
+  if (name === "") return false
+  const current = await names.get(id)
+  if (current === undefined) return false
+  await names.set(id, name)
+  return true
+}
+```
+
+<!-- run -->
+```text
+$ npx tsverify src/rename.ts
+src/rename.ts
+  rename
+    proved          emptyNameTouchesNothing  (142 ms)
+
+1 contract in 1 file: laws 1 proved
+```
+
+</details>
+
+Effect programs work the same way, their services being the operations ([Effect programs](docs/effect.md)).
+[`examples/hono`](examples/hono) is a users API in Hono built twice, with async handlers and with Effect ones, both proved
+against the same laws.
+
+## How it compares to property testing
+
+On the same laws, a well-tuned property tester often finds the same bugs. In
+[a benchmark](docs/measurements.md#a-state-machine-an-orders-status) of 17 bugs planted in a 10-status state machine, the
+solver and property testing (seeded random inputs, biased toward the edge cases) each caught the same 10. The difference
+is in the other 7. The solver explained every one: 2 were harmless, proved to behave like the original for every input,
+and 5 slipped through a gap in the laws, each shown with an input. Random testing said nothing of them.
+
+So the gain is less about catching more bugs, and more about proofs instead of samples, and answers about the spec
+itself: where it is weak, what the code can reach, and which laws say nothing.
+
+## Install
+
+tsverify is not on npm yet. Build a tarball from this repository and install it in your project:
+
+```sh
+npm pack                                          # here: builds the package, writes tsverify-0.0.0.tgz
+npm install --save-dev <path>/tsverify-0.0.0.tgz  # in your project; add `effect` for Effect programs
+npx tsverify                                      # every contract under the current folder
+```
+
+It needs Node 24.16 or later, and brings its own `typescript` and `z3-solver`. It reads every file that imports
+`tsverify`, whatever its name; these pages name a spec's file `*.contract.ts`, which no test runner mistakes for a test.
+
+Your `tsconfig.json` needs `strict` (or at least `strictNullChecks`), and a module resolution that reads a package's
+`exports`: `nodenext`, `node16` or `bundler`. The one these examples use:
+
+<!-- file: tsconfig.json -->
+```json
+{
+  "compilerOptions": {
+    "target": "es2023",
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "strict": true,
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "skipLibCheck": true,
+    "types": []
+  }
+}
+```
 
 ## What it answers
 
 | Verdict | What it means |
 | --- | --- |
 | `proved` | No input the spec allows breaks the law. |
-| `counterexample` | One does, and `e.g.` gives it, with what each operation gave the code on that run. |
+| `counterexample` | One does, and `e.g.` gives it, with what each call returned on that run. |
 | `vacuous` | Proved, but no result of the function could break it: the law says nothing of the function. |
 | `bounded` | Not proved, and no input with arrays of up to 4 elements breaks it. The reason says what stands in the way. |
-| `unsupported` | The law uses something the verifier does not read. The reason says what to write instead. |
-| `unknown` | The solver gave no answer, on either side. |
-| `inconsistent` | The verifier contradicted itself: a bug of tsverify, never a verdict on the code. |
+| `unsupported` | The law uses something tsverify does not read. The reason says what to write instead. |
+| `unknown` | The solver gave no answer. |
+| `inconsistent` | tsverify contradicted itself: a bug of tsverify, never a verdict on your code. |
 
-The command exits 0 only when every law, and every obligation of the proof code, is `proved`. [Reading a
-report](docs/verdicts.md) has each verdict, what to do about it, and `--json`.
+The command exits 0 only when every law is `proved`. [Reading a report](docs/verdicts.md) has each verdict, what to do
+about it, and `--json` for tools.
 
-## Guides
+## Learn more
 
-- [Writing a spec](docs/specs.md): pure functions, async code and the calls it makes, code that already exists, and what a
-  law may do.
-- [Reading a report](docs/verdicts.md): each verdict and what to do next; the command, its exit codes, `--json`.
-- [Effect programs](docs/effect.md): services as operations, typed errors, the forms the verifier reads.
-- [Loops and proof code](docs/proofs.md): the invariants it guesses, and `invariant`, `assert` and lemmas for when a
-  guess is not enough.
-- [What it reads, refuses and trusts](docs/reads.md): the subset of TypeScript, each refusal and its fix, `assume`, the
-  purity check, packs, and the caveats.
-- [What the examples show](docs/measurements.md): the solver beside property testing, planted bugs, how much of a code base
-  it reads.
-- [How it works](docs/how-it-works.md): the two sides, the lowering to Z3, the adapters.
+- [Writing a spec](docs/specs.md): pure functions, async code and its calls, code that already exists.
+- [Reading a report](docs/verdicts.md): each verdict and what to do next; the command and its exit codes.
+- [Effect programs](docs/effect.md): services as operations, typed errors, the forms it reads.
+- [Loops and proof code](docs/proofs.md): the invariants it guesses, and `invariant`, `assert` and lemmas.
+- [What it reads, refuses and trusts](docs/reads.md): the TypeScript it reads, each refusal and its fix, `assume`.
+- [What the examples show](docs/measurements.md): every measurement, beside property testing.
+- [How it works](docs/how-it-works.md): the two sides of each check, and how code becomes Z3.
 
-## Caveats
+| Import | For |
+| --- | --- |
+| `tsverify` | `spec` and `Implementation`; `contract` for code that already exists; `assume`; `invariant`, `assert`, `lemma`; the types a law reads, `Outcome` and `Rejects` |
+| `tsverify/effect` | `spec` and `computation` for an Effect program |
+| `tsverify/packs/lodash` | what tsverify may assume of the lodash functions it covers |
+| `tsverify/api` | the verifier as a library: `loadProject`, `verify`, `openZ3` |
+| `tsverify/mutants` | bugs planted against your laws: the solver beside property testing |
 
-The ones that matter most; [all of them](docs/reads.md#caveats).
+## Status
 
-- **The arguments are taken to have their types**, and the code to throw only where it says so. That holds for typed
-  callers; at the edge of a program, values need checking first.
-- **A declaration is trusted.** What `assume` declares of a function, and every pack, is taken without proof, and every
-  report lists it.
-- **A loop is taken to end.** An invariant proves what holds if it ends; a `for…of` over an array always does.
-- **The examples are the author's own**, so they show what the verifier reads and catches, not how it fares on code
+A prototype: version 0.0.0, not on npm, and its API may change. Every example in these pages is run by its tests, the
+output shown included. What matters most before you rely on it:
+
+- **Arguments are taken to have their types**, and code to throw only where it says so. At the edge of a program, check
+  values first (with a schema, say).
+- **What you declare with `assume` is trusted**, not proved, and every report lists it.
+- **A loop is taken to end.**
+- **The examples are the author's own**, so they show what tsverify reads and catches, not yet how it fares on code
   someone else wrote.
 
-## In this repository
-
-```sh
-npm test            # 234 tests, ~50 s, the documentation's examples among them
-npm run verify      # every contract below here, a line per law, then a total
-npm run verify -- examples/account                                   # one folder, or one file
-npm run verify -- examples/account/withdraw.ts withdraw              # one contract, with all it knows
-npm run verify -- examples/hono                                      # a Hono API built twice, basic and with Effect
-npm run bench       # planted bugs: the solver beside property testing (~15 s)
-npm run coverage -- <tsconfig.json> [--modular]                      # how much of a code base it reads
-npm run typecheck
-npm run lint        # oxlint, then oxfmt --check; npm run format writes the layout
-```
-
-On this repository `npm run verify` exits 1, on purpose: two examples keep a law the solver refutes,
-`examples/account/imports.contract.ts` keeps 8 laws bounded by a loop of steps, and `fixtures/vacuous` holds three vacuous
-laws. `test/docs.test.ts` runs every example of the documentation: it writes each
-page's files into a project of their own, in the page's order, runs each command the page shows, and compares what it
-prints.
-
-What a program imports, the first two being what a spec and its code import (the code only their types):
-- `tsverify`: `spec` and `Implementation`; `contract` and `computation` for code that already exists; `assume`; the proof
-  code `invariant`, `assert`, `lemma`; `brokenOn`, which tests a declaration against the real function; and the types a
-law reads, `Outcome`, `Call`, `Rejects`. It has no dependencies.
-- `tsverify/effect`: `spec` and `computation` for an Effect program, typed from the Effect.
-- `tsverify/api`: the verifier as a program calls it (`loadProject`, `verify`, `openZ3`, `purityOf`). It changes with the
-  verifier.
-- `tsverify/mutants`: laws against planted bugs, the solver beside property testing. It changes with the verifier too.
-- `tsverify/packs/lodash`: what the verifier may assume of the lodash functions it covers.
-
-## Building and packing
-
-The repository runs its TypeScript source and no build. Each entry of `exports` names its source under a condition of
-its own, `tsverify-source`: `tsconfig.json` sets it in `customConditions`, and every script passes
-`--conditions=tsverify-source`, so a test that imports `tsverify` gets `src/contract.ts`. A project that installs the
-package sets no such condition and gets `dist/`: `npm run build` emits it (JavaScript and declarations, through
-`tsconfig.build.json`), and `npm pack` runs the build first. The verifier knows its own modules by package, the nearest
-`package.json` named `tsverify`, and by their path in it, source or built (`ownModule` in `src/project.ts`), so a spec
-reads the same whether it imports this checkout, a linked copy or an installed one.
-
-`test/install.test.ts` packs the package, installs the tarball into a new project with some of the examples copied in,
-and asks the installed command what the source answers on the same files: the same verdicts. It also checks that the
-tarball holds nothing but the build and the packs, and that a planted bug's counterexample breaks the installed code when
-it runs. It needs `npm` and, when the npm cache lacks a dependency, the network.
-
-## Next
-
-- Integer division (`/` and `%` on bigints, which truncate toward zero) and a string's `length` (its UTF-16 code units):
-  the first two refusals a new project's first spec met.
-- A value read after a check of its tag, where it differs by path: a law that reads `calls.at(-1)` once it has checked
-  `op === "put"`, when the last call is a `get` on one path and a `put` on another. Today a law reads a call at a place
-  that holds the same operation on every path (`calls.at(1)`).
-- The next Effect forms, by how often they stop real code: `Effect.exit`, `mapError`, `catchCause`, `suspend`;
-  destructuring with rest or defaults; `let` in a computation's body.
-- A loop of steps read through invariants over the trace, as a fold's loop is read through its own, so a law of such a
-  contract can be proved and not only bounded.
-- Contracts on operations, assumed by every caller and proved by each implementation (a layer, a class).
-- More guesses, so fewer invariants are written: for `while` and `for` loops, for loops in a callee, and from a
-  computation's laws over its trace.
-- Termination: a `decreases` measure for `while` loops and recursion, as Verus has.
-- Packs for the most-called libraries, each tested against its library; a check of a package's purity from its JavaScript.
-- Equivalence as a first-class check: "this refactor preserves behaviour", run on a diff.
-- A versioned report bound to source hashes.
-- A first release: a version past 0.0.0, and the registry.
+[All the caveats](docs/reads.md#caveats) · [What comes next](docs/roadmap.md) · [Contributing](CONTRIBUTING.md)
 
 ## License
 
-MIT, in `LICENSE`.
+MIT
