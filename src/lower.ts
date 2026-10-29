@@ -1,14 +1,16 @@
 // Lowers pure TypeScript to symbolic values, keeping JavaScript's meaning.
 //
-// Supported: literals of every primitive, null and undefined; `const` bindings
-// (evaluated when first read); `if` with early returns; `?:`, `&&`, `||`, `!`,
+// Statements are run by `exec.ts`: `const` and `let`, assignment, changes to
+// what the function allocated, `if`, `switch` and loops. This module reads
+// expressions. Supported: literals of every primitive, null and undefined; `?:`, `&&`, `||`, `!`,
 // `??`, `===`, `!==`, `<` and friends; `+ - *` on bigints, `+` on strings;
 // unary `-`; property access and optional chaining; `t[k]` for a literal k on a
-// tuple; object and array literals; template strings (as unknown strings of
+// tuple; object and array literals, spreads in them read when a field or an element is; template strings (as unknown strings of
 // their parts); calls to functions of the program (inlined, or opaque when they
 // cannot be read), to closures, to an adapter's functions and to computations;
 // on arrays `.length`, `.at(k)` for a literal k, `.filter(p).length`, `.some(p)`,
-// `.every(p)`, `.includes(x)` for strings and booleans.
+// `.every(p)`, `.find(p)`, `.slice(a, b)` for counts, `.includes(x)` for strings and booleans; a callback may read the
+// element's index.
 //
 // A function it does not read — a package's, or one of the program's whose body
 // it cannot lower — is refused unless an `assume(...)` is in force for it; one
@@ -21,9 +23,10 @@
 //
 // Refused with a source span: arithmetic on `number` (its rounding is not
 // modeled) and bigint `/` `%` (they truncate; Z3's do not), `==`, assignments
-// and loops, casts and non-null assertions (each is a claim the verifier would
-// have to trust), `any`, recursion, a binding it cannot see (a `let`, a global,
-// an import from a package no adapter models), string length (code units).
+// inside an expression, casts and non-null assertions (each is a claim the verifier would
+// have to trust), `any`, recursion, a binding it cannot see (a global,
+// an import from a package no adapter models), string length (code units), a
+// closure kept for later over a variable that changes.
 //
 // Reading a binding only when it is used means a binding the result does not
 // need is never checked. The code under verification is taken to throw nothing:
@@ -33,11 +36,12 @@ import ts from "typescript"
 import type { Arith, Bool } from "z3-solver"
 import type { Adapter } from "./adapter.ts"
 import { computationCall } from "./computation.ts"
+import { type LemmaUse, type Obligation, runFunction } from "./exec.ts"
 import { type Order, compare, isNullish, ite, nullishOr, strictEq, truthy } from "./ops.ts"
 import { type Purity, purityOf } from "./purity.ts"
 import { type Typing, symbolicOf } from "./symbolic.ts"
 import { type AssumedFn, type Assumptions, coveringViews } from "./trust.ts"
-import { type Env, type FunctionNode, NUM, type Thunk, Unsupported, type Val, exactRational, identity, lazy, lazyRecord } from "./value.ts"
+import { type Env, type FunctionNode, NUM, type Thunk, UNDEFINED, Unsupported, type Val, exactRational, identity, lazy, lazyRecord, memoElems, termId } from "./value.ts"
 
 /** What a verification trusts, shared by its two sides: the declarations in force, and what came of using them. */
 export interface Trust {
@@ -72,6 +76,16 @@ export interface Lowering extends Typing {
   mode: Mode
   /** The declarations whose laws are being assumed now: a law that calls its own function is refused. */
   readonly assuming: Array<AssumedFn>
+  /** What the proof code asks proved: invariants, asserts, lemmas' preconditions. */
+  readonly obligations: Array<Obligation>
+  /**
+   * What the proof code lets the proof side know once it is proved: an assert, a lemma's statement, a loop's invariant
+   * after it. Never an assumption of the universe: each obligation is checked with the hints made before it only, so
+   * no hint proves itself, and a law with all of them.
+   */
+  readonly hints: Array<Bool<"main">>
+  /** The lemmas the proof code called, by `file#name`: each is proved too. */
+  readonly lemmas: Map<string, LemmaUse>
 }
 
 /** A fresh lowering over a universe. */
@@ -84,6 +98,9 @@ export const lowering = (typing: Typing, adapters: ReadonlyArray<Adapter>, trust
   trust,
   mode: "exec",
   assuming: [],
+  obligations: [],
+  hints: [],
+  lemmas: new Map(),
 })
 
 /** Runs `f` as spec code. */
@@ -121,15 +138,10 @@ export const lowerCall = (L: Lowering, fn: FunctionNode, env: Env, args: Readonl
   if (L.stack.includes(fn)) throw new Unsupported("recursion is not modeled", at)
   if (fn.asteriskToken !== undefined) throw new Unsupported("a generator called as a plain function is not modeled", fn)
   if (fn.modifiers?.some((m) => m.kind === K.AsyncKeyword)) throw new Unsupported("an async function read as a plain one", fn)
+  if (fn.body === undefined) throw new Unsupported("a function with no body", fn)
   L.stack.push(fn)
   try {
-    const scope = bindParameters(L, fn, env, args)
-    const body = fn.body
-    if (body === undefined) throw new Unsupported("a function with no body", fn)
-    if (!ts.isBlock(body)) return lowerExpr(L, body, scope)
-    return lowerStatements(L, body.statements, 0, scope, () => {
-      throw new Unsupported("the function can end without a `return`, which is not modeled", body)
-    })
+    return runFunction(L, fn, env, args.map((v) => ({ kind: "value", thunk: () => v, owned: false })), undefined, at).value()
   } finally {
     L.stack.pop()
   }
@@ -167,47 +179,10 @@ export const bind = (L: Lowering, name: ts.BindingName, value: Thunk, scope: Map
   }
 }
 
-const propertyKey = (name: ts.PropertyName): string => {
+export const propertyKey = (name: ts.PropertyName): string => {
   if (ts.isIdentifier(name) || ts.isStringLiteral(name) || ts.isNoSubstitutionTemplateLiteral(name)) return name.text
   throw new Unsupported("a computed property name is not modeled", name)
 }
-
-/** A sequence of statements, then `rest` if it falls off the end. */
-const lowerStatements = (
-  L: Lowering,
-  stmts: ReadonlyArray<ts.Statement>,
-  i: number,
-  env: Env,
-  rest: () => Val,
-): Val => {
-  if (i === stmts.length) return rest()
-  const s = stmts[i]!
-  const next = (): Val => lowerStatements(L, stmts, i + 1, env, rest)
-  if (ts.isVariableStatement(s)) {
-    if ((s.declarationList.flags & ts.NodeFlags.Const) === 0) throw new Unsupported("only `const` bindings are modeled", s)
-    const scope = new Map(env)
-    for (const d of s.declarationList.declarations) {
-      if (d.initializer === undefined) throw new Unsupported("a `const` with no value", d)
-      const init = d.initializer
-      bind(L, d.name, later(L, () => lowerExpr(L, init, scope)), scope)
-    }
-    return lowerStatements(L, stmts, i + 1, scope, rest)
-  }
-  if (ts.isReturnStatement(s))
-    return s.expression === undefined ? { kind: "nullish", which: "undefined" } : lowerExpr(L, s.expression, env)
-  if (ts.isIfStatement(s)) {
-    const c = cond(L, s.expression, env)
-    const thenV = lowerBranch(L, s.thenStatement, env, next)
-    const elseV = s.elseStatement === undefined ? next() : lowerBranch(L, s.elseStatement, env, next)
-    return ite(L.u, c, thenV, elseV, s)
-  }
-  if (ts.isBlock(s)) return lowerStatements(L, s.statements, 0, env, next)
-  if (ts.isEmptyStatement(s)) return next()
-  throw new Unsupported(`a ${K[s.kind]} is not modeled`, s)
-}
-
-const lowerBranch = (L: Lowering, s: ts.Statement, env: Env, next: () => Val): Val =>
-  lowerStatements(L, ts.isBlock(s) ? s.statements : [s], 0, env, next)
 
 /** A condition's truth, read as JavaScript reads it: `a && b` is truthy when both are. */
 export const cond = (L: Lowering, e: ts.Expression, env: Env): Bool<"main"> => {
@@ -253,32 +228,13 @@ export const lowerExpr = (L: Lowering, e: ts.Expression, env: Env): Val => {
   if (ts.isElementAccessExpression(e)) return elementAccess(L, e, env)
   if (ts.isNewExpression(e)) throw new Unsupported(`\`new\` of a class no adapter models`, e)
   if (ts.isCallExpression(e)) return call(L, e, env)
-  if (ts.isArrowFunction(e) || ts.isFunctionExpression(e)) return { kind: "fn", node: e, env }
+  if (ts.isArrowFunction(e) || ts.isFunctionExpression(e)) {
+    closureCheck(L, e)
+    return { kind: "fn", node: e, env }
+  }
 
-  if (ts.isObjectLiteralExpression(e)) {
-    const fields = new Map<string, Thunk>()
-    for (const p of e.properties) {
-      if (ts.isPropertyAssignment(p)) fields.set(propertyKey(p.name), later(L, () => lowerExpr(L, p.initializer, env)))
-      else if (ts.isShorthandPropertyAssignment(p)) fields.set(p.name.text, later(L, () => identifier(L, p.name, env)))
-      else throw new Unsupported("spreads, methods and accessors in an object literal are not modeled", p)
-    }
-    return lazyRecord((name) => fields.get(name)?.())
-  }
-  if (ts.isArrayLiteralExpression(e)) {
-    if (e.elements.some((x) => ts.isSpreadElement(x) || ts.isOmittedExpression(x)))
-      throw new Unsupported("spreads and holes in an array literal are not modeled", e)
-    const items = e.elements.map((x) => later(L, () => lowerExpr(L, x, env)))
-    return {
-      kind: "array",
-      length: z3.Int.val(items.length),
-      elem: (i) => {
-        if (items.length === 0) throw new Unsupported("an element of an empty array", e)
-        let v = items[items.length - 1]!()
-        for (let k = items.length - 2; k >= 0; k--) v = ite(u, i.eq(k), items[k]!(), v, e)
-        return v
-      },
-    }
-  }
+  if (ts.isObjectLiteralExpression(e)) return objectLiteral(L, e, env)
+  if (ts.isArrayLiteralExpression(e)) return arrayLiteral(L, e, env)
 
   if (ts.isConditionalExpression(e))
     return ite(u, cond(L, e.condition, env), lowerExpr(L, e.whenTrue, env), lowerExpr(L, e.whenFalse, env), e)
@@ -318,7 +274,7 @@ const template = (L: Lowering, e: ts.TemplateExpression, env: Env): Val => {
     }
   })
   const indices = L.u.openBounds()
-  const key = ids.every((i) => i !== undefined) ? `template:${e.getSourceFile().fileName}:${e.pos}(${ids.join(",")})[${indices.map((i) => i.sexpr()).join(",")}]` : undefined
+  const key = ids.every((i) => i !== undefined) ? `template:${e.getSourceFile().fileName}:${e.pos}(${ids.join(",")})[${indices.map(termId).join(",")}]` : undefined
   const known = key === undefined ? undefined : L.opaque.get(key)
   if (known !== undefined) return known
   const term = L.u.leaf([L.u.fresh("template"), "$"], "str", indices) as never as ReturnType<typeof z3.String.val>
@@ -392,7 +348,7 @@ const propertyAccess = (L: Lowering, e: ts.PropertyAccessExpression, env: Env): 
   const t = L.checker.getTypeAtLocation(e.expression)
   if (t.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) throw new Unsupported("a property of an `any` or `unknown`", e)
   const obj = lowerExpr(L, e.expression, env)
-  return optionally(L, obj, e, e.expression, (v) => member(L, v, e.name.text, e))
+  return optionally(L, obj, e, e.expression, (v) => member(L, v, e.name.text, e, t))
 }
 
 /**
@@ -419,11 +375,14 @@ const optionally = (L: Lowering, obj: Val, e: ts.Node, objExpr: ts.Expression, f
   return ite(L.u, isNullish(L.u, obj), { kind: "nullish", which: "undefined" }, inner, e)
 }
 
-const member = (L: Lowering, obj: Val, name: string, at: ts.Node): Val => {
+/** `obj.name`. A field the object lacks reads as undefined where its type declares it (an optional field left out). */
+export const member = (L: Lowering, obj: Val, name: string, at: ts.Node, objType?: ts.Type): Val => {
   if (obj.kind === "record") {
     const v = obj.field(name)
-    if (v === undefined) throw new Unsupported(`no field \`${name}\` the verifier can read`, at)
-    return v
+    if (v !== undefined) return v
+    const declared = objType === undefined ? undefined : L.checker.getPropertyOfType(L.checker.getNonNullableType(objType), name)
+    if (declared !== undefined || obj.has?.(name) !== undefined) return UNDEFINED
+    throw new Unsupported(`no field \`${name}\` the verifier can read`, at)
   }
   if (obj.kind === "array" && name === "length") return { kind: "int", origin: "count", term: obj.length }
   if (obj.kind === "str" && name === "length")
@@ -520,7 +479,7 @@ const assumedCall = (L: Lowering, a: AssumedFn, args: ReadonlyArray<Val>, at: ts
   const ids = args.map(identity)
   const key =
     a.pure && ids.every((i) => i !== undefined)
-      ? `assumed:${a.views[0]!.where}(${ids.join(",")})[${indices.map((i) => i.sexpr()).join(",")}]`
+      ? `assumed:${a.views[0]!.where}(${ids.join(",")})[${indices.map(termId).join(",")}]`
       : undefined
   const known = key === undefined ? undefined : L.opaque.get(key)
   if (known !== undefined) return known
@@ -567,8 +526,8 @@ const arrayMethod = (L: Lowering, arr: Extract<Val, { kind: "array" }>, name: st
     if (e.arguments.length !== 1) throw new Unsupported(`\`.${name}\` with a \`this\` argument is not modeled`, e)
     const f = lowerExpr(L, arg(0), env)
     if (f.kind !== "fn") throw new Unsupported(`\`.${name}\` of a ${f.kind}`, e)
-    if (f.node.parameters.length > 1) throw new Unsupported(`\`.${name}\` with a callback reading the index or the array is not modeled`, f.node)
-    return (i) => truthy(u, lowerCall(L, f.node, f.env, [arr.elem(i)], e))
+    if (f.node.parameters.length > 2) throw new Unsupported(`\`.${name}\` with a callback reading the array is not modeled`, f.node)
+    return (i) => truthy(u, lowerCall(L, f.node, f.env, [arr.elem(i), { kind: "int", origin: "count", term: i }], e))
   }
   /** `exists` (or `forall`) an index of the array where `p` holds, with the facts about element i inside. */
   /** How many elements to write a quantifier out over: the array's own bound (exact on both sides), else the search side's. */
@@ -605,6 +564,12 @@ const arrayMethod = (L: Lowering, arr: Extract<Val, { kind: "array" }>, name: st
         value: arr.elem(index),
       }
     }
+    case "find": {
+      const { found, k } = firstIndex(L, arr, predicate(), e)
+      return { kind: "maybe", isNull: z3.Bool.val(false), isUndefined: z3.Not(found), value: arr.elem(k) }
+    }
+    case "slice":
+      return slice(L, arr, e.arguments.map((a) => lowerExpr(L, a, env)), e)
     case "some":
       return bool(quantify("exists", predicate()))
     case "every":
@@ -659,8 +624,8 @@ const binary = (L: Lowering, e: ts.BinaryExpression, env: Env): Val => {
     return op === K.AmpersandAmpersandToken ? ite(u, truthy(u, l), r, l, e) : ite(u, truthy(u, l), l, r, e)
   }
   if (op === K.QuestionQuestionToken) return nullishOr(u, lowerExpr(L, e.left, env), () => lowerExpr(L, e.right, env), e)
-  const l = lowerExpr(L, e.left, env)
-  const r = lowerExpr(L, e.right, env)
+  const l = narrowed(L, e.left, lowerExpr(L, e.left, env), op)
+  const r = narrowed(L, e.right, lowerExpr(L, e.right, env), op)
   switch (op) {
     case K.EqualsEqualsEqualsToken:
       return bool(strictEq(u, l, r, e))
@@ -681,7 +646,18 @@ const binary = (L: Lowering, e: ts.BinaryExpression, env: Env): Val => {
   }
 }
 
-const arithmetic = (L: Lowering, op: ts.SyntaxKind, l: Val, r: Val, e: ts.BinaryExpression): Val => {
+/**
+ * An operand of `<` or `+`, read as present where the type checker has narrowed it to neither null nor undefined
+ * (`out === undefined || out < 0n`): the value then only matters on the paths where it is present.
+ */
+const narrowed = (L: Lowering, e: ts.Expression, v: Val, op: ts.SyntaxKind): Val => {
+  if (v.kind !== "maybe" || op === K.EqualsEqualsEqualsToken || op === K.ExclamationEqualsEqualsToken) return v
+  const t = L.checker.getTypeAtLocation(e)
+  if ((t.isUnion() ? t.types : [t]).some((m) => m.flags & (ts.TypeFlags.Null | ts.TypeFlags.Undefined | ts.TypeFlags.Void))) return v
+  return v.value ?? v
+}
+
+export const arithmetic = (L: Lowering, op: ts.SyntaxKind, l: Val, r: Val, e: ts.BinaryExpression): Val => {
   const { u } = L
   if (l.kind === "int" && r.kind === "int" && l.origin === "bigint" && r.origin === "bigint") {
     if (op === K.PlusToken) return { ...l, term: l.term.add(r.term) }
@@ -696,3 +672,272 @@ const arithmetic = (L: Lowering, op: ts.SyntaxKind, l: Val, r: Val, e: ts.Binary
 }
 
 export const emptyEnv = EMPTY
+
+/**
+ * The first index below the array's length where `p` holds, and whether there is one: written out where the array's
+ * bound is known, else a fresh index defined by quantifiers (it holds there, and nowhere before it).
+ */
+export const firstIndex = (
+  L: Lowering,
+  arr: Extract<Val, { kind: "array" }>,
+  p: (i: Arith<"main">) => Bool<"main">,
+  at: ts.Node,
+): { readonly found: Bool<"main">; readonly k: Arith<"main"> } => {
+  const { u } = L
+  const z3 = u.z3
+  const bound = arr.maxSize ?? u.bound
+  if (bound !== undefined) {
+    let k: Arith<"main"> = z3.Int.val(bound)
+    let found: Bool<"main"> = z3.Bool.val(false)
+    for (let j = bound - 1; j >= 0; j--) {
+      const hit = z3.And(z3.Int.val(j).lt(arr.length), p(z3.Int.val(j)))
+      k = z3.If(hit, z3.Int.val(j), k)
+      found = z3.Or(hit, found)
+    }
+    return { found, k }
+  }
+  if (u.depth > 0) throw new Unsupported("a search (`.find`) inside a quantifier is not modeled", at)
+  const k = u.leaf([u.fresh("first"), "$"], "int", [], "count") as never as Arith<"main">
+  const some = z3.Int.const(u.fresh("i"))
+  const hasOne = u.within(some, () => p(some))
+  const found = z3.Exists([some], z3.And(some.ge(0), some.lt(arr.length), ...hasOne.facts, hasOne.result))
+  const before = z3.Int.const(u.fresh("j"))
+  const none = u.within(before, () => p(before))
+  u.assume(
+    z3.Implies(
+      found,
+      z3.And(k.ge(0), k.lt(arr.length), p(k), z3.ForAll([before], z3.Implies(z3.And(before.ge(0), before.lt(k), ...none.facts), z3.Not(none.result)))),
+    ),
+  )
+  return { found, k }
+}
+
+/** A count from a value: a count itself, or a whole-number literal. */
+const countOf = (L: Lowering, v: Val, at: ts.Node): Arith<"main"> => {
+  if (v.kind === "int" && v.origin === "count") return v.term
+  if (v.kind === "num" && L.u.z3.isRealVal(v.real) && L.u.z3.isIntVal(v.cls) && Number(v.cls.value()) === NUM.finite) {
+    const r = v.real.value()
+    if (r.denominator === 1n && r.numerator >= 0n) return L.u.z3.Int.val(r.numerator)
+  }
+  throw new Unsupported("`.slice` is modeled with counts (an index, a length) and non-negative whole-number literals", at)
+}
+
+/** `arr.slice(start?, end?)`: a view of the same elements, from `start`, below `end`, both clamped to the length. */
+const slice = (L: Lowering, arr: Extract<Val, { kind: "array" }>, args: ReadonlyArray<Val>, at: ts.Node): Val => {
+  const z3 = L.u.z3
+  if (args.length > 2) throw new Unsupported("`.slice` takes a start and an end", at)
+  const start = args[0] === undefined ? z3.Int.val(0) : countOf(L, args[0], at)
+  const end = args[1] === undefined ? arr.length : countOf(L, args[1], at)
+  const lo = z3.If(start.le(arr.length), start, arr.length)
+  const hi = z3.If(end.le(arr.length), end, arr.length)
+  return {
+    kind: "array",
+    length: z3.If(hi.ge(lo), hi.sub(lo), z3.Int.val(0)),
+    elem: memoElems((i) => arr.elem(i.add(lo))),
+    ...(arr.maxSize === undefined ? {} : { maxSize: arr.maxSize }),
+    ...(arr.id === undefined ? {} : { id: `slice(${arr.id},${termId(lo)},${termId(hi)})` }),
+  }
+}
+
+/**
+ * An object literal. A field's value is the last property's that may hold it: a property written in place holds its
+ * key; a spread holds the keys of what it spreads, which the verifier knows of an object the code built (`has`) and of
+ * nothing else. A spread is read only when a field it may hold is.
+ */
+const objectLiteral = (L: Lowering, e: ts.ObjectLiteralExpression, env: Env): Val => {
+  const { u } = L
+  const z3 = u.z3
+  type Part = { readonly key: string; readonly value: Thunk } | { readonly spread: Thunk; readonly node: ts.Node }
+  const parts: Array<Part> = e.properties.map((p): Part => {
+    if (ts.isPropertyAssignment(p)) return { key: propertyKey(p.name), value: later(L, () => lowerExpr(L, p.initializer, env)) }
+    if (ts.isShorthandPropertyAssignment(p)) return { key: p.name.text, value: later(L, () => lowerExpr(L, p.name, env)) }
+    if (ts.isSpreadAssignment(p)) return { spread: later(L, () => lowerExpr(L, p.expression, env)), node: p }
+    throw new Unsupported("methods and accessors in an object literal are not modeled", p)
+  })
+  const spreadOf = (v: Val, name: string, at: ts.Node): { has: Bool<"main">; value: Val | undefined } => {
+    if (v.kind === "nullish") return { has: z3.Bool.val(false), value: undefined }
+    if (v.kind === "maybe") {
+      if (v.value === undefined) return { has: z3.Bool.val(false), value: undefined }
+      const inner = spreadOf(v.value, name, at)
+      return { has: z3.And(z3.Not(isNullish(u, v)), inner.has), value: inner.value }
+    }
+    if (v.kind === "record" && v.has !== undefined) {
+      const has = v.has(name)
+      if (has !== undefined) return { has, value: v.field(name) }
+    }
+    throw new Unsupported(
+      `\`${name}\` is read from an object built with a spread of a value whose keys the verifier does not know (at run time it may hold more than its type says)`,
+      at,
+    )
+  }
+  const resolved = new Map<string, { has: Bool<"main">; value: Val | undefined }>()
+  const resolve = (name: string) => {
+    let r = resolved.get(name)
+    if (r !== undefined) return r
+    let has: Bool<"main"> = z3.Bool.val(false)
+    let value: Val | undefined
+    for (const p of parts) {
+      if ("key" in p) {
+        if (p.key === name) {
+          has = z3.Bool.val(true)
+          value = p.value()
+        }
+        continue
+      }
+      const sp = spreadOf(p.spread(), name, p.node)
+      if (z3.isFalse(sp.has)) continue
+      const v = sp.value ?? UNDEFINED
+      value = z3.isTrue(sp.has) ? v : ite(u, sp.has, v, value ?? UNDEFINED, p.node)
+      has = z3.isTrue(sp.has) ? sp.has : z3.Or(has, sp.has)
+    }
+    r = { has, value }
+    resolved.set(name, r)
+    return r
+  }
+  return lazyRecord(
+    (name) => {
+      const r = resolve(name)
+      return z3.isFalse(r.has) ? undefined : (r.value ?? UNDEFINED)
+    },
+    undefined,
+    (name) => resolve(name).has,
+  )
+}
+
+/** An array literal: its items and the elements of what it spreads, in order. */
+const arrayLiteral = (L: Lowering, e: ts.ArrayLiteralExpression, env: Env): Val => {
+  const { u } = L
+  const z3 = u.z3
+  if (e.elements.some(ts.isOmittedExpression)) throw new Unsupported("holes in an array literal are not modeled", e)
+  if (!e.elements.some(ts.isSpreadElement)) {
+    const items = e.elements.map((x) => later(L, () => lowerExpr(L, x, env)))
+    // Past its end the array holds nothing; it is read there only on a path that does not happen (`.find` found
+    // nothing in it, a loop's iteration beyond it), where any value of its element type stands in.
+    const t = L.checker.getContextualType(e) ?? L.checker.getTypeAtLocation(e)
+    const elementType = L.checker.isArrayType(L.checker.getNonNullableType(t)) ? L.checker.getTypeArguments(L.checker.getNonNullableType(t) as ts.TypeReference)[0] : undefined
+    const beyond = new Map<string, Val>()
+    const past = (i: Arith<"main">): Val => {
+      if (elementType === undefined || elementType.flags & ts.TypeFlags.Never) return UNDEFINED
+      let v = beyond.get(termId(i))
+      if (v === undefined) {
+        v = symbolicOf(L, elementType, [u.fresh("beyond")], u.openBounds(), e)
+        beyond.set(termId(i), v)
+      }
+      return v
+    }
+    return {
+      kind: "array",
+      length: z3.Int.val(items.length),
+      size: items.length,
+      maxSize: items.length,
+      elem: memoElems((i) => {
+        if (items.length === 0) return past(i)
+        if (z3.isIntVal(i)) {
+          const k = Number(i.value())
+          if (k >= 0 && k < items.length) return items[k]!()
+          return past(i)
+        }
+        let v = past(i)
+        for (let k = items.length - 1; k >= 0; k--) v = ite(u, i.eq(k), items[k]!(), v, e)
+        return v
+      }),
+    }
+  }
+  type Part = { readonly item: Val } | { readonly spread: Extract<Val, { kind: "array" }> }
+  const parts = e.elements.map((x): Part => {
+    if (!ts.isSpreadElement(x)) return { item: lowerExpr(L, x, env) }
+    const v = lowerExpr(L, x.expression, env)
+    if (v.kind !== "array") throw new Unsupported(`a spread of a ${v.kind} into an array is not modeled`, x)
+    return { spread: v }
+  })
+  let length: Arith<"main"> = z3.Int.val(0)
+  let maxSize: number | undefined = 0
+  const offsets: Array<Arith<"main">> = []
+  for (const p of parts) {
+    offsets.push(length)
+    if ("item" in p) {
+      length = length.add(1)
+      if (maxSize !== undefined) maxSize += 1
+    } else {
+      length = length.add(p.spread.length)
+      const m = p.spread.maxSize ?? u.bound
+      maxSize = maxSize === undefined || m === undefined ? undefined : maxSize + m
+    }
+  }
+  return {
+    kind: "array",
+    length,
+    ...(maxSize === undefined ? {} : { maxSize }),
+    elem: memoElems((i) => {
+      // Element i is the part's whose range holds it: below the next part's offset, and not in an earlier part.
+      const here = (k: number): Val => {
+        const p = parts[k]!
+        return "item" in p ? p.item : p.spread.elem(i.sub(offsets[k]!))
+      }
+      let v = here(parts.length - 1)
+      for (let k = parts.length - 2; k >= 0; k--) v = ite(u, i.lt(offsets[k + 1]!), here(k), v, e)
+      return v
+    }),
+  }
+}
+
+/** The names each function body assigns or changes (cached), for the closure check. */
+const changedIn = new WeakMap<ts.Node, Set<string>>()
+const changedNames = (body: ts.Node): Set<string> => {
+  let out = changedIn.get(body)
+  if (out !== undefined) return out
+  out = new Set()
+  const rootName = (x: ts.Expression): string | undefined => {
+    while (ts.isPropertyAccessExpression(x) || ts.isElementAccessExpression(x) || ts.isParenthesizedExpression(x)) x = x.expression
+    return ts.isIdentifier(x) ? x.text : undefined
+  }
+  const found = out
+  const visit = (n: ts.Node): void => {
+    if (ts.isBinaryExpression(n) && n.operatorToken.kind >= K.FirstAssignment && n.operatorToken.kind <= K.LastAssignment) {
+      const r = rootName(n.left)
+      if (r !== undefined) found.add(r)
+    } else if ((ts.isPrefixUnaryExpression(n) || ts.isPostfixUnaryExpression(n)) && (n.operator === K.PlusPlusToken || n.operator === K.MinusMinusToken)) {
+      const r = rootName(n.operand)
+      if (r !== undefined) found.add(r)
+    } else if (ts.isDeleteExpression(n)) {
+      const r = rootName(n.expression)
+      if (r !== undefined) found.add(r)
+    } else if (ts.isCallExpression(n)) {
+      if (ts.isPropertyAccessExpression(n.expression)) {
+        const r = rootName(n.expression.expression)
+        if (r !== undefined) found.add(r)
+      }
+      for (const a of n.arguments) {
+        const r = rootName(a)
+        if (r !== undefined) found.add(r)
+      }
+    }
+    ts.forEachChild(n, visit)
+  }
+  visit(body)
+  changedIn.set(body, out)
+  return out
+}
+
+/**
+ * A closure is read with the variables it captures as they are where it is written. That is JavaScript's meaning when
+ * it is called there (a callback); one kept for later, over a variable its function changes, is refused.
+ */
+const closureCheck = (L: Lowering, e: ts.ArrowFunction | ts.FunctionExpression): void => {
+  if (ts.isCallExpression(e.parent) && e.parent.arguments.includes(e)) return
+  let host: ts.Node | undefined = e.parent
+  while (host !== undefined && !ts.isFunctionLike(host)) host = host.parent
+  if (host === undefined || !("body" in host) || host.body === undefined) return
+  const changed = changedNames(host.body as ts.Node)
+  const captured: Array<string> = []
+  const visit = (n: ts.Node): void => {
+    if (ts.isIdentifier(n) && changed.has(n.text)) {
+      const d = L.checker.getSymbolAtLocation(n)?.valueDeclaration
+      if (d !== undefined && d.pos >= host.pos && d.end <= host.end && !(d.pos >= e.pos && d.end <= e.end)) captured.push(n.text)
+    }
+    ts.forEachChild(n, visit)
+  }
+  visit(e.body)
+  if (captured.length > 0)
+    throw new Unsupported(`a closure kept for later over \`${captured[0]}\`, which its function changes: call it where it is written, or pass it the value`, e)
+}

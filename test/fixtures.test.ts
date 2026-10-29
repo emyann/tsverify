@@ -60,7 +60,6 @@ describe("a refused construct leaves its contract unverified", () => {
     ["looseEquality", /operator == is not modeled/],
     ["letCapture", /`limit` is a binding the verifier cannot see/],
     ["bigintDivision", /bigint `\/` truncates/],
-    ["loop", /only `const` bindings are modeled/],
     ["elementAccess", /element access on a array: `\.at\(0\)` reads an array/],
     ["global", /`Math` is a binding the verifier cannot see/],
     ["stringLength", /UTF-16 code units/],

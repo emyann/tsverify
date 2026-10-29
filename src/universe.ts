@@ -81,11 +81,23 @@ export class Universe {
    * quantifier's), else in the global scope.
    */
   assume(fact: Bool<"main">, indices: ReadonlyArray<Arith<"main">> = []): void {
-    const tokens = new Set(indices.flatMap((i) => i.sexpr().split(/[\s()]+/)))
-    for (let s = this.scopes.length - 1; s > 0; s--) {
-      if (tokens.has(this.scopes[s]!.bound!.sexpr())) {
-        this.scopes[s]!.items.push(fact)
-        return
+    if (this.scopes.length > 1 && indices.length > 0) {
+      const seen = new Set<number>()
+      const found = new Set<number>()
+      const walk = (t: Expr<"main">): void => {
+        const id = t.id()
+        if (seen.has(id)) return
+        seen.add(id)
+        found.add(id)
+        if (!this.z3.isApp(t)) return
+        for (let k = 0; k < t.numArgs(); k++) walk(t.arg(k) as Expr<"main">)
+      }
+      for (const i of indices) walk(i)
+      for (let s = this.scopes.length - 1; s > 0; s--) {
+        if (found.has(this.scopes[s]!.bound!.id())) {
+          this.scopes[s]!.items.push(fact)
+          return
+        }
       }
     }
     this.scopes[0]!.items.push(fact)

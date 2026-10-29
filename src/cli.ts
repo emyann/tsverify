@@ -32,6 +32,15 @@ for (const l of v.laws) {
   if (l.reason !== undefined) console.log(`  ${"".padEnd(15)} ${l.reason}`)
 }
 if (v.cover.length > 0) console.log(`  reaches: ${v.cover.map((c) => (c.status === "reachable" ? c.value : `${c.value} (${c.status})`)).join(", ")}`)
+if (v.obligations.length > 0) {
+  console.log("  proof code:")
+  for (const o of v.obligations) {
+    const what = o.kind === "invariant" ? `invariant ${o.phase === "entry" ? "on entry" : "kept by each iteration"}` : o.kind === "requires" ? "lemma's requires" : o.kind
+    console.log(`    ${o.status.padEnd(15)} ${what}: ${o.text}  (${o.at.replace(process.cwd() + "/", "")})`)
+    if (o.args !== undefined) console.log(`    ${"".padEnd(15)} e.g. ${JSON.stringify(o.args, (_, x) => (typeof x === "bigint" ? `${x}n` : x))}`)
+    if (o.reason !== undefined) console.log(`    ${"".padEnd(15)} ${o.reason}`)
+  }
+}
 if (v.trusted.length > 0) {
   console.log("  trusted (declared, not proved):")
   for (const t of v.trusted) {
@@ -41,4 +50,4 @@ if (v.trusted.length > 0) {
 }
 console.log("  assumed:")
 for (const n of v.notes) console.log(`    - ${n}`)
-process.exit(v.laws.every((l) => l.status === "proved") ? 0 : 1)
+process.exit(v.laws.every((l) => l.status === "proved") && v.obligations.every((o) => o.status === "proved") ? 0 : 1)

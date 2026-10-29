@@ -4,7 +4,7 @@ A prototype verifier for ordinary TypeScript. A spec author writes laws as plain
 and the code they're about, from source through the TypeScript compiler API. Z3 then proves each law for every input,
 or returns an input that breaks it.
 
-It reads both pure functions and *computations*: code that calls operations behind an interface and ends in a success or a
+It reads pure functions, loops through the invariants the code carries (proof mode, after Verus), and *computations*: code that calls operations behind an interface and ends in a success or a
 failure. Effect is not part of the core. It is one adapter, beside async/await and plain TypeScript, as
 `docs/design-2026-10-28-core-and-adapters.md` lays out. (The repository's name predates that decision.)
 
@@ -14,8 +14,9 @@ changed on evidence: see *What changed from the handoff*.
 Pinned: Node ≥ 24.16, `z3-solver` 5.3.2, `typescript` 6.0.3, `effect` 4.0.6 (used only by the Phase 0 spike).
 
 ```sh
-npm test            # 43 tests, ~11 s
+npm test            # 120 tests, ~30 s
 npm run pilot       # verify Nemia's lifecycleOf against its laws
+npm run verify -- pilots/fold/fold.spec.ts folded       # Nemia's fold, through its loop's invariants (~2 s)
 npm run verify -- pilots/stop/stop.spec.ts effectStop   # Nemia's requestStop (Effect) against five laws
 npm run verify -- pilots/stop/stop.spec.ts asyncStop    # its async twin, against the same five
 npm run bench       # planted bugs: the solver vs property testing (~20 s)
@@ -127,7 +128,7 @@ Verus sorts code into three modes. The same three are here, in TypeScript:
 | Verus | Here | Rule |
 |---|---|---|
 | `spec`: pure, deterministic, ghost | the laws and `requires` in `*.spec.ts`, and whatever they call | runs no computation, calls no operation, reads no clock, calls nothing declared `pure: false` |
-| `proof`: lemmas, invariants, ghost state | not built: typed no-op hints, `invariant(() => ...)` | |
+| `proof`: lemmas, invariants, asserts | typed no-op calls in the program: `invariant(i => ...)`, `assert(() => ...)`, a lemma's call | each proved where it is written, then known; spec code inside |
 | `exec`: the compiled code | the program | |
 | `assume_specification`, `external_body` | `assume(fn, { pure, ensures? })` | trusted without proof, listed in every report |
 | `vstd` | a pack (`packs/lodash.ts`) a spec imports | tested against the real library |
@@ -190,6 +191,75 @@ numbers. `test/lodash.test.ts` shows:
 No plugin per library: a library needs a pack only for the functions a verified program calls, and nothing at all when its
 calls are inside code the verifier does not read.
 
+## Proof mode: Nemia's `fold`, read through its invariants
+
+Proof code is written in the program, as calls that do nothing when it runs (`src/contract.ts`):
+
+```ts
+for (const e of events) {
+  invariant(() => s.taskId === taskId);
+  invariant((i) => s.stopRequested === events.slice(0, i).some((x) => x.kind === 'stop-requested'));
+  // ... the loop's body, unchanged
+}
+assert(() => total >= 0n)
+productNonNegative(a, b)   // a lemma: lemma((a, b) => a * b >= 0n, { requires: (a, b) => a >= 0n && b >= 0n })
+```
+
+- **`invariant(i => ...)`**, first in a loop's body: true before the first iteration, kept by each, and so true at the
+  end. `i` counts the elements already gone through. In a `for` or `while` loop, `invariant(() => ...)` speaks of the
+  loop's own variables.
+- **`assert(() => ...)`**: true here.
+- **A lemma**: a statement proved once for every argument its `requires` admits (`npm run verify -- <file> <lemma>`). A
+  call proves `requires` there, then knows the statement. A lemma may not lean on itself.
+
+Each is an **obligation**, proved on both sides like a law, or broken with an input. The CLI lists them under `proof code:`
+and exits 1 unless every law and every obligation is proved. What one states is then known (a **hint**), but only on the
+proof side: the search side checks each hint and never assumes it. Each obligation is checked with the hints written
+before it, so no hint proves itself.
+
+**How a loop is read.**
+- The **search side** unrolls it: as many iterations as its arrays have elements (4), or up to 10 passes of a `for` or
+  `while`, with an assumption that cuts longer runs.
+- The **proof side** reads it through its invariants. It forgets what the body changes, assumes the invariants, checks
+  that one pass keeps them, and knows them after the loop.
+
+A loop with no invariant is still read: the search side looks for a counterexample, and a law that needs what the loop
+changed is `bounded`, never `proved`. A law the proof side proves while an obligation it leaned on is broken or unproved
+is searched on the search side too, then reported as a counterexample or as `bounded`, with the reason.
+
+**State.** A loop is only useful if the program changes something, so the lowering now reads:
+- `let`, assignment, compound operators, `??=`, `||=`, `&&=`, `++` and `--` on bigints;
+- `delete`, `push`, `switch` with fallthrough, `for…of`, `for` and `while`;
+- writes through fields and elements, and through what `.find` or `.at` found.
+
+It reads them as Rust's borrow checker would, which keeps aliasing out of the solver:
+- a variable owns what it allocated, and only what is owned changes;
+- an argument, and anything reached from one, is borrowed: a change to it is refused;
+- a part of an object has one name at a time, so a second is refused;
+- a value stored into another object is moved: its old name is dead;
+- a value cannot be replaced while something borrows it.
+
+`fixtures/state.ts` holds four functions proved and six refused, one per rule.
+
+**The pilot is hkb-v2's own `fold`**, the function that turns a task's journal into its state. `pilots/fold/fold.ts` is a
+copy of `fold` and its three helpers, with five `invariant(...)` lines added. `test/fold.test.ts` shows:
+- **The copy is hkb-v2's code but for those lines.** Both are parsed and printed with the invariants dropped, and compared.
+- **Five laws are proved for journals of every length, and the ten invariant obligations with them, in about 2 s:**
+  - the task keeps its id;
+  - a stop is requested exactly when the journal holds a stop request;
+  - closed exactly when it holds a close;
+  - no more attempts than events;
+  - settled only when it holds a settlement.
+- **Five planted bugs, five counterexamples.** Each breaks the law it targets, and running the planted code on the
+  counterexample's journal confirms it: a second stop request taking the first back, a close lost after an answer, an
+  admission that settles, an admission that starts two attempts, a filing that renames the task.
+- **A harmless change stays proved.**
+- **Without the invariants, nothing is proved.** All five laws are `bounded`: unbroken on journals of up to four events,
+  and no more than that.
+- **2,000 random journals:** the copy and hkb-v2's `fold` give the same state, and every law holds.
+
+Before this round, `fold` could only be *declared* pure (`assume`): its body, a loop that changes its state, was not read.
+
 ## Effect as an adapter
 
 The core knows computations, not libraries:
@@ -221,6 +291,7 @@ The core never names a library. What no adapter reads is refused where the code 
 | `src/project.ts` | the program (a file's text can be replaced or added in memory), diagnostics, a contract read from source |
 | `src/symbolic.ts` | any value of a TypeScript type, built lazily: a field becomes an unknown only when read |
 | `src/lower.ts` | pure TypeScript to symbolic values, with JavaScript's semantics |
+| `src/exec.ts` | statements: state, places and ownership, loops through their invariants, and the proof code's obligations |
 | `src/ops.ts` | truthiness, `===`, `<`, `??` and conditional values, exactly as JavaScript defines them |
 | `src/universe.ts` | the Z3 context, its unknowns (one function per path through arrays), assumptions and quantifier scopes |
 | `src/concrete.ts` | model to JS values (replay), and JS values to constraints (the translator check) |
@@ -247,18 +318,22 @@ handled so poorly that queries timed out at 30 s. With the real-valued model, th
 **Supported:**
 - primitives, `null` and `undefined`, optional fields, string-literal unions;
 - `const`, `if` with early returns, `?:`, `&&`, `||`, `!`, `??`, `===`, `!==`, comparisons;
+- `let`, assignment, `switch`, `for…of`, `for` and `while`, and changes to what the function allocated (see *Proof mode*);
 - `+ - *` on bigints, `+` on strings;
 - property access and optional chains;
 - object and array literals;
 - calls (inlined), closures, and calls to declared functions;
-- `.length`, `.at(k)`, `.filter(p).length`, `.some`, `.every` and `.includes` on arrays.
+- `.length`, `.at(k)`, `.filter(p).length`, `.some`, `.every`, `.includes`, `.find` and `.slice` on arrays, and spreads.
 
 **Refused, with a file:line:**
 - casts, `!` and `any`, which are claims the verifier would have to trust;
 - a member read on a value the type checker hasn't narrowed to non-null at that spot;
 - `number` arithmetic, and bigint `/` and `%`;
 - `==`;
-- `let`, loops and mutation;
+- a change to an argument or to anything it reaches, a second name for part of an object, a moved value's old name, and
+  a change to a value while something borrows it;
+- `break` and `continue` to a label, `do…while`, `for…in`, `var`, `a[i] = …` with an index that is not a literal, and
+  every array method that changes its array but `push`;
 - recursion;
 - globals, and functions it cannot read (a package's, or the program's) unless declared;
 - in spec code, computations, operations, the clock and functions declared `pure: false`;
@@ -305,28 +380,37 @@ Phase 0's findings about Effect 4.0.6 still hold (`spike/dump-representations.ts
   module constant is never changed by other code, and the function terminates. Its alias analysis relies on types, which
   is why it refuses casts and type predicates.
 - **A declaration is in force across the whole program**, wherever it is written. Two specs in one program share them.
+- **A loop is assumed to end.** An invariant proves what holds *if* the loop ends (partial correctness); `for…of` over an
+  array always does, but a `while` loop's termination is not proved.
+- **Proof calls run.** `invariant`, `assert` and a lemma's call are no-ops, but they are calls, and their arguments are
+  closures allocated each time. A loop pays for them at run time.
+- **The terms a verification keys by are kept alive** until the process ends, because Z3 reuses the id of a term it has
+  freed. A long-lived process verifying many contracts grows.
 - **The tool itself is plain TypeScript, not Effect.**
 
 ## How much of a real code base it reads
 
 `npm run coverage -- <tsconfig>` lowers every exported function of a project. On hkb-v2's runtime, orchestrator and api
 (2,261 functions):
-- **Every callee inlined, nothing declared:** 387 (17%).
-- **Each function on its own (`--modular`), every callee the purity check accepts taken as declared `pure`:** 420 (19%).
+- **Every callee inlined, nothing declared:** 466 (21%). Runtime 102 of 414, orchestrator 343 of 1,720, api 21 of 127.
+- **Each function on its own (`--modular`), every callee the purity check accepts taken as declared `pure`:** 519 (23%).
   That is what a spec gets by writing one declaration per helper.
-- **Before this round:** 507 (22%), but that counted helpers whose purity was assumed and never checked.
-- **Before the round before:** 212 (10%).
+- **Before proof mode:** 387 inlined and 420 modular. The gain is loops, `let`, `switch`, changes to what a function
+  allocated, `.find`, `.slice` and spreads.
+- **Earlier:** 507 (22%) counting helpers whose purity was assumed and never checked, and 212 (10%) before that.
 
 Of the exported and module-level functions, the purity check accepts 307 of 953 in the runtime and 1,316 of 3,338 in the
 orchestrator. Most of the rest call something impure (an Effect, a package, a method it cannot see into).
 
-The first refusals left, most frequent first:
-- package functions no adapter models;
-- spreads;
-- loops, `let` and mutation;
-- callbacks as parameters;
-- string methods;
-- regular expressions.
+The first refusals left, most frequent first (inlined, over the three):
+- package functions no pack declares (271);
+- a function passed or returned as data (170);
+- array methods it does not read (122);
+- globals and other bindings it cannot see (109);
+- `try` (105);
+- generic type parameters (99);
+- string methods (67);
+- class methods, `async` functions read as plain ones, element access with a computed index, regular expressions.
 
 Exported functions that *return* an Effect are still barely read. They are written `(x) => Effect.gen(...)` or with `pipe`,
 which the Effect adapter does not read yet. The probe does not count `Effect.fn` constants at all.
@@ -335,7 +419,9 @@ which the Effect adapter does not read yet. The probe does not count `Effect.fn`
 
 - The Effect adapter's next forms: `Effect.gen`, `pipe`, `map`, `flatMap`, `catchTag`, `catch`.
 - Contracts on operations, assumed by every caller and proved by each implementation (a layer, a class).
-- Proof mode: loops, with invariants as typed no-op calls (`invariant(() => ...)`), and lemmas.
+- Read hkb-v2's `fold` in place: an invariant that lives in the spec, not the code, attached to a loop by its position.
+  Today the invariants are in a copy, held equal to the original by a test.
+- Termination: a `decreases` measure for `while` loops and recursion, as Verus has.
 - Packs for what hkb-v2 calls most, each tested against its library; a check of a package's purity from its JavaScript.
 - Pin `inFlight`'s finding with the code owner: the domain says `spawnedAt` is never empty, or the code says `!== null`.
 - Add the five laws the gap witnesses point to, then rerun the benchmark.

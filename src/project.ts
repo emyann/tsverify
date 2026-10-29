@@ -65,8 +65,11 @@ const EFFECT_CONTRACT_MODULE = path.resolve(import.meta.dirname, "adapters/effec
 
 export interface ContractSource {
   readonly name: string
-  /** `function`: laws over the arguments and the result. `computation`: over the arguments, the outcome and the calls. */
-  readonly kind: "function" | "computation"
+  /**
+   * `function`: laws over the arguments and the result. `computation`: over the arguments, the outcome and the calls.
+   * `lemma`: a statement over its arguments, its one law `holds`.
+   */
+  readonly kind: "function" | "computation" | "lemma"
   /**
    * What the contract is about, resolved through the type checker (the contract's link to the code): a function, or
    * the expression that defines a computation (`Effect.fn(...)(function* ...)`), which an adapter reads.
@@ -84,6 +87,20 @@ export interface ContractSource {
 export const readContract = (project: Project, file: string, name: string): ContractSource => {
   const { checker } = project
   const init = unwrap(exportedConst(project, file, name))
+  if (ts.isCallExpression(init) && declared(checker, init.expression, CONTRACT_MODULE, "lemma")) {
+    const [statementArg, opts] = init.arguments
+    if (statementArg === undefined) throw new Unsupported("a lemma states something: `lemma((...) => ...)`", init)
+    const statement = functionOf(checker, statementArg)
+    let requires: FunctionNode | undefined
+    if (opts !== undefined) {
+      const o = unwrap(opts)
+      if (!ts.isObjectLiteralExpression(o)) throw new Unsupported("a lemma's options are written in place", opts)
+      for (const p of o.properties)
+        if (ts.isPropertyAssignment(p) && ts.isIdentifier(p.name) && p.name.text === "requires") requires = functionOf(checker, p.initializer)
+        else throw new Unsupported("a lemma's one option is `requires`", p)
+    }
+    return { name, kind: "lemma", target: statement, requires, ensures: [{ name: "holds", law: statement }] }
+  }
   const helper = !ts.isCallExpression(init)
     ? undefined
     : declared(checker, init.expression, CONTRACT_MODULE, "contract")
@@ -94,7 +111,7 @@ export const readContract = (project: Project, file: string, name: string): Cont
         ? "computation"
         : undefined
   if (helper === undefined || !ts.isCallExpression(init))
-    throw new Unsupported(`\`${name}\` is not a \`contract(...)\` or a \`computation<...>()(...)\` of this package`, init)
+    throw new Unsupported(`\`${name}\` is not a \`contract(...)\`, a \`computation<...>()(...)\` or a \`lemma(...)\` of this package`, init)
   const [fnArg, lawsArg] = init.arguments
   if (fnArg === undefined || lawsArg === undefined || !ts.isObjectLiteralExpression(unwrap(lawsArg)))
     throw new Unsupported("a contract is `contract(fn, { requires?, ensures: { ... } })`, written in place", init)

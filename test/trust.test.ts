@@ -53,7 +53,7 @@ describe("a declared function", () => {
 
 describe("refused, with what to write instead", () => {
   const cases: ReadonlyArray<readonly [string, RegExp]> = [
-    ["undeclared", /`total` is not read \(.*\): declare what the verifier may assume of it, `assume\(total, \{ pure: true/],
+    ["undeclared", /`total` is not read \(arithmetic on `number` rounds.*\): declare what the verifier may assume of it, `assume\(total, \{ pure: true/],
     ["stamped", /`stamp` is declared pure and is not: .*changes its argument `log`\. Declare it `pure: false`/],
     ["uncovered", /`uniq \(lodash-es\)` is called with \(readonly number\[\]\), which no declaration covers: \(readonly string\[\]\) at packs\/lodash\.ts/],
     ["otherForm", /`clamp \(lodash-es\)` is called with \(number, 10\), which no declaration covers: \(number, number, number\)/],

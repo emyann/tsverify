@@ -5,7 +5,7 @@
 // string's truthiness is its being non-empty.
 import type { Arith, Bool } from "z3-solver"
 import type { Universe } from "./universe.ts"
-import { NUM, Unsupported, type Val, lazyRecord } from "./value.ts"
+import { NUM, Unsupported, type Val, lazyRecord, memoElems, termId } from "./value.ts"
 import type ts from "typescript"
 
 const T = (u: Universe) => u.z3.Bool.val(true)
@@ -162,19 +162,29 @@ export const ite = (u: Universe, c: Bool<"main">, a: Val, b: Val, at: ts.Node): 
       (name) => {
         const fa = a.field(name)
         const fb = b.field(name)
+        // A key both hold only on some paths: absent reads as undefined there.
+        if (a.has !== undefined && b.has !== undefined && fa !== undefined && fb === undefined) return ite(u, c, fa, { kind: "nullish", which: "undefined" }, at)
+        if (a.has !== undefined && b.has !== undefined && fb !== undefined && fa === undefined) return ite(u, c, { kind: "nullish", which: "undefined" }, fb, at)
         return fa === undefined ? fb : fb === undefined ? fa : ite(u, c, fa, fb, at)
       },
-      a.id !== undefined && b.id !== undefined ? `ite(${c.sexpr()},${a.id},${b.id})` : undefined,
+      a.id !== undefined && b.id !== undefined ? `ite(${termId(c)},${a.id},${b.id})` : undefined,
+      a.has !== undefined && b.has !== undefined
+        ? (name) => {
+            const ha = a.has!(name)
+            const hb = b.has!(name)
+            return ha === undefined || hb === undefined ? undefined : ha === hb ? ha : z3.If(c, ha, hb)
+          }
+        : undefined,
     )
   if (a.kind === "array" && b.kind === "array") {
     const maxSize = a.maxSize !== undefined && b.maxSize !== undefined ? Math.max(a.maxSize, b.maxSize) : undefined
     return {
       kind: "array",
       length: z3.If(c, a.length, b.length),
-      elem: (i) => ite(u, c, a.elem(i), b.elem(i), at),
+      elem: memoElems((i) => ite(u, c, a.elem(i), b.elem(i), at)),
       ...(a.size !== undefined && a.size === b.size ? { size: a.size } : {}),
       ...(maxSize === undefined ? {} : { maxSize }),
-      ...(a.id !== undefined && b.id !== undefined ? { id: `ite(${c.sexpr()},${a.id},${b.id})` } : {}),
+      ...(a.id !== undefined && b.id !== undefined ? { id: `ite(${termId(c)},${a.id},${b.id})` } : {}),
     }
   }
   throw new Unsupported(`a value that is a ${describe(a)} on one path and a ${describe(b)} on another is not modeled`, at)

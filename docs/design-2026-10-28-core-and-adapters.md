@@ -201,8 +201,9 @@ The design takes the same shape:
   code that wrote it. Spec code runs no computation, calls no operation, reads no clock and calls nothing declared
   `pure: false`.
 - **exec** is the program.
-- **proof** is not built: typed no-op hints (`invariant(() => ...)`, `assert`, lemmas), the owner's choice over `//@`
-  comments.
+- **proof** is typed no-op calls the program carries: `invariant(i => ...)` first in a loop's body, `assert(() => ...)`, and
+  a lemma's call (`lemma(statement, { requires })`, declared in a spec), the owner's choice over `//@` comments. Each is
+  an obligation proved where it is written, then known. See *Proof mode* below.
 - **`assume(fn, { pure, ensures })`** is `assume_specification`. Its type arguments are the view its laws are written for,
   which `tsc` checks against the function's own signature. A call no view covers is refused.
 - **A pack** is `vstd`: a module of declarations a spec imports. `packs/lodash.ts` is the first.
@@ -219,9 +220,40 @@ Where TypeScript differs:
 - **Undeclared calls.** Verus refuses them. So does this design now. Before, an unread function was silently an unknown
   pure function. That made 120 of hkb-v2's functions look read whose helpers' purity nobody had checked.
 
+## Proof mode: loops, asserts, lemmas
+
+A loop is read twice, once per side:
+- **The search side unrolls it**, as far as the side's arrays go (4 elements, or 10 passes of a `for` or `while`), with an
+  assumption that cuts longer runs. Every model it finds is still a real input; it proves nothing about a longer one.
+- **The proof side reads it through its invariants.** Every variable the body changes becomes an unknown, the invariants
+  are assumed of it, and one pass of the body must keep them. After the loop, the invariants hold at `i` = the array's
+  length. A loop with none is havocked: the proof side knows nothing of what it changed, and a law that needs it is
+  `bounded`, never `proved`.
+
+Each proof call is an **obligation** with a key (`invariant@fold.ts:97#kept`), checked on both sides like a law: proved,
+or broken with a counterexample run for real. What it states is then a **hint**: the proof side assumes it from there
+on, the search side checks it and never assumes it. An obligation is checked with only the hints written before it, so
+no hint proves itself. A law the proof side proves while an obligation it leaned on is unproved is not reported proved:
+the search side looks for a counterexample, and the law is `bounded` with the reason when none is found.
+
+**A lemma** is a statement proved once, for every argument its `requires` admits, as its own contract (`npm run verify --
+<file> <lemma>`); a call proves `requires` there and then knows the statement. A lemma's proof may not lean on itself.
+
+**State.** Proof mode needs a program that changes things, so the lowering now reads `let`, assignment, compound
+operators, `??=`, `delete`, `push`, `switch` and the three loops. It reads them as Rust would: a variable owns what it
+allocated; an argument, or anything reached from one, is borrowed and never changed; a part of an object has one name
+at a time (a second is refused, so a change through one is always seen through the other); a value moved into another
+object is dead under its old name. `.find` gives a borrow of the element, and a change through it writes the array.
+That is what lets a function like `fold`, which builds its state by changing it, be read without an alias analysis
+inside the solver. Verus has `&mut` from the language; here the lowering refuses what Rust's borrow checker would.
+
 ## Open questions for the owner
 
 1. **Proof hints in the code.** Settled: typed no-op calls, checked by `tsc`.
 2. **Laws over the trace.** As shown, laws filter `calls` by `op` name. A typed helper per operation set (`calls.of(journal)`)
    would make a misspelt op a type error.
 3. **The repository's name**, now that it is not Effect's.
+4. **Where a loop's invariants live.** In the code, they cost a call per iteration and make the code import the
+   verifier's `contract.ts` (no-op functions, no dependencies). In a spec, attached to a loop by its position, the code
+   stays untouched but an edit can silently move them. The `fold` pilot keeps them in a copy, held equal to hkb-v2's
+   code by a test: fine for a pilot, not for a factory.

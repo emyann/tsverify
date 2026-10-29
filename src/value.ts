@@ -37,9 +37,15 @@ export type Val =
     }
   /**
    * An object: a field is built on first read; `undefined` for a field its type does not have. `id`, when set,
-   * names the value for an opaque call: two records with one id are the same value.
+   * names the value for an opaque call: two records with one id are the same value. `has`, when set, says whether
+   * the object holds a key (an object the code built, whose keys are known); a spread of it is read through it.
    */
-  | { readonly kind: "record"; readonly field: (name: string) => Val | undefined; readonly id?: string }
+  | {
+      readonly kind: "record"
+      readonly field: (name: string) => Val | undefined
+      readonly id?: string
+      readonly has?: (name: string) => Bool<"main"> | undefined
+    }
   /**
    * An array: its length, and its element at an index (built on demand; may refuse). `size` is its length when
    * known exactly; `maxSize` bounds it, so a quantifier over it can be written out element by element.
@@ -107,7 +113,11 @@ export const lazy = (f: () => Val): Thunk => {
 }
 
 /** A record whose fields are built on first read and kept. */
-export const lazyRecord = (build: (name: string) => Val | undefined, id?: string): Val => {
+export const lazyRecord = (
+  build: (name: string) => Val | undefined,
+  id?: string,
+  has?: (name: string) => Bool<"main"> | undefined,
+): Val => {
   const memo = new Map<string, Val | undefined>()
   return {
     kind: "record",
@@ -116,6 +126,36 @@ export const lazyRecord = (build: (name: string) => Val | undefined, id?: string
       return memo.get(name)
     },
     ...(id === undefined ? {} : { id }),
+    ...(has === undefined ? {} : { has }),
+  }
+}
+
+export const UNDEFINED: Val = { kind: "nullish", which: "undefined" }
+
+/**
+ * A term's identity, as text: Z3 gives structurally equal terms of one context one id, but reuses the id of a term it
+ * has freed, so the term is kept alive for as long as the process may compare its key.
+ */
+const kept: Array<{ id(): number }> = []
+export const termId = (t: { id(): number }): string => {
+  kept.push(t)
+  return `t${t.id()}`
+}
+
+/**
+ * An array's elements, each built once per index: an array made from another (a write, a merge of two paths, a push)
+ * reads the other's elements, and without the memo each read would rebuild every array below it.
+ */
+export const memoElems = (elem: (i: Arith<"main">) => Val): ((i: Arith<"main">) => Val) => {
+  const built = new Map<string, Val>()
+  return (i) => {
+    const key = termId(i)
+    let v = built.get(key)
+    if (v === undefined) {
+      v = elem(i)
+      built.set(key, v)
+    }
+    return v
   }
 }
 
@@ -125,14 +165,14 @@ export const identity = (v: Val): string | undefined => {
     case "int":
     case "bool":
     case "str":
-      return v.term.sexpr()
+      return `${v.kind}#${termId(v.term)}`
     case "num":
-      return `num(${v.cls.sexpr()},${v.real.sexpr()})`
+      return `num(${termId(v.cls)},${termId(v.real)})`
     case "nullish":
       return v.which
     case "maybe": {
       const inner = v.value === undefined ? "none" : identity(v.value)
-      return inner === undefined ? undefined : `maybe(${v.isNull.sexpr()},${v.isUndefined.sexpr()},${inner})`
+      return inner === undefined ? undefined : `maybe(${termId(v.isNull)},${termId(v.isUndefined)},${inner})`
     }
     case "record":
     case "array":

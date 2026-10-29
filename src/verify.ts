@@ -16,6 +16,7 @@ import { effectAdapter } from "./adapters/effect/index.ts"
 import { tsAdapter } from "./adapters/ts.ts"
 import { emptyTrace, runBody } from "./computation.ts"
 import { TooLong, fromModel, literal, pin } from "./concrete.ts"
+import type { Obligation } from "./exec.ts"
 import { emptyEnv, inSpec, type Lowering, lowerCall, lowering, num, type Trust, trustOf } from "./lower.ts"
 import { strictEq, truthy } from "./ops.ts"
 import { type ContractSource, type Project, readContract } from "./project.ts"
@@ -61,6 +62,18 @@ export interface CoverResult {
   readonly abstract?: ReadonlyArray<string>
 }
 
+/** An obligation of the proof code (an invariant, an assert, a lemma's precondition or the lemma itself), as decided. */
+export interface ObligationResult {
+  readonly kind: Obligation["kind"] | "lemma"
+  readonly text: string
+  readonly at: string
+  readonly phase: Obligation["phase"]
+  readonly status: "proved" | "counterexample" | "bounded" | "unknown"
+  /** On a counterexample: arguments on which it fails. */
+  readonly args?: ReadonlyArray<unknown>
+  readonly reason?: string
+}
+
 export interface Verification {
   readonly contract: string
   readonly laws: ReadonlyArray<LawResult>
@@ -72,6 +85,11 @@ export interface Verification {
    * program only if each of these holds of the function it names.
    */
   readonly trusted: ReadonlyArray<Trusted>
+  /**
+   * What the proof code asked proved. A law proved on the proof side leans on every one of these; while one is not
+   * proved, such a law is reported `bounded`.
+   */
+  readonly obligations: ReadonlyArray<ObligationResult>
   /** Set when the function or `requires` could not be lowered: no law is checked then. */
   readonly unsupported?: string
 }
@@ -83,6 +101,8 @@ export interface Options {
   readonly bound?: number
   /** Called as each law and each cover query is decided: progress for a long run. */
   readonly progress?: (line: string) => void
+  /** The lemmas being verified, outermost first: a lemma that leans on itself is refused. */
+  readonly within?: ReadonlyArray<string>
 }
 
 /** One side's lowering: the universe, the arguments and result, the precondition. */
@@ -123,6 +143,12 @@ export const lowerSide = (
   }
   const preOf = (args: ReadonlyArray<Val>) =>
     source.requires === undefined ? z3.Bool.val(true) : inSpec(L, () => truthy(u, lowerCall(L, source.requires!, emptyEnv, args, source.requires!)))
+  if (source.kind === "lemma") {
+    const t = source.target as FunctionNode
+    const { params, args } = symbolicArgs(t)
+    const result = inSpec(L, () => lowerCall(L, t, emptyEnv, args, t))
+    return { u, L, source, fn: t, params, args, result, trace: undefined, pre: preOf(args) }
+  }
   if (source.kind === "function") {
     const t = source.target
     if (!(ts.isArrowFunction(t) || ts.isFunctionExpression(t) || ts.isFunctionDeclaration(t)))
@@ -138,7 +164,7 @@ export const lowerSide = (
 }
 
 const lawOn = (side: Lowered, law: ContractSource["ensures"][number]): Bool<"main"> =>
-  inSpec(side.L, () =>
+  side.source.kind === "lemma" ? truthy(side.u, side.result) : inSpec(side.L, () =>
     truthy(side.u, lowerCall(side.L, law.law, emptyEnv, side.trace === undefined ? [...side.args, side.result] : [...side.args, side.result, side.trace], law.law)),
   )
 
@@ -154,8 +180,18 @@ export const verify = async (z3: Ctx, project: Project, file: string, name: stri
     search = lowerSide(z3, project, source, bound, ADAPTERS, trust)
   } catch (e) {
     if (!(e instanceof Unsupported)) throw e
-    return { contract: name, laws: [], cover: [], notes: ALWAYS, trusted: [], unsupported: e.message }
+    return { contract: name, laws: [], cover: [], notes: ALWAYS, trusted: [], obligations: [], unsupported: e.message }
   }
+  if (source.kind === "lemma" && opts.within?.includes(`${file}#${name}`))
+    return { contract: name, laws: [], cover: [], notes: ALWAYS, trusted: [], obligations: [], unsupported: `the lemma \`${name}\` leans on itself` }
+
+  // The proof code's obligations first: a law the proof side proves leans on them, and stands only if they do.
+  const obligations = await obligationsOf(z3, project, proof, search, bound, { ...opts, within: [...(opts.within ?? []), `${file}#${name}`] })
+  const open = obligations.filter((o) => o.status !== "proved")
+  const leaning =
+    open.length === 0
+      ? undefined
+      : `proved only if the proof code's obligations hold, and ${open.length} of them ${open.length === 1 ? "is" : "are"} not proved (${open[0]!.kind} ${open[0]!.text} at ${open[0]!.at}: ${open[0]!.status}); no counterexample with arrays of at most ${bound} elements`
 
   const laws: Array<LawResult> = []
   for (const law of source.ensures) {
@@ -173,7 +209,7 @@ export const verify = async (z3: Ctx, project: Project, file: string, name: stri
     }
     const proved = await solve(proof, [proof.pre, z3.Not(onProof)], opts)
     let r: Omit<LawResult, "name" | "ms">
-    if (proved.status === "unsat") r = { status: "proved" }
+    if (proved.status === "unsat" && leaning === undefined) r = { status: "proved" }
     else if (proved.status === "sat" && !proof.u.abstracted) r = { status: "counterexample", ...proved.witness }
     else {
       const found = await solve(search, [search.pre, z3.Not(onSearch)], opts)
@@ -181,7 +217,7 @@ export const verify = async (z3: Ctx, project: Project, file: string, name: stri
         found.status === "sat"
           ? { status: "counterexample", ...found.witness }
           : found.status === "unsat"
-            ? { status: "bounded", reason: `not proved (${why(proved)}); no counterexample with arrays of at most ${bound} elements` }
+            ? { status: "bounded", reason: proved.status === "unsat" ? leaning! : `not proved (${why(proved)}); no counterexample with arrays of at most ${bound} elements` }
             : { status: "unknown", reason: `proof: ${why(proved)}; search: ${found.reason}` }
     }
     laws.push({ name: law.name, ...r, ms: performance.now() - started })
@@ -227,10 +263,83 @@ export const verify = async (z3: Ctx, project: Project, file: string, name: stri
       cover.push(c)
       opts.progress?.(`cover ${value}: ${c.status}`)
     }
+  const coverOut = leaning === undefined ? cover : cover.map((c) => (c.status === "unreachable" ? { ...c, status: "bounded" as const } : c))
   const trusted = trustedOf(trust)
-  const notes = [...ALWAYS, ...proof.u.notes]
+  const notes = [...ALWAYS, ...new Set([...proof.u.notes, ...search.u.notes])]
   if (trusted.some((t) => t.purity === "checked")) notes.push(`A purity check takes on trust that ${PURITY_TRUSTS.join("; that ")}.`)
-  return { contract: name, laws, cover, notes, trusted }
+  return { contract: name, laws, cover: coverOut, notes, trusted, obligations }
+}
+
+/**
+ * Decides the proof code's obligations: each proved on the proof side, or broken on the search side by a real input.
+ * The same obligation met twice (a loop inlined in two calls) is one: broken if either instance is. Every lemma called
+ * is verified, and is an obligation too.
+ */
+const obligationsOf = async (
+  z3: Ctx,
+  project: Project,
+  proof: Lowered,
+  search: Lowered,
+  bound: number,
+  opts: Options,
+): Promise<Array<ObligationResult>> => {
+  const keys = [...new Set([...proof.L.obligations, ...search.L.obligations].map((o) => o.key))]
+  const broken = (side: Lowered, key: string): Bool<"main"> | undefined => {
+    const os = side.L.obligations.filter((o) => o.key === key)
+    return os.length === 0 ? undefined : z3.Or(...os.map((o) => z3.And(o.cond, z3.Not(o.goal), ...side.L.hints.slice(0, o.hints))))
+  }
+  const out: Array<ObligationResult> = []
+  for (const key of keys) {
+    const o = [...proof.L.obligations, ...search.L.obligations].find((x) => x.key === key)!
+    const head = { kind: o.kind, text: o.text, at: o.at, phase: o.phase }
+    const onProof = broken(proof, key)
+    const proved = onProof === undefined ? undefined : await solve(proof, [proof.pre, onProof], opts, [])
+    if (proved?.status === "unsat") {
+      out.push({ ...head, status: "proved" })
+      continue
+    }
+    if (proved?.status === "sat" && !proof.u.abstracted) {
+      out.push({ ...head, status: "counterexample", ...(proved.witness.args === undefined ? {} : { args: proved.witness.args }) })
+      continue
+    }
+    const onSearch = broken(search, key)
+    const found = onSearch === undefined ? undefined : await solve(search, [search.pre, onSearch], opts, [])
+    if (found?.status === "sat") out.push({ ...head, status: "counterexample", ...(found.witness.args === undefined ? {} : { args: found.witness.args }) })
+    else if (found?.status === "unsat")
+      out.push({
+        ...head,
+        status: "bounded",
+        reason:
+          o.phase === "kept"
+            ? `true of every input with arrays of at most ${bound} elements, and not proved kept by an iteration from any state it allows: strengthen it with what else the loop keeps`
+            : `not proved (${proved === undefined ? "the proof side does not meet it" : why(proved)}); no counterexample with arrays of at most ${bound} elements`,
+      })
+    else out.push({ ...head, status: "unknown", reason: found?.status === "unknown" ? found.reason : "not met on either side" })
+    opts.progress?.(`${o.kind} ${o.at}: ${out.at(-1)!.status}`)
+  }
+  const lemmas = new Map([...proof.L.lemmas, ...search.L.lemmas])
+  for (const [key, lem] of lemmas) {
+    const v = await verify(z3, project, lem.file, lem.name, opts)
+    const status: ObligationResult["status"] =
+      v.unsupported !== undefined
+        ? "unknown"
+        : v.laws.every((l) => l.status === "proved") && v.obligations.every((x) => x.status === "proved")
+          ? "proved"
+          : v.laws.some((l) => l.status === "counterexample")
+            ? "counterexample"
+            : "bounded"
+    const failed = v.laws.find((l) => l.status === "counterexample")
+    out.push({
+      kind: "lemma",
+      text: lem.name,
+      at: key,
+      phase: "here",
+      status,
+      ...(failed?.args === undefined ? {} : { args: failed.args }),
+      ...(v.unsupported === undefined ? {} : { reason: v.unsupported }),
+    })
+  }
+  return out
 }
 
 /** The trusted base of a verification: each declaration it leaned on, with how far its purity was checked. */
@@ -289,13 +398,13 @@ type Outcome =
   | { readonly status: "unknown"; readonly reason: string }
 
 /** Checks a side's assumptions with `goals`; on `sat`, reads the arguments back, preferring short arrays. */
-export const solve = async (side: Lowered, goals: ReadonlyArray<Bool<"main">>, opts: Options = {}): Promise<Outcome> => {
+export const solve = async (side: Lowered, goals: ReadonlyArray<Bool<"main">>, opts: Options = {}, hints: ReadonlyArray<Bool<"main">> = side.L.hints): Promise<Outcome> => {
   const { u } = side
   const z3 = u.z3
   const run = async (extra: ReadonlyArray<Bool<"main">>) => {
     const solver = new z3.Solver()
     solver.set("timeout", opts.timeoutMs ?? 10_000)
-    for (const a of [...u.assumptions, ...goals, ...extra]) solver.add(a)
+    for (const a of [...u.assumptions, ...hints, ...goals, ...extra]) solver.add(a)
     const status = await solver.check()
     return { status, solver }
   }

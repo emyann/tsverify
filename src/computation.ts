@@ -168,8 +168,8 @@ const after = (L: Lowering, r: Ran, at: ts.Node, next: (value: Val, trace: Val) 
   const tag = outcome.field("_tag")!
   if (tag.kind !== "str") throw new Error("an outcome's _tag is a string")
   const value = outcome.field("value")
-  if (tag.term.sexpr() === '"Failure"') return ran(r)
-  if (tag.term.sexpr() === '"Success"' && value !== undefined) return next(value, r.trace)
+  if (tag.term.eqIdentity(L.u.z3.String.val("Failure"))) return ran(r)
+  if (tag.term.eqIdentity(L.u.z3.String.val("Success")) && value !== undefined) return next(value, r.trace)
   const failed = tag.term.eq(L.u.z3.String.val("Failure"))
   return ite(L.u, failed, ran(r), value === undefined ? ran(r) : next(value, r.trace), at)
 }

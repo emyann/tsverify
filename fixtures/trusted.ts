@@ -4,7 +4,7 @@ import { clamp, compact, uniq } from "lodash-es"
 import "../packs/lodash.ts"
 import { assume, contract } from "../src/contract.ts"
 
-const always = (..._: ReadonlyArray<unknown>) => true
+const always = () => true
 
 /** A score the verifier does not read (it loops): declared pure, which is checked, and never negative, which is not. */
 export function score(word: string): number {
@@ -22,13 +22,13 @@ export const everyScorePositive = contract((words: ReadonlyArray<string>) => wor
   ensures: { always: (_words, out) => out },
 })
 
-/** A function the verifier cannot read and nobody declared. */
-export function total(xs: ReadonlyArray<bigint>): bigint {
-  let t = 0n
+/** A function the verifier cannot read (it adds numbers, which round) and nobody declared. */
+export function total(xs: ReadonlyArray<number>): number {
+  let t = 0
   for (const x of xs) t += x
   return t
 }
-export const undeclared = contract((xs: ReadonlyArray<bigint>) => total(xs), { ensures: { always } })
+export const undeclared = contract((xs: ReadonlyArray<number>) => total(xs), { ensures: { always } })
 
 /** Declared pure, and it changes its argument. */
 export function stamp(log: string[]): number {

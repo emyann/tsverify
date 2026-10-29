@@ -15,6 +15,12 @@
 // Spec code — every `requires`, every law, and what they call — is pure and
 // deterministic: it runs no computation, calls no operation and calls nothing
 // declared `pure: false`. The verifier refuses the rest.
+//
+// Proof code is written in the program, as calls that do nothing when it runs:
+// - `invariant(i => ...)`, first in a loop's body;
+// - `assert(() => ...)`;
+// - a lemma's call, `lemma(statement, { requires? })` declared in a spec.
+// The verifier proves each, then uses it.
 
 export interface Contract<A extends ReadonlyArray<unknown>, R> {
   readonly fn: (...args: A) => R
@@ -105,3 +111,30 @@ export const computation =
     fn: (...args: Args) => Promise<A>,
     laws: Omit<ComputationContract<Args, A, E, Ops>, "fn">,
   ): ComputationContract<Args, A, E, Ops> => ({ fn, ...laws })
+
+/**
+ * What a loop keeps: true before its first iteration, true after each one, and so true when it ends. Written first in
+ * the loop's body; the verifier proves it, and reads the loop through it. In a `for…of` loop, `i` is how many elements
+ * the loop has already gone through (0 before the first; the array's length at the end), and the invariant may not name
+ * the element; in a `for` or `while` loop, write `invariant(() => ...)` over the loop's own variables.
+ */
+export const invariant = (_holds: (i: number) => boolean): void => {}
+
+/** True here: the verifier proves it, and then knows it. */
+export const assert = (_holds: () => boolean): void => {}
+
+/** A statement proved once for all arguments that meet `requires`, and known wherever the lemma is called. */
+export type Lemma<A extends ReadonlyArray<unknown>> = ((...args: A) => void) & {
+  readonly statement: (...args: A) => boolean
+  readonly requires?: (...args: A) => boolean
+}
+
+/**
+ * A lemma: `statement` holds of every argument `requires` admits. The verifier proves it as it proves a contract
+ * (`npm run verify -- <file> <name>`); a call of it in the program proves `requires` there and then knows `statement`.
+ * Its body may be proof code: asserts and other lemmas' calls, then `return` of what it states.
+ */
+export const lemma = <A extends ReadonlyArray<unknown>>(
+  statement: (...args: A) => boolean,
+  opts: { readonly requires?: (...args: A) => boolean } = {},
+): Lemma<A> => Object.assign((..._args: A): void => {}, { statement, ...opts })

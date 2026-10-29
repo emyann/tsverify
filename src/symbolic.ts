@@ -12,7 +12,7 @@ import type { Arith } from "z3-solver"
 import { operation } from "./computation.ts"
 import type { Lowering } from "./lower.ts"
 import { MAX_LENGTH, type Universe } from "./universe.ts"
-import { NUM, Unsupported, type Val, exactRational, lazyRecord } from "./value.ts"
+import { NUM, Unsupported, type Val, exactRational, lazyRecord, termId } from "./value.ts"
 
 export interface Typing {
   readonly u: Universe
@@ -114,11 +114,15 @@ const present = (
       )
     return { kind: "int", origin: "bigint", term }
   }
-  const id = `${path}@${indices.map((i) => i.sexpr()).join(",")}`
+  const id = `${path}@${indices.map(termId).join(",")}`
   if (members.length > 1) {
     // A union of object types: one record, each field the union of the types the members holding it give it. The
     // type checker lets a field be read only where the value is narrowed to members that have it.
-    if (!members.every((m) => m.flags & F.Object && !checker.isArrayType(m) && m.getCallSignatures().length === 0))
+    const objectLike = (m: ts.Type): boolean =>
+      ((m.flags & F.Object) !== 0 || (m.isIntersection() && m.types.every((x) => (x.flags & F.Object) !== 0))) &&
+      !checker.isArrayType(m) &&
+      m.getCallSignatures().length === 0
+    if (!members.every(objectLike))
       throw new Unsupported(`${path}: a union of ${members.map((m) => checker.typeToString(m)).join(" | ")} is not modeled`, at)
     return lazyRecord((name) => {
       const props = members.flatMap((m) => {
@@ -153,7 +157,7 @@ const present = (
       length,
       id,
       elem: (i) => {
-        const key = i.sexpr()
+        const key = termId(i)
         let v = elems.get(key)
         if (v === undefined) {
           v = symbolicOf(t, element, [...segments, "[]"], [...indices, i], at)
