@@ -105,3 +105,12 @@ export function keptClosure(): bigint {
   return f()
 }
 export const closure = contract(keptClosure, { ensures: { always } })
+
+export function keptShorthand(): bigint {
+  let n = 0n
+  const f = () => ({ n })
+  n = 1n
+  return f().n
+}
+// Runs to 1n: a closure is read with what it captures where it is written, so this would read as 0n.
+export const shorthand = contract(keptShorthand, { ensures: { isZero: (r) => r === 0n } })

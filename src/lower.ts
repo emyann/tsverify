@@ -361,17 +361,20 @@ const propertyAccess = (L: Lowering, e: ts.PropertyAccessExpression, env: Env): 
  * narrowed type there is asked and anything else refused.
  */
 const optionally = (L: Lowering, obj: Val, e: ts.Node, objExpr: ts.Expression, f: (v: Val) => Val): Val => {
+  const shownPresent = (): boolean => {
+    const t = L.checker.getTypeAtLocation(objExpr)
+    const parts = t.isUnion() ? t.types : [t]
+    return !parts.some((m) => m.flags & (ts.TypeFlags.Null | ts.TypeFlags.Undefined | ts.TypeFlags.Void))
+  }
   if (obj.kind === "nullish") {
     if (inChain(e)) return { kind: "nullish", which: "undefined" }
+    // Shown neither here, and always one: no run reaches this read (`x !== undefined && x.f` where x is undefined).
+    if (shownPresent()) return UNDEFINED
     throw new Unsupported(`reading a member of ${obj.which}`, e)
   }
   if (obj.kind !== "maybe") return f(obj)
-  if (!inChain(e)) {
-    const t = L.checker.getTypeAtLocation(objExpr)
-    const parts = t.isUnion() ? t.types : [t]
-    if (parts.some((m) => m.flags & (ts.TypeFlags.Null | ts.TypeFlags.Undefined | ts.TypeFlags.Void)))
-      throw new Unsupported("a member of a value the type checker has not shown to be neither null nor undefined here", e)
-  }
+  if (!inChain(e) && !shownPresent())
+    throw new Unsupported("a member of a value the type checker has not shown to be neither null nor undefined here", e)
   if (obj.value === undefined) return { kind: "nullish", which: "undefined" }
   const inner = f(obj.value)
   if (!inChain(e)) return inner
@@ -897,7 +900,7 @@ const arrayLiteral = (L: Lowering, e: ts.ArrayLiteralExpression, env: Env): Val 
 
 /** The names each function body assigns or changes (cached), for the closure check. */
 const changedIn = new WeakMap<ts.Node, Set<string>>()
-const changedNames = (body: ts.Node): Set<string> => {
+const changedNames = (body: ts.Node, checker: ts.TypeChecker): Set<string> => {
   let out = changedIn.get(body)
   if (out !== undefined) return out
   out = new Set()
@@ -905,6 +908,13 @@ const changedNames = (body: ts.Node): Set<string> => {
     while (ts.isPropertyAccessExpression(x) || ts.isElementAccessExpression(x) || ts.isParenthesizedExpression(x)) x = x.expression
     return ts.isIdentifier(x) ? x.text : undefined
   }
+  // A value no callee can change: a primitive (`BigInt(text)`, `text.trim()` change nothing).
+  const PRIMITIVE = ts.TypeFlags.StringLike | ts.TypeFlags.NumberLike | ts.TypeFlags.BigIntLike | ts.TypeFlags.BooleanLike | ts.TypeFlags.EnumLike | ts.TypeFlags.Null | ts.TypeFlags.Undefined | ts.TypeFlags.Void
+  const primitive = (x: ts.Expression): boolean => {
+    const t = checker.getTypeAtLocation(x)
+    return (t.isUnion() ? t.types : [t]).every((m) => (m.flags & PRIMITIVE) !== 0)
+  }
+  const passedName = (x: ts.Expression): string | undefined => (ts.isIdentifier(x) && primitive(x) ? undefined : rootName(x))
   const found = out
   const visit = (n: ts.Node): void => {
     if (ts.isBinaryExpression(n) && n.operatorToken.kind >= K.FirstAssignment && n.operatorToken.kind <= K.LastAssignment) {
@@ -918,11 +928,11 @@ const changedNames = (body: ts.Node): Set<string> => {
       if (r !== undefined) found.add(r)
     } else if (ts.isCallExpression(n)) {
       if (ts.isPropertyAccessExpression(n.expression)) {
-        const r = rootName(n.expression.expression)
+        const r = passedName(n.expression.expression)
         if (r !== undefined) found.add(r)
       }
       for (const a of n.arguments) {
-        const r = rootName(a)
+        const r = passedName(a)
         if (r !== undefined) found.add(r)
       }
     }
@@ -942,11 +952,13 @@ const closureCheck = (L: Lowering, e: ts.ArrowFunction | ts.FunctionExpression):
   let host: ts.Node | undefined = e.parent
   while (host !== undefined && !ts.isFunctionLike(host)) host = host.parent
   if (host === undefined || !("body" in host) || host.body === undefined) return
-  const changed = changedNames(host.body as ts.Node)
+  const changed = changedNames(host.body as ts.Node, L.checker)
   const captured: Array<string> = []
   const visit = (n: ts.Node): void => {
     if (ts.isIdentifier(n) && changed.has(n.text)) {
-      const d = L.checker.getSymbolAtLocation(n)?.valueDeclaration
+      // `{ x }` names the variable `x` as well as the field.
+      const shorthand = ts.isShorthandPropertyAssignment(n.parent) && n.parent.name === n
+      const d = (shorthand ? L.checker.getShorthandAssignmentValueSymbol(n.parent) : L.checker.getSymbolAtLocation(n))?.valueDeclaration
       if (d !== undefined && d.pos >= host.pos && d.end <= host.end && !(d.pos >= e.pos && d.end <= e.end)) captured.push(n.text)
     }
     ts.forEachChild(n, visit)

@@ -112,6 +112,7 @@ describe("state", () => {
     ["moved", /`item` was stored in `list`; read it from there/],
     ["borrowed", /replaces `s\.xs` while `a` refers into it/],
     ["closure", /a closure kept for later over `n`, which its function changes/],
+    ["shorthand", /a closure kept for later over `n`, which its function changes/],
   ]
   for (const [name, why] of refused)
     it(`refused: ${name}`, async () => {
