@@ -976,10 +976,34 @@ const forOf = (L: Lowering, s: ts.ForOfStatement, st: State): Exits => {
   const next = merge(L, [x.normal, ...x.continues], s)
   if (next !== undefined) for (const inv of invariants) obligate(L, "invariant", inv, "kept", next.cond, claim(L, next, inv, i.add(1)))
   const after = havoc(L, st, changed, "after", s)
-  L.hints.push(z3.Implies(st.cond, z3.And(z3.Bool.val(true), ...invariants.map((inv) => claim(L, after, inv, arr.length)))))
   if (invariants.length === 0 && changed.size > 0)
     u.notes.add("A loop with no invariant leaves what it changes unknown on the proof side; the search side runs it.")
-  return { normal: merge(L, [withCond(after, st.cond), ...x.breaks], s), returns: x.returns, breaks: [], continues: [] }
+  return leave(L, st, x, after, z3.And(z3.Bool.val(true), ...invariants.map((inv) => claim(L, after, inv, arr.length))), s)
+}
+
+/**
+ * How the proof side leaves a loop it reads through its invariants, a choice the solver makes. Either the loop ran to its
+ * end, and what holds there (`atEnd`: the invariants, and a `while`'s guard false) is known; or the iteration read at the
+ * solver's count and state left it by a `return` or a `break`, and that iteration is one that does. What holds at the
+ * end is never known on the second way: a loop that returns early never reaches it.
+ */
+const leave = (L: Lowering, st: State, x: Exits, after: State, atEnd: Bool<"main">, at: ts.Node): Exits => {
+  const z3 = L.u.z3
+  const exits = [...x.returns.map((r) => r.state.cond), ...x.breaks.map((b) => b.cond)]
+  if (exits.length === 0) {
+    L.hints.push(z3.Implies(st.cond, atEnd))
+    return { normal: withCond(after, st.cond), returns: [], breaks: [], continues: [] }
+  }
+  const ran = z3.Bool.const(L.u.fresh("loop.ran"))
+  L.u.assume(z3.Implies(z3.And(st.cond, z3.Not(ran)), z3.Or(...exits)))
+  L.hints.push(z3.Implies(z3.And(st.cond, ran), atEnd))
+  const early = (c: Bool<"main">) => z3.And(c, z3.Not(ran))
+  return {
+    normal: merge(L, [withCond(after, z3.And(st.cond, ran)), ...x.breaks.map((b) => withCond(b, early(b.cond)))], at),
+    returns: x.returns.map((r) => ({ ...r, state: withCond(r.state, early(r.state.cond)) })),
+    breaks: [],
+    continues: [],
+  }
 }
 
 /** An invariant states what holds between iterations: the current element is not one of its words. */
@@ -1036,9 +1060,8 @@ const guarded = (L: Lowering, s: ts.ForStatement | ts.WhileStatement, st0: State
   const next = incr(merge(L, [x.normal, ...x.continues], s))
   if (next !== undefined) for (const inv of invariants) obligate(L, "invariant", inv, "kept", next.cond, claim(L, next, inv, undefined))
   const after = havoc(L, st, changed, "after", s)
-  L.hints.push(z3.Implies(st.cond, z3.And(z3.Not(guard(after)), ...invariants.map((inv) => claim(L, after, inv, undefined)))))
   u.notes.add("A `for` or `while` loop is assumed to end: an invariant proves what holds if it does.")
-  return scoped({ normal: merge(L, [withCond(after, st.cond), ...x.breaks], s), returns: x.returns, breaks: [], continues: [] }, st0.vars)
+  return scoped(leave(L, st, x, after, z3.And(z3.Not(guard(after)), ...invariants.map((inv) => claim(L, after, inv, undefined))), s), st0.vars)
 }
 
 // ——— Lemmas ———

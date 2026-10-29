@@ -41,6 +41,9 @@ describe("loops, through their invariants", () => {
     ["positivesNoMore", ["proved"], ["invariant entry: proved", "invariant kept: proved"]],
     ["firstNegativeIsNegative", ["proved", "proved"], ["invariant entry: proved", "invariant kept: proved"]],
     ["countReaches", ["proved"], ["invariant entry: proved", "invariant kept: proved"]],
+    // What holds at a loop's end is not known on a path that returned before it.
+    ["neverFindsOne", ["counterexample"], ["invariant entry: proved", "invariant kept: proved"]],
+    ["doubleAbove", ["proved", "counterexample"], ["invariant entry: proved", "invariant kept: proved"]],
   ]
   for (const [name, want, hints] of cases)
     it(name, async () => {

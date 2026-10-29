@@ -225,7 +225,9 @@ before it, so no hint proves itself.
 - The **search side** unrolls it: as many iterations as its arrays have elements (4), or up to 10 passes of a `for` or
   `while`, with an assumption that cuts longer runs.
 - The **proof side** reads it through its invariants. It forgets what the body changes, assumes the invariants, checks
-  that one pass keeps them, and knows them after the loop.
+  that one pass keeps them, and knows them after the loop, on the paths that reach its end. A loop left early (a
+  `return`, a `break`) is left by an iteration of the solver's choosing that keeps the invariants, and what holds at the
+  end is not known there. (`fixtures/loops.ts` keeps two laws that were wrongly proved before this was so.)
 
 A loop with no invariant is still read: the search side looks for a counterexample, and a law that needs what the loop
 changed is `bounded`, never `proved`. A law the proof side proves while an obligation it leaned on is broken or unproved

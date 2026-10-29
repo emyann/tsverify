@@ -222,7 +222,8 @@ A loop is read twice, once per side:
   assumption that cuts longer runs. Every model it finds is still a real input; it proves nothing about a longer one.
 - **The proof side reads it through its invariants.** Every variable the body changes becomes an unknown, the invariants
   are assumed of it, and one pass of the body must keep them. After the loop, the invariants hold at `i` = the array's
-  length. A loop with none is havocked: the proof side knows nothing of what it changed, and a law that needs it is
+  length, on the paths that reach its end: how the loop is left is the solver's choice, its end or an iteration that
+  returns or breaks, and the invariants at the end are known only on the first. A loop with none is havocked: the proof side knows nothing of what it changed, and a law that needs it is
   `bounded`, never `proved`.
 
 Each proof call is an **obligation** with a key (`invariant@account.ts:44#kept`), checked on both sides like a law: proved,

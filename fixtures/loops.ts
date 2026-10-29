@@ -83,6 +83,30 @@ export const firstNegativeIsNegative = contract(firstNegative, {
   },
 })
 
+/**
+ * False: `[-1n]` gives `-1n`. What the loop's invariant says at its end holds only if it gets there; read on every path
+ * that entered the loop, it once made every element non-negative, and this law proved.
+ */
+export const neverFindsOne = contract(firstNegative, { ensures: { neverFinds: (_xs, out) => out === undefined } })
+
+/** A `while` loop left early by a `return`: the first `k` below `n` whose double passes `limit`, or -1. */
+export function firstDoubleAbove(limit: bigint, n: bigint): bigint {
+  let k = 0n
+  while (k < n) {
+    invariant(() => k >= 0n && (k <= n || k === 0n) && (k === 0n || (k - 1n) + (k - 1n) <= limit))
+    if (k + k > limit) return k
+    k += 1n
+  }
+  return -1n
+}
+export const doubleAbove = contract(firstDoubleAbove, {
+  ensures: {
+    found: (limit, _n, out) => out === -1n || out + out > limit,
+    /** False: `limit` 0 and `n` 2 give 1. The same trap as `neverFindsOne`, in a `while` loop. */
+    neverFinds: (_limit, _n, out) => out === -1n,
+  },
+})
+
 /** A `while` loop over its own variable. */
 export function countTo(n: bigint): bigint {
   let k = 0n
