@@ -385,8 +385,10 @@ verifier were caught that way while building it.
 
 ## How much of a code base it reads
 
-`npm run coverage -- <tsconfig.json>` lowers every exported function of a project, every callee inlined, and prints how
-many it reads and the first refusal of each of the others, grouped by reason, most frequent first. With `--modular`, each
+`npm run coverage -- <tsconfig.json>` lowers every exported function and every exported computation (`Effect.fn`) of a
+project, every callee inlined, runs each computation a function returns, and prints how many it reads and the first
+refusal of each of the others, grouped by reason, most frequent first. `--effect` counts the Effect computations alone,
+and `--names` keeps the names in the reasons, so a refusal of a library function groups by the function. With `--modular`, each
 function is read on its own, every callee the purity check accepts taken as declared `pure`: what a spec gets by writing
 one declaration per helper. The refusals are the verifier's to-do list for that code base.
 

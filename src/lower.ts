@@ -329,8 +329,11 @@ const identifier = (L: Lowering, e: ts.Identifier, env: Env): Val => {
       return v
     }
   }
-  if (imported && decl !== undefined && (decl.getSourceFile().isDeclarationFile || decl.getSourceFile().fileName.includes("/node_modules/")))
-    throw new Unread(`\`${e.text}\` is a package's, which the verifier does not read: declare what it may assume of it, \`assume(${e.text}, { pure: true, ensures: { ... } })\`, in the spec or a pack the spec imports`, e)
+  if (imported && decl !== undefined && (decl.getSourceFile().isDeclarationFile || decl.getSourceFile().fileName.includes("/node_modules/"))) {
+    // A namespace's member is named whole (`Effect.gen`): it is the member that is not read.
+    const named = ts.isPropertyAccessExpression(e.parent) && e.parent.expression === e ? e.parent.getText() : e.text
+    throw new Unread(`\`${named}\` is a package's, which the verifier does not read: declare what it may assume of it, \`assume(${named}, { pure: true, ensures: { ... } })\`, in the spec or a pack the spec imports`, e)
+  }
   throw new Unsupported(`\`${e.text}\` is a binding the verifier cannot see (a \`let\` or a global)`, e)
 }
 
