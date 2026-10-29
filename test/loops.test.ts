@@ -33,8 +33,10 @@ it("the fixtures type-check", () => {
 describe("loops, through their invariants", () => {
   const cases: ReadonlyArray<readonly [string, ReadonlyArray<string>, ReadonlyArray<string>]> = [
     ["sumNonNegative", ["proved"], ["invariant entry: proved", "invariant kept: proved"]],
-    // No invariant: what the loop changes is unknown on the proof side, and the search side finds nothing.
-    ["sumBareNonNegative", ["bounded"], []],
+    // No invariant written: the law, restated for the elements gone through, is guessed and proved.
+    ["sumBareNonNegative", ["proved"], ["invariant entry: proved", "invariant kept: proved"]],
+    // A guess not true on entry is dropped: the law is bounded, and no obligation is left.
+    ["sumPlusOneAtLeastOne", ["bounded"], []],
     ["sumCappedNonNegative", ["bounded"], ["invariant entry: proved", "invariant kept: counterexample"]],
     ["sumFromNothingNonNegative", ["bounded"], ["invariant entry: counterexample", "invariant kept: proved"]],
     ["maxIsAnUpperBound", ["proved"], ["invariant entry: proved", "invariant kept: proved"]],

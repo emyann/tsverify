@@ -86,6 +86,21 @@ export interface Lowering extends Typing {
   readonly hints: Array<Bool<"main">>
   /** The lemmas the proof code called, by `file#name`: each is proved too. */
   readonly lemmas: Map<string, LemmaUse>
+  /**
+   * Invariants the verifier guesses for a `for…of` loop with none written, each read in the loop's scope at `i`
+   * elements gone through: candidates, proved or dropped like any other (`verify`).
+   */
+  guess?: (loop: ts.ForOfStatement) => ReadonlyArray<GuessedInvariant>
+}
+
+/** An invariant the verifier guessed: its obligation's key, place and words, and its claim in a scope at `i`. */
+export interface GuessedInvariant {
+  /** The law it restates. */
+  readonly law: string
+  readonly key: string
+  readonly at: string
+  readonly text: string
+  readonly claim: (env: Env, i: Arith<"main">) => Bool<"main">
 }
 
 /** A fresh lowering over a universe. */
@@ -767,7 +782,7 @@ const countOf = (L: Lowering, v: Val, at: ts.Node): Arith<"main"> => {
 }
 
 /** `arr.slice(start?, end?)`: a view of the same elements, from `start`, below `end`, both clamped to the length. */
-const slice = (L: Lowering, arr: Extract<Val, { kind: "array" }>, args: ReadonlyArray<Val>, at: ts.Node): Val => {
+export const slice = (L: Lowering, arr: Extract<Val, { kind: "array" }>, args: ReadonlyArray<Val>, at: ts.Node): Val => {
   const z3 = L.u.z3
   if (args.length > 2) throw new Unsupported("`.slice` takes a start and an end", at)
   const start = args[0] === undefined ? z3.Int.val(0) : countOf(L, args[0], at)

@@ -14,7 +14,7 @@ types) and `lodash-es` 4.18.1 (the lodash pack).
 ```sh
 npm run verify      # every contract of every *.spec.ts below here, a line per law, then a total (~12 s)
 npm run verify -- examples/account                                   # one folder, or one file
-npm test            # 175 tests, ~30 s
+npm test            # 181 tests, ~45 s
 npm run verify -- examples/order/order.spec.ts status                # a state machine, its doc comment as laws
 npm run verify -- examples/account/account.spec.ts folded            # a loop, through its invariants
 npm run verify -- examples/account/withdraw.spec.ts effectWithdraw   # an Effect program
@@ -279,8 +279,16 @@ before it, so no hint proves itself.
   `return`, a `break`) is left by an iteration of the solver's choosing that keeps the invariants, and what holds at the
   end is not known there. (`fixtures/loops.ts` keeps two laws that were wrongly proved before this was so.)
 
-A loop with no invariant is still read: the search side looks for a counterexample, and a law that needs what the loop
-changed is `bounded`, never `proved`. A law the proof side proves while an obligation it leaned on is broken or unproved
+**A loop with no invariant written gets guesses.** For a `for…of` loop of the contract's function over one of its
+parameters, the function returning a variable after it, the verifier restates each law for the elements gone through
+(`entries` read as `entries.slice(0, i)`, the result as that variable). It keeps the guesses proved on entry and kept by
+an iteration, all of them assumed at its start, and drops the rest, round after round until those left hold together
+(Houdini, the annotation assistant of ESC/Java, works so). A fold's laws are often its invariants: the account fold's
+five are found this way, with none written, and each bug planted in it is still caught, its law's guess dropped
+(`test/account.test.ts`). A guess is an obligation like any written invariant, so a wrong one is dropped, never trusted.
+
+A loop with no invariant written and no guess that holds is still read: the search side looks for a counterexample, and
+a law that needs what the loop changed is `bounded`, never `proved` (`fixtures/loops.ts`, `sumPlusOne`). A law the proof side proves while an obligation it leaned on is broken or unproved
 is searched on the search side too, then reported as a counterexample or as `bounded`, with the reason.
 
 **State.** A loop is only useful if the program changes something, so the lowering reads:
@@ -449,7 +457,8 @@ one declaration per helper. The refusals are the verifier's to-do list for that 
 - A loop of steps read through invariants over the trace, as a fold's loop is read through its own, so a law of such a
   contract can be proved and not only bounded.
 - Contracts on operations, assumed by every caller and proved by each implementation (a layer, a class).
-- Invariants in the spec, attached to a loop by its position, for code that cannot carry them.
+- More guesses, so fewer invariants are written: for `while` and `for` loops, for loops in a callee, and from a
+  computation's laws over its trace.
 - Termination: a `decreases` measure for `while` loops and recursion, as Verus has.
 - Packs for the most-called libraries, each tested against its library; a check of a package's purity from its JavaScript.
 - Equivalence as a first-class check: "this refactor preserves behaviour", run on a diff.

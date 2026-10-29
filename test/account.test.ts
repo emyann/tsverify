@@ -1,8 +1,8 @@
 // A loop read through its invariants: an account folded from its ledger
 // (examples/account/account.ts). The verifier proves the five laws of
 // `account.spec.ts` for ledgers of every length; each planted bug is caught
-// with a ledger that breaks the planted code when it runs; and without its
-// invariants nothing is proved.
+// with a ledger that breaks the planted code when it runs; and with no
+// invariant written, it finds the five itself, and still catches each bug.
 import assert from "node:assert/strict"
 import { readFileSync, rmSync, writeFileSync } from "node:fs"
 import path from "node:path"
@@ -145,17 +145,30 @@ describe("the account fold, with a bug planted", () => {
     assert.deepEqual(Object.values(statuses(v)), LAWS.map(() => "proved"))
   })
 
-  it("without its invariants, no law is proved: each is bounded, unbroken on ledgers of up to four entries", async () => {
-    const text = readFileSync(source, "utf8")
-      .split("\n")
-      .filter((l) => !/^\s*invariant\(/.test(l))
-      .join("\n")
-    const v = await verifyWith(z3, new Map([[source, text]]))
+  it("with no invariant written, the verifier finds them: each law, restated for the entries gone through, proved on entry and kept", async () => {
+    const v = await verifyWith(z3, new Map([[source, unwritten(readFileSync(source, "utf8"))]]))
     assert.equal(v.unsupported, undefined)
-    assert.deepEqual(v.obligations, [])
-    assert.deepEqual(Object.values(statuses(v)), LAWS.map(() => "bounded"))
+    assert.deepEqual(statuses(v), Object.fromEntries(LAWS.map((n) => [n, "proved"])))
+    assert.deepEqual(
+      v.obligations.map((o) => `${o.guessed} ${o.phase}: ${o.status}`).sort(),
+      LAWS.flatMap((n) => [`${n} entry: proved`, `${n} kept: proved`]).sort(),
+    )
   })
+
+  for (const p of PLANTS)
+    it(`${p.id} with no invariant written: ${p.breaks}'s guess is dropped, and the law refuted`, async () => {
+      const v = await verifyWith(z3, new Map([[source, plant(unwritten(readFileSync(source, "utf8")), p.change, p.id)]]))
+      assert.equal(v.laws.find((l) => l.name === p.breaks)!.status, "counterexample", JSON.stringify(statuses(v)))
+      assert.ok(!v.obligations.some((o) => o.guessed === p.breaks), "the broken law's guess is not kept")
+    })
 })
+
+/** The fold with its written invariants taken out. */
+const unwritten = (text: string): string =>
+  text
+    .split("\n")
+    .filter((l) => !/^\s*invariant\(/.test(l))
+    .join("\n")
 
 it("the purity check reads the fold as pure, with the helper it changes its state through", () => {
   const project = loadProject([source], tsconfig)

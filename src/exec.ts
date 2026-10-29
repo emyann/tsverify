@@ -52,6 +52,8 @@ export interface Obligation {
   readonly goal: Bool<"main">
   /** How many of the lowering's hints were made before it: those it may be proved with. */
   readonly hints: number
+  /** For an invariant the verifier guessed, the law it restates. */
+  readonly guessed?: string
 }
 
 /** A lemma the proof code called: proved apart, as a contract is. */
@@ -871,6 +873,39 @@ const claim = (L: Lowering, st: State, call: ts.CallExpression, i: Arith<"main">
   return inSpec(L, () => truthy(L.u, lowerCall(L, fn, envOf(L, st), i === undefined ? [] : [{ kind: "int", origin: "count", term: i }], call)))
 }
 
+/**
+ * A loop invariant as the loop reads it: one written first in its body, or one the verifier guessed (`Lowering.guess`).
+ * Either is an obligation on entry and kept by each iteration, and a hint once proved.
+ */
+interface LoopClaim {
+  readonly law?: string
+  readonly key: string
+  readonly at: string
+  readonly text: string
+  readonly claim: (st: State, i: Arith<"main">) => Bool<"main">
+}
+
+const writtenClaim = (L: Lowering, call: ts.CallExpression): LoopClaim => ({
+  key: `invariant@${locate(call)}`,
+  at: locate(call),
+  text: call.arguments[0]?.getText() ?? call.getText(),
+  claim: (st, i) => claim(L, st, call, i),
+})
+
+const obligateClaim = (L: Lowering, inv: LoopClaim, phase: "entry" | "kept", cond: Bool<"main">, goal: Bool<"main">): void => {
+  L.obligations.push({
+    key: `${inv.key}#${phase}`,
+    kind: "invariant",
+    text: inv.text,
+    at: inv.at,
+    phase,
+    cond,
+    goal,
+    hints: L.hints.length,
+    ...(inv.law === undefined ? {} : { guessed: inv.law }),
+  })
+}
+
 const obligate = (L: Lowering, kind: Obligation["kind"], node: ts.CallExpression, phase: Obligation["phase"], cond: Bool<"main">, goal: Bool<"main">, text?: string): void => {
   const at = locate(node)
   const what = text ?? node.arguments[0]?.getText() ?? node.getText()
@@ -937,8 +972,13 @@ const forOf = (L: Lowering, s: ts.ForOfStatement, st: State): Exits => {
   const iterated = present(iterPlace !== undefined ? readPlace(L, st, iterPlace.place) : lowerExpr(L, s.expression, envOf(L, st)))
   if (iterated.kind !== "array") throw new Unsupported(`a \`for…of\` over a ${iterated.kind} is not modeled`, s.expression)
   const arr = iterated
-  const { invariants, rest } = invariantsOf(L, s.statement)
-  for (const inv of invariants) noElement(L, inv, init.declarations[0]!.name as ts.Identifier)
+  const { invariants: written, rest } = invariantsOf(L, s.statement)
+  for (const inv of written) noElement(L, inv, init.declarations[0]!.name as ts.Identifier)
+  // None written: the verifier's guesses, if it makes any for this loop, each read in the loop's state.
+  const invariants: ReadonlyArray<LoopClaim> =
+    written.length > 0 || L.guess === undefined
+      ? written.map((call) => writtenClaim(L, call))
+      : L.guess(s).map((g) => ({ ...g, claim: (at: State, i: Arith<"main">) => g.claim(envOf(L, at), i) }))
   const changed = changedBy(L, st, [s.statement], s.statement)
   if (iterPlace !== undefined && changed.has(iterPlace.place.cell)) throw new Unsupported(`changes \`${s.expression.getText()}\` while iterating it`, s)
   const elementType = L.checker.getTypeAtLocation(init.declarations[0]!.name)
@@ -953,7 +993,7 @@ const forOf = (L: Lowering, s: ts.ForOfStatement, st: State): Exits => {
     let head: State | undefined = st
     for (let k = 0; head !== undefined; k++) {
       const atK: State = head
-      for (const inv of invariants) obligate(L, "invariant", inv, k === 0 ? "entry" : "kept", atK.cond, claim(L, atK, inv, z3.Int.val(k)))
+      for (const inv of invariants) obligateClaim(L, inv, k === 0 ? "entry" : "kept", atK.cond, inv.claim(atK, z3.Int.val(k)))
       if (k === bound) {
         results.leaving.push(atK)
         break
@@ -968,17 +1008,17 @@ const forOf = (L: Lowering, s: ts.ForOfStatement, st: State): Exits => {
     return { normal: merge(L, results.leaving, s), returns: results.returns, breaks: [], continues: [] }
   }
   // Proof side, unknown length: through the invariants.
-  for (const inv of invariants) obligate(L, "invariant", inv, "entry", st.cond, claim(L, st, inv, z3.Int.val(0)))
+  for (const inv of invariants) obligateClaim(L, inv, "entry", st.cond, inv.claim(st, z3.Int.val(0)))
   const i = u.leaf([u.fresh("i"), "$"], "int", [], "count") as never as Arith<"main">
   const step = havoc(L, st, changed, "step", s)
-  const hyp = z3.And(st.cond, i.ge(0), i.lt(arr.length), ...invariants.map((inv) => claim(L, step, inv, i)))
+  const hyp = z3.And(st.cond, i.ge(0), i.lt(arr.length), ...invariants.map((inv) => inv.claim(step, i)))
   const x = scoped(statements(L, rest, withCond(bindElement(step, i), hyp)), st.vars)
   const next = merge(L, [x.normal, ...x.continues], s)
-  if (next !== undefined) for (const inv of invariants) obligate(L, "invariant", inv, "kept", next.cond, claim(L, next, inv, i.add(1)))
+  if (next !== undefined) for (const inv of invariants) obligateClaim(L, inv, "kept", next.cond, inv.claim(next, i.add(1)))
   const after = havoc(L, st, changed, "after", s)
   if (invariants.length === 0 && changed.size > 0)
     u.notes.add("A loop with no invariant leaves what it changes unknown on the proof side; the search side runs it.")
-  return leave(L, st, x, after, z3.And(z3.Bool.val(true), ...invariants.map((inv) => claim(L, after, inv, arr.length))), s)
+  return leave(L, st, x, after, z3.And(z3.Bool.val(true), ...invariants.map((inv) => inv.claim(after, arr.length))), s)
 }
 
 /**

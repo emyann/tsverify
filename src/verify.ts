@@ -17,13 +17,13 @@ import { tsAdapter } from "./adapters/ts.ts"
 import { emptyTrace, runBody } from "./computation.ts"
 import { TooLong, fromModel, literal, pin } from "./concrete.ts"
 import type { Obligation } from "./exec.ts"
-import { emptyEnv, inSpec, type Lowering, lowerCall, lowering, num, type Trust, trustOf } from "./lower.ts"
+import { emptyEnv, type GuessedInvariant, inSpec, type Lowering, lowerCall, lowerExpr, lowering, num, slice, type Trust, trustOf } from "./lower.ts"
 import { strictEq, truthy } from "./ops.ts"
-import { type ContractSource, type Project, readContract } from "./project.ts"
+import { type ContractSource, type Project, readContract, unwrap } from "./project.ts"
 import { symbolicOf } from "./symbolic.ts"
 import { PURITY_TRUSTS, readAssumptions, type Trusted } from "./trust.ts"
 import { Universe } from "./universe.ts"
-import { type Ctx, type FunctionNode, Unsupported, type Val } from "./value.ts"
+import { type Ctx, type FunctionNode, Unsupported, type Val, locate } from "./value.ts"
 
 /** The adapters every verification reads with, in the order they are asked. */
 export const ADAPTERS: ReadonlyArray<Adapter> = [effectAdapter, asyncAdapter, tsAdapter]
@@ -79,6 +79,8 @@ export interface ObligationResult {
   readonly at: string
   readonly phase: Obligation["phase"]
   readonly status: "proved" | "counterexample" | "bounded" | "unknown" | "inconsistent"
+  /** For a loop invariant the verifier guessed (none was written), the law it restates. */
+  readonly guessed?: string
   /** On a counterexample, or when the sides disagree: arguments on which it fails. */
   readonly args?: ReadonlyArray<unknown>
   readonly reason?: string
@@ -129,6 +131,8 @@ export interface Lowered {
   /** A computation's calls, in order; undefined for a function. */
   readonly trace: Val | undefined
   readonly pre: Bool<"main">
+  /** The laws whose guessed invariant could not be read in the loop's state: guesses to drop. */
+  readonly unguessable: ReadonlySet<string>
 }
 
 const ALWAYS = [
@@ -144,9 +148,11 @@ export const lowerSide = (
   bound?: number,
   adapters = ADAPTERS,
   trust: Trust = trustOf(readAssumptions(project)),
+  guessFrom?: ReadonlySet<string>,
 ): Lowered => {
   const u = new Universe(z3, bound)
   const L = lowering({ u, checker: project.checker }, adapters, trust)
+  const unguessable = new Set<string>()
   const symbolicArgs = (fn: FunctionNode) => {
     const params = fn.parameters.map((p, i) => (ts.isIdentifier(p.name) ? p.name.text : `arg${i}`))
     return { params, args: fn.parameters.map((p, i) => symbolicOf(L, project.checker.getTypeAtLocation(p), [params[i]!], [], p)) }
@@ -157,21 +163,66 @@ export const lowerSide = (
     const t = source.target as FunctionNode
     const { params, args } = symbolicArgs(t)
     const result = inSpec(L, () => lowerCall(L, t, emptyEnv, args, t))
-    return { u, L, source, fn: t, params, args, result, trace: undefined, pre: preOf(args) }
+    return { u, L, source, fn: t, params, args, result, trace: undefined, pre: preOf(args), unguessable }
   }
   if (source.kind === "function") {
     const t = source.target
     if (!(ts.isArrowFunction(t) || ts.isFunctionExpression(t) || ts.isFunctionDeclaration(t)))
       throw new Unsupported("a `contract` is about a function; a computation takes `computation<...>()`", t)
     const { params, args } = symbolicArgs(t)
-    return { u, L, source, fn: t, params, args, result: lowerCall(L, t, emptyEnv, args, t), trace: undefined, pre: preOf(args) }
+    if (guessFrom !== undefined) L.guess = guesser(L, source, t, args, guessFrom, unguessable)
+    return { u, L, source, fn: t, params, args, result: lowerCall(L, t, emptyEnv, args, t), trace: undefined, pre: preOf(args), unguessable }
   }
   const c = adapters.map((a) => a.computation?.(L, source.target)).find((x) => x !== undefined)
   if (c === undefined) throw new Unsupported("no adapter reads this as a computation (an async function, `Effect.fn(...)(function* ...)`)", source.target)
   const { params, args } = symbolicArgs(c.node)
   const r = runBody(L, c.node, c.style, emptyEnv, args, emptyTrace(L), c.node)
-  return { u, L, source, fn: c.node, params, args, result: r.outcome, trace: r.trace, pre: preOf(args) }
+  return { u, L, source, fn: c.node, params, args, result: r.outcome, trace: r.trace, pre: preOf(args), unguessable }
 }
+
+/**
+ * The verifier's guesses for a loop of the contract's own function over one of its parameters, when the loop has none
+ * written: each law, restated for the elements gone through so far, of what the function returns after the loop. A
+ * fold's laws are often just that. A guess is only a candidate: `verify` keeps the ones proved on entry and kept by
+ * each iteration, all together, and drops the rest.
+ */
+const guesser =
+  (L: Lowering, source: ContractSource, fn: FunctionNode, args: ReadonlyArray<Val>, laws: ReadonlySet<string>, unguessable: Set<string>) =>
+  (loop: ts.ForOfStatement): ReadonlyArray<GuessedInvariant> => {
+    let host: ts.Node | undefined = loop.parent
+    while (host !== undefined && !ts.isFunctionLike(host)) host = host.parent
+    if (host !== fn || fn.body === undefined || !ts.isBlock(fn.body)) return []
+    const iterated = unwrap(loop.expression)
+    const sym = ts.isIdentifier(iterated) ? L.checker.getSymbolAtLocation(iterated) : undefined
+    const p = sym === undefined ? -1 : fn.parameters.findIndex((q) => L.checker.getSymbolAtLocation(q.name) === sym)
+    const xs = args[p]
+    // What the function returns, by name, after the loop: `return a`.
+    const returned = fn.body.statements.find((st): st is ts.ReturnStatement => ts.isReturnStatement(st) && st.pos >= loop.end && st.expression !== undefined && ts.isIdentifier(unwrap(st.expression)))
+    if (xs?.kind !== "array" || returned === undefined) return []
+    const result = unwrap(returned.expression!) as ts.Identifier
+    const count = (term: Arith<"main">): Val => ({ kind: "int", origin: "count", term })
+    return source.ensures
+      .filter((law) => laws.has(law.name) && law.law.parameters.length === args.length + 1)
+      .map((law) => ({
+        law: law.name,
+        key: `invariant@${locate(loop)}:${law.name}`,
+        at: locate(loop),
+        text: `${law.name}, of the elements gone through`,
+        claim: (env, i) => {
+          try {
+            return inSpec(L, () => {
+              const seen = slice(L, xs, [count(L.u.z3.Int.val(0)), count(i)], loop)
+              return truthy(L.u, lowerCall(L, law.law, emptyEnv, [...args.slice(0, p), seen, ...args.slice(p + 1), lowerExpr(L, result, env)], law.law))
+            })
+          } catch (e) {
+            // Not readable in the loop's state: no candidate. It claims nothing, and is dropped.
+            if (!(e instanceof Unsupported)) throw e
+            unguessable.add(law.name)
+            return L.u.z3.Bool.val(true)
+          }
+        },
+      }))
+  }
 
 const lawOn = (side: Lowered, law: ContractSource["ensures"][number]): Bool<"main"> =>
   side.source.kind === "lemma" ? truthy(side.u, side.result) : inSpec(side.L, () =>
@@ -206,16 +257,37 @@ export const verify = async (z3: Ctx, project: Project, file: string, name: stri
   let proof: Lowered
   let search: Lowered
   let trust: Trust
+  // A loop with no invariant written gets the laws, restated for what it has gone through, as candidates. Round after
+  // round, the candidates not proved on entry and kept by each iteration (all of them assumed at its start) are
+  // dropped, until those left are proved together: Houdini's way (Flanagan and Leino, ESC/Java, 2001).
+  let guessing = source.kind === "function" ? new Set(source.ensures.map((l) => l.name)) : undefined
+  const dropped: Array<string> = []
   try {
     trust = trustOf(readAssumptions(project))
-    proof = lowerSide(z3, project, source, undefined, ADAPTERS, trust)
-    search = lowerSide(z3, project, source, bound, ADAPTERS, trust)
+    proof = lowerSide(z3, project, source, undefined, ADAPTERS, trust, guessing)
+    search = lowerSide(z3, project, source, bound, ADAPTERS, trust, guessing)
+    for (;;) {
+      if (guessing === undefined || !proof.L.obligations.some((o) => o.guessed !== undefined)) break
+      const within = { ...opts, within: [...(opts.within ?? []), `${file}#${name}`] }
+      const failed = new Set([...proof.unguessable, ...search.unguessable])
+      for (const o of await obligationsOf(z3, project, proof, search, bound, within)) if (o.guessed !== undefined && o.status !== "proved") failed.add(o.guessed)
+      if (failed.size === 0) break
+      dropped.push(...failed)
+      guessing = new Set([...guessing].filter((l) => !failed.has(l)))
+      proof = lowerSide(z3, project, source, undefined, ADAPTERS, trust, guessing)
+      search = lowerSide(z3, project, source, bound, ADAPTERS, trust, guessing)
+    }
   } catch (e) {
     if (!(e instanceof Unsupported)) throw e
     return { contract: name, laws: [], cover: [], notes: ALWAYS, trusted: [], obligations: [], unsupported: e.message }
   }
   if (source.kind === "lemma" && opts.within?.includes(`${file}#${name}`))
     return { contract: name, laws: [], cover: [], notes: ALWAYS, trusted: [], obligations: [], unsupported: `the lemma \`${name}\` leans on itself` }
+  const kept = [...new Set(proof.L.obligations.flatMap((o) => (o.guessed === undefined ? [] : [o.guessed])))]
+  if (kept.length > 0 || dropped.length > 0)
+    proof.u.notes.add(
+      `No invariant is written for a loop: the verifier guessed each law, restated for the elements gone through, and kept ${kept.join(", ") || "none"}${dropped.length > 0 ? `; it dropped ${dropped.join(", ")}, not proved on entry and kept` : ""}.`,
+    )
   return judge(z3, project, file, proof, search, trust, opts)
 }
 
@@ -397,7 +469,7 @@ const obligationsOf = async (
   const out: Array<ObligationResult> = []
   for (const key of keys) {
     const o = [...proof.L.obligations, ...search.L.obligations].find((x) => x.key === key)!
-    const head = { kind: o.kind, text: o.text, at: o.at, phase: o.phase }
+    const head = { kind: o.kind, text: o.text, at: o.at, phase: o.phase, ...(o.guessed === undefined ? {} : { guessed: o.guessed }) }
     const onProof = broken(proof, key)
     const proved = onProof === undefined ? undefined : await solve(proof, [proof.pre, onProof], opts, [])
     if (proved?.status === "unsat" && proof.u.truncated === undefined) {

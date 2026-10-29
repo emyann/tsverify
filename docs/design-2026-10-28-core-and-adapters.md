@@ -258,7 +258,8 @@ solver. Verus has `&mut` from the language; here the lowering refuses what Rust'
 2. **Laws over the trace.** As shown, laws filter `calls` by `op` name. A typed helper per operation set (`calls.of(journal)`)
    would make a misspelt op a type error.
 3. **The name.** Settled: `tsverify`.
-4. **Where a loop's invariants live.** In the code, as the account example has them, they cost a call per iteration and
-   make the code import `tsverify`'s zero-dependency entry. In a spec, attached to a loop by its position, the code stays
-   untouched; an edit can break the pointer, and the verifier then refuses it or the proof fails, never a false proof.
-   That is for code its author cannot change.
+4. **Where a loop's invariants live.** Mostly nowhere: a `for…of` loop with none written gets each law, restated for
+   the elements gone through, as a guess, and keeps those proved on entry and kept (Houdini's way). The account fold and
+   Nemia's `fold` need none written. Where a guess is not enough, the open choice: in the code (a call per iteration and
+   an import of `tsverify`), a `//@` comment at the loop (no cost, checked by the verifier, not by `tsc`), or a proof
+   file naming the function (no trace in the code; a pointer an edit can break, refused then, never a false proof).

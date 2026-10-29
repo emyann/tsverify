@@ -16,13 +16,25 @@ export function sum(xs: ReadonlyArray<bigint>): bigint {
 }
 export const sumNonNegative = contract(sum, { requires: nonNegative, ensures: { nonNegative: (_xs, out) => out >= 0n } })
 
-/** The same loop with no invariant: the search side finds nothing wrong, and nothing is proved. */
+/** The same loop with no invariant written: the verifier guesses the law of the elements gone through, `total >= 0n`, and proves it. */
 export function sumBare(xs: ReadonlyArray<bigint>): bigint {
   let total = 0n
   for (const x of xs) total += x
   return total
 }
 export const sumBareNonNegative = contract(sumBare, { requires: nonNegative, ensures: { nonNegative: (_xs, out) => out >= 0n } })
+
+/**
+ * No invariant written, and the law's guess is wrong: true of the result, not of what the loop has built (0 on entry).
+ * It is dropped, and the law is bounded, never proved through it.
+ */
+export function sumPlusOne(xs: ReadonlyArray<bigint>): bigint {
+  let total = 0n
+  for (const x of xs) total += x
+  total += 1n
+  return total
+}
+export const sumPlusOneAtLeastOne = contract(sumPlusOne, { requires: nonNegative, ensures: { atLeastOne: (_xs, out) => out >= 1n } })
 
 /** An invariant an iteration does not keep: the search side finds the input that breaks it. */
 export function sumCapped(xs: ReadonlyArray<bigint>): bigint {
