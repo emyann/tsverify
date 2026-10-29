@@ -1,0 +1,24 @@
+// The same withdrawal as plain TypeScript writes it: async, its ledger given as
+// an interface, its refusal thrown. No Effect anywhere; the same pure helpers.
+import type { Rejects } from "tsverify"
+import { accountOf, type Entry, withdrawalRefusalOf } from "./account.ts"
+
+export class WithdrawalRefused extends Error {
+  readonly _tag = "WithdrawalRefused" as const
+}
+
+export class LedgerError extends Error {
+  readonly _tag = "LedgerError" as const
+}
+
+export interface LedgerPort {
+  readonly read: (accountId: string) => Rejects<readonly Entry[], LedgerError>
+  readonly append: (accountId: string, entry: Entry) => Rejects<void, LedgerError>
+}
+
+export const withdraw = async (ledger: LedgerPort, accountId: string, id: string, amount: bigint): Promise<void> => {
+  const entries = await ledger.read(accountId)
+  const refused = withdrawalRefusalOf(accountOf(entries), amount)
+  if (refused) throw new WithdrawalRefused(refused)
+  await ledger.append(accountId, { kind: "withdrawn", at: new Date().toISOString(), id, amount })
+}

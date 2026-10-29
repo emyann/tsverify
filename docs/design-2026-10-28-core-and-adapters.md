@@ -1,6 +1,9 @@
-# A TypeScript verifier with Effect as an adapter
+# tsverify: a TypeScript verifier with Effect as an adapter
 
-**Date:** 28 October 2026. **Status:** the core and both adapters are built for the subset `requestStop` needs, and the proof below holds (`test/stop.test.ts`). Spec and exec modes and declarations of unread functions are built, after Verus (*Modes and trust*). Operation contracts, proof mode (loops, invariants, lemmas) and the wider Effect forms are not built. It supersedes the handoff's framing of an "Effect verifier".
+**Date:** 28 October 2026, revised 29 October. **Status:** the core and both adapters are built for the subset the
+withdrawal example needs, and the proof below holds (`test/withdraw.test.ts`). Spec, proof and exec modes and
+declarations of unread functions are built, after Verus (*Modes and trust*, *Proof mode*). Operation contracts and the
+wider Effect forms are not.
 
 ## The answer in one paragraph
 
@@ -10,8 +13,8 @@ fail, and calls to operations behind an interface. A second adapter does the sam
 TypeScript (`throw`, `try`) is built in. This is not more ambitious than an Effect-only tool:
 - the pure core already exists and never mentions Effect;
 - the effects model is the same for Effect and for async code (see *The core's model*);
-- the hard parts (loops, library functions, mutation) are hard either way, and are measured: the verifier reads 10% of
-  hkb-v2's exported functions today (`bench/coverage.ts`).
+- the hard parts (loops, library functions, mutation) are hard either way, and are measured on a code base by
+  `bench/coverage.ts`.
 
 The adapter boundary is kept honest by building two adapters from the start, and by holding the same laws against an Effect
 program and its async twin.
@@ -41,8 +44,8 @@ from a plain one. In both, the engine and the laws are the same.
 ```
 
 `@x/contract` never imports Effect or TypeScript. `@x/verify-effect` is the only package that knows Effect's names. A
-project with no Effect never installs it. (The repository's name, `effect-verify`, is then wrong; that is the owner's to
-choose.)
+project with no Effect never installs it. Today the three are one package, `tsverify`, whose entries split the same
+way: `tsverify` (zero dependencies), `tsverify/api`, `tsverify/effect`.
 
 ## The core's model
 
@@ -79,12 +82,12 @@ every adapter.
 | Callee | Treatment | Sound because |
 |---|---|---|
 | A function it can read | Inlined (today) | It is the code |
-| A function it cannot or should not read (`fold` with its loop) | Refused unless declared: `assume(fold, { pure: true, ensures })`. Then deterministic, the same arguments giving the same unknown result, of which the laws are assumed | Any implementation that keeps the declaration satisfies what is proved; purity is checked where the source is, the laws are trusted |
+| A function it cannot or should not read (a fold, in a law about its caller) | Refused unless declared: `assume(accountOf, { pure: true, ensures })`. Then deterministic, the same arguments giving the same unknown result, of which the laws are assumed | Any implementation that keeps the declaration satisfies what is proved; purity is checked where the source is, the laws are trusted |
 | An operation (service method, interface method, `impure` extern) | A fresh outcome per call, constrained by the operation's contract when it has one, and recorded in the trace | Any behaviour the contract allows is covered |
 | A library function (`uniq`, `Math.max`) | A declaration in a pack the spec imports, tested against the real library; an adapter's model where the library's meaning is the point (`Effect.fail`) | The pack and the model are tested like the translator is |
 
 Opaque calls make proofs modular. A computation's laws (orchestration: what is called, in what order, what fails) are proved
-with its pure helpers left opaque. The helpers' laws are proved separately, as `lifecycleOf`'s were. A model that leans on
+with its pure helpers left opaque. The helpers' laws are proved separately, as the account fold's are. A model that leans on
 an opaque call's arbitrary result is an *abstract* counterexample. It is reported as such, never as a concrete input, and it
 tells the agent that its code relies on something about the helper that no contract states.
 
@@ -143,51 +146,43 @@ Taken as is:
 
 A construct here is refused, never read as true.
 
-## The proof of the design: `requestStop` and its async twin
+## The proof of the design: a withdrawal and its async twin
 
-`requestStop` (hkb-v2, `agent-runtime/src/core/engine/filing.ts`):
+`examples/account/withdraw.ts`, an Effect program:
 
 ```ts
-export const requestStop = Effect.fn('requestStop')(function* (taskId: string) {
-  const journal = yield* Journal
-  const events = yield* journal.read(taskId)
-  const refused = stopRefusalOf(taskId, events.length ? fold(taskId, events) : undefined)
-  if (refused) return yield* Effect.fail(new StopRefused({ message: refused }))
-  yield* journal.append(taskId, { kind: 'stop-requested', at: new Date().toISOString() })
+export const withdraw = Effect.fn("withdraw")(function* (accountId: string, id: string, amount: bigint) {
+  const ledger = yield* Ledger
+  const entries = yield* ledger.read(accountId)
+  const refused = withdrawalRefusalOf(accountOf(entries), amount)
+  if (refused) return yield* Effect.fail(new WithdrawalRefused({ message: refused }))
+  yield* ledger.append(accountId, { kind: "withdrawn", at: new Date().toISOString(), id, amount })
 })
 ```
 
-Its twin, written in plain TypeScript (in this repository, not in hkb-v2):
+Its twin in plain TypeScript, `examples/account/withdraw.async.ts`:
 
 ```ts
-export const requestStop = async (journal: JournalPort, taskId: string): Promise<void> => {
-  const events = await journal.read(taskId)
-  const refused = stopRefusalOf(taskId, events.length ? fold(taskId, events) : undefined)
-  if (refused) throw new StopRefused({ message: refused })
-  await journal.append(taskId, { kind: 'stop-requested', at: new Date().toISOString() })
+export const withdraw = async (ledger: LedgerPort, accountId: string, id: string, amount: bigint): Promise<void> => {
+  const entries = await ledger.read(accountId)
+  const refused = withdrawalRefusalOf(accountOf(entries), amount)
+  if (refused) throw new WithdrawalRefused(refused)
+  await ledger.append(accountId, { kind: "withdrawn", at: new Date().toISOString(), id, amount })
 }
 ```
 
-One set of laws, held against both:
-- **readsFirst.** The first call is `read(taskId)`.
+One set of laws, held against both (`examples/account/laws.ts`):
+- **readsFirst.** The first call is `read(accountId)`.
 - **readFailurePassesThrough.** When the read fails, the outcome is that failure and nothing else is called.
-- **refusedWritesNothing.** A `StopRefused` outcome means no `append` was called.
-- **acceptedWritesOneStop.** A success means exactly one `append`, to `taskId`, of an event of kind `stop-requested`.
-- **refusedExactlyWhenTheGuardSays.** The outcome is `StopRefused` exactly when `stopRefusalOf` (opaque) returned words for
-  the folded journal.
+- **refusedWritesNothing.** A `WithdrawalRefused` outcome means no `append` was called.
+- **paidWritesOneWithdrawal.** A success means exactly one `append`, last, to `accountId`, of a withdrawal of the amount
+  asked, under its id.
+- **refusedExactlyWhenTheGuardSays.** The outcome is `WithdrawalRefused` exactly when the guard gave words for the account
+  the ledger folds to (the fold opaque, declared pure).
 
-The proof of the design:
-- all five laws proved on both;
-- a planted bug in either caught. For example, appending before the guard, or catching the read's failure.
-- each law checked against running the real code with stand-in implementations of the journal.
-
-What it needs that does not exist yet:
-- tagged unions;
-- the computation model and its trace;
-- opaque calls;
-- recognisers for the two adapters' forms;
-- `new` of a tagged error class;
-- `Date` as an operation.
+It holds (`test/withdraw.test.ts`): all five laws proved on both; every end each can come to reachable; each law kept when
+the real programs run against a stand-in ledger; and eight bugs planted in each caught, each planted program breaking a
+law the solver refuted when it runs.
 
 ## Modes and trust, after Verus
 
@@ -217,8 +212,8 @@ Where TypeScript differs:
   purity check (`src/purity.ts`) handles it by types: it records the type of every value of the caller's stored into a
   fresh object, and refuses a change to an object of a type such a value could reach. It refuses casts and type
   predicates, which would defeat that.
-- **Undeclared calls.** Verus refuses them. So does this design now. Before, an unread function was silently an unknown
-  pure function. That made 120 of hkb-v2's functions look read whose helpers' purity nobody had checked.
+- **Undeclared calls.** Verus refuses them, and so does this design. Taking an unread function as an unknown pure
+  function, silently, would make code look read whose helpers' purity nobody checked.
 
 ## Proof mode: loops, asserts, lemmas
 
@@ -230,7 +225,7 @@ A loop is read twice, once per side:
   length. A loop with none is havocked: the proof side knows nothing of what it changed, and a law that needs it is
   `bounded`, never `proved`.
 
-Each proof call is an **obligation** with a key (`invariant@fold.ts:97#kept`), checked on both sides like a law: proved,
+Each proof call is an **obligation** with a key (`invariant@account.ts:44#kept`), checked on both sides like a law: proved,
 or broken with a counterexample run for real. What it states is then a **hint**: the proof side assumes it from there
 on, the search side checks it and never assumes it. An obligation is checked with only the hints written before it, so
 no hint proves itself. A law the proof side proves while an obligation it leaned on is unproved is not reported proved:
@@ -239,21 +234,21 @@ the search side looks for a counterexample, and the law is `bounded` with the re
 **A lemma** is a statement proved once, for every argument its `requires` admits, as its own contract (`npm run verify --
 <file> <lemma>`); a call proves `requires` there and then knows the statement. A lemma's proof may not lean on itself.
 
-**State.** Proof mode needs a program that changes things, so the lowering now reads `let`, assignment, compound
+**State.** Proof mode needs a program that changes things, so the lowering reads `let`, assignment, compound
 operators, `??=`, `delete`, `push`, `switch` and the three loops. It reads them as Rust would: a variable owns what it
 allocated; an argument, or anything reached from one, is borrowed and never changed; a part of an object has one name
 at a time (a second is refused, so a change through one is always seen through the other); a value moved into another
 object is dead under its old name. `.find` gives a borrow of the element, and a change through it writes the array.
-That is what lets a function like `fold`, which builds its state by changing it, be read without an alias analysis
-inside the solver. Verus has `&mut` from the language; here the lowering refuses what Rust's borrow checker would.
+That is what lets a fold, which builds its state by changing it, be read without an alias analysis inside the
+solver. Verus has `&mut` from the language; here the lowering refuses what Rust's borrow checker would.
 
 ## Open questions for the owner
 
 1. **Proof hints in the code.** Settled: typed no-op calls, checked by `tsc`.
 2. **Laws over the trace.** As shown, laws filter `calls` by `op` name. A typed helper per operation set (`calls.of(journal)`)
    would make a misspelt op a type error.
-3. **The repository's name**, now that it is not Effect's.
-4. **Where a loop's invariants live.** In the code, they cost a call per iteration and make the code import the
-   verifier's `contract.ts` (no-op functions, no dependencies). In a spec, attached to a loop by its position, the code
-   stays untouched but an edit can silently move them. The `fold` pilot keeps them in a copy, held equal to hkb-v2's
-   code by a test: fine for a pilot, not for a factory.
+3. **The name.** Settled: `tsverify`.
+4. **Where a loop's invariants live.** In the code, as the account example has them, they cost a call per iteration and
+   make the code import `tsverify`'s zero-dependency entry. In a spec, attached to a loop by its position, the code stays
+   untouched; an edit can break the pointer, and the verifier then refuses it or the proof fails, never a false proof.
+   That is for code its author cannot change.

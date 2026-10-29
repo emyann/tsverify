@@ -12,7 +12,7 @@
 // - a cast (`as`) or a type predicate (`x is T`), either of which would hide a
 //   value's type from the next rule.
 //
-// It may change what it allocated itself (`fold` builds its state so). The
+// It may change what it allocated itself (a fold builds its state so). The
 // hard part is aliasing: a fresh object can hold a value of the caller's, and
 // a change made through the fresh object would reach it. The check records
 // the types of every value it did not allocate that it stores into one it did,
@@ -23,7 +23,9 @@
 //
 // What it takes on trust, and the report says: a property read runs no getter;
 // a module constant is never changed by other code; the function terminates.
+import path from "node:path"
 import ts from "typescript"
+import { CONTRACT_MODULE } from "./project.ts"
 import type { AssumedFn } from "./trust.ts"
 import { type FunctionNode, locate } from "./value.ts"
 
@@ -97,7 +99,8 @@ export const purityOf = (checker: ts.TypeChecker, fn: FunctionNode, assumed: (ca
     // A recursive call sees what is known so far; the caller's summary is complete once its body is read, and a
     // recursive call adds nothing a body does not already show of itself.
     summaries.set(f, s)
-    read.push(nameOf(f))
+    // The proof code (`invariant`, `assert`) is the verifier's, not the program's: it does nothing when it runs.
+    if (path.resolve(f.getSourceFile().fileName) !== CONTRACT_MODULE) read.push(nameOf(f))
     const own = new Set<ts.Node>()
     ts.forEachChild(f, function mark(n) {
       own.add(n)

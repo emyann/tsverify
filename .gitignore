@@ -1,5 +1,5 @@
 node_modules/
 *.swp
 bench/.tmp/
-pilots/stop/stop.planted-*.ts
-pilots/fold/fold.planted-*.ts
+examples/account/account.planted-*.ts
+examples/account/withdraw.planted-*.ts

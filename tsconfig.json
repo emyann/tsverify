@@ -11,7 +11,15 @@
     "verbatimModuleSyntax": true,
     "noEmit": true,
     "skipLibCheck": true,
-    "types": ["node"]
+    "types": [
+      "node"
+    ]
   },
-  "include": ["src", "fixtures", "spike", "test", "pilots", "bench"]
+  "include": [
+    "src",
+    "fixtures",
+    "examples",
+    "test",
+    "bench"
+  ]
 }

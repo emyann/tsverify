@@ -24,7 +24,7 @@ export interface View {
 /** A function declared by one or more `assume(...)`. */
 export interface AssumedFn {
   readonly symbol: ts.Symbol
-  /** `fold`, or `uniq (lodash-es)` for a package's. */
+  /** `accountOf`, or `uniq (lodash-es)` for a package's. */
   readonly name: string
   /** Its body in the program, when the program has one: where purity is checked. */
   readonly body: FunctionNode | undefined

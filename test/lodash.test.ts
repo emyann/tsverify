@@ -6,14 +6,14 @@ import { after, before, describe, it } from "node:test"
 import { clamp } from "lodash-es"
 import { init, killThreads } from "z3-solver"
 import { clampOfNumbers, uniqOfStrings } from "../packs/lodash.ts"
-import * as program from "../pilots/lodash/labels.ts"
+import * as program from "../examples/lodash/labels.ts"
 import { assume, brokenOn } from "../src/contract.ts"
 import { diagnostics, loadProject } from "../src/project.ts"
 import type { Ctx } from "../src/value.ts"
 import { verify } from "../src/verify.ts"
 
 const root = path.resolve(import.meta.dirname, "..")
-const spec = path.join(root, "pilots/lodash/labels.spec.ts")
+const spec = path.join(root, "examples/lodash/labels.spec.ts")
 const project = loadProject([spec], path.join(root, "tsconfig.json"))
 
 let api: Awaited<ReturnType<typeof init>>

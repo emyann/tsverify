@@ -1,620 +1,622 @@
 [
   {
-    "id": "L1",
-    "fn": "lifecycleOf",
-    "find": "state.settled === 'succeeded' ? 'completed'",
-    "replace": "state.settled === 'failed' ? 'completed'",
-    "note": "the wrong outcome completes",
+    "id": "S1",
+    "fn": "statusOf",
+    "find": "order.resolution === \"fulfilled\" ? \"complete\"",
+    "replace": "order.resolution === \"voided\" ? \"complete\"",
+    "note": "the wrong resolution completes",
     "solver": {
       "caught": [
-        "succeededCompletes"
+        "fulfilledCompletes"
       ],
       "open": [],
       "gap": "",
-      "ms": 1134.368434
+      "ms": 576.947584
     },
     "sampled": [
       {
         "budget": 100,
         "caught": true,
-        "run": 23,
-        "law": "succeededCompletes",
-        "ms": 0.1304179999997359
+        "run": 5,
+        "law": "fulfilledCompletes",
+        "ms": 0.06702500000005784
       },
       {
         "budget": 1000,
         "caught": true,
-        "run": 23,
-        "law": "succeededCompletes",
-        "ms": 0.053840000000036525
+        "run": 5,
+        "law": "fulfilledCompletes",
+        "ms": 0.013118999999960579
       },
       {
         "budget": 10000,
         "caught": true,
-        "run": 23,
-        "law": "succeededCompletes",
-        "ms": 0.036744999999882566
+        "run": 5,
+        "law": "fulfilledCompletes",
+        "ms": 0.013782999999875756
       }
     ]
   },
   {
-    "id": "L2",
-    "fn": "lifecycleOf",
-    "find": "state.settled === 'stopped' ? 'canceled' : 'failed'",
-    "replace": "state.settled === 'stopped' ? 'failed' : 'canceled'",
-    "note": "stopped and failed swapped",
+    "id": "S2",
+    "fn": "statusOf",
+    "find": "order.resolution === \"refunded\" ? \"refunded\" : \"void\"",
+    "replace": "order.resolution === \"refunded\" ? \"void\" : \"refunded\"",
+    "note": "refunded and voided swapped",
     "solver": {
       "caught": [
-        "stoppedCancels"
+        "refundedRefunds"
       ],
       "open": [],
       "gap": "",
-      "ms": 1102.7670510000003
+      "ms": 551.655675
     },
     "sampled": [
       {
         "budget": 100,
         "caught": true,
-        "run": 7,
-        "law": "stoppedCancels",
-        "ms": 0.11605299999973795
+        "run": 3,
+        "law": "refundedRefunds",
+        "ms": 0.05977699999994002
       },
       {
         "budget": 1000,
         "caught": true,
-        "run": 7,
-        "law": "stoppedCancels",
-        "ms": 0.03264399999989109
+        "run": 3,
+        "law": "refundedRefunds",
+        "ms": 0.006778999999824009
       },
       {
         "budget": 10000,
         "caught": true,
-        "run": 7,
-        "law": "stoppedCancels",
-        "ms": 0.017388000000210013
+        "run": 3,
+        "law": "refundedRefunds",
+        "ms": 0.005067999999937456
       }
     ]
   },
   {
-    "id": "L3",
-    "fn": "lifecycleOf",
-    "find": "if (state.stopRequested) return 'stopping';",
-    "replace": "if (state.stopRequested && !state.closed) return 'stopping';",
-    "note": "a closed task ignores a stop",
+    "id": "S3",
+    "fn": "statusOf",
+    "find": "if (order.cancelRequested) return \"canceling\"",
+    "replace": "if (order.cancelRequested && !order.paused) return \"canceling\"",
+    "note": "a paused order ignores a cancel",
     "solver": {
       "caught": [
-        "stopOutranks"
+        "cancelOutranks"
       ],
       "open": [],
       "gap": "",
-      "ms": 885.9663980000005
+      "ms": 541.4837769999999
     },
     "sampled": [
       {
         "budget": 100,
         "caught": true,
-        "run": 95,
-        "law": "stopOutranks",
-        "ms": 0.21420899999975518
+        "run": 45,
+        "law": "cancelOutranks",
+        "ms": 0.19943199999988792
       },
       {
         "budget": 1000,
         "caught": true,
-        "run": 95,
-        "law": "stopOutranks",
-        "ms": 0.06205299999965064
+        "run": 45,
+        "law": "cancelOutranks",
+        "ms": 0.31022299999995084
       },
       {
         "budget": 10000,
         "caught": true,
-        "run": 95,
-        "law": "stopOutranks",
-        "ms": 0.05858100000023114
+        "run": 45,
+        "law": "cancelOutranks",
+        "ms": 0.2358950000002551
       }
     ]
   },
   {
-    "id": "L4",
-    "fn": "lifecycleOf",
-    "find": "if (state.stopRequested) return 'stopping';",
-    "replace": "if (state.stopRequested || state.closed) return 'stopping';",
-    "note": "a close reads as a stop",
+    "id": "S4",
+    "fn": "statusOf",
+    "find": "if (order.cancelRequested) return \"canceling\"",
+    "replace": "if (order.cancelRequested || order.paused) return \"canceling\"",
+    "note": "a pause reads as a cancel",
     "solver": {
       "caught": [
-        "stoppingOnlyWhenAsked"
+        "cancelingOnlyWhenAsked"
       ],
       "open": [],
       "gap": "",
-      "ms": 946.4953339999993
+      "ms": 547.8828290000001
     },
     "sampled": [
       {
         "budget": 100,
         "caught": true,
-        "run": 24,
-        "law": "stoppingOnlyWhenAsked",
-        "ms": 0.1169819999995525
+        "run": 11,
+        "law": "cancelingOnlyWhenAsked",
+        "ms": 0.06951699999990524
       },
       {
         "budget": 1000,
         "caught": true,
-        "run": 24,
-        "law": "stoppingOnlyWhenAsked",
-        "ms": 0.04650099999980739
+        "run": 11,
+        "law": "cancelingOnlyWhenAsked",
+        "ms": 0.018246999999973923
       },
       {
         "budget": 10000,
         "caught": true,
-        "run": 24,
-        "law": "stoppingOnlyWhenAsked",
-        "ms": 0.021585999999842898
+        "run": 11,
+        "law": "cancelingOnlyWhenAsked",
+        "ms": 0.021296999999776745
       }
     ]
   },
   {
-    "id": "L5",
-    "fn": "lifecycleOf",
-    "find": "if (last && last.ended === null)",
-    "replace": "if (last && last.ended !== 'succeeded')",
-    "note": "a failed attempt reads as in flight",
+    "id": "S5",
+    "fn": "statusOf",
+    "find": "if (last && last.outcome === null)",
+    "replace": "if (last && last.outcome !== \"delivered\")",
+    "note": "a returned shipment reads as on its way",
     "solver": {
       "caught": [
-        "workingMeansInFlight"
+        "movingMeansAnOpenShipment"
       ],
       "open": [],
       "gap": "",
-      "ms": 949.1339470000003
+      "ms": 574.5049469999999
     },
     "sampled": [
       {
         "budget": 100,
         "caught": true,
-        "run": 6,
-        "law": "workingMeansInFlight",
-        "ms": 0.010471000000507047
+        "run": 4,
+        "law": "movingMeansAnOpenShipment",
+        "ms": 0.07051300000011906
       },
       {
         "budget": 1000,
         "caught": true,
-        "run": 6,
-        "law": "workingMeansInFlight",
-        "ms": 0.002569999999650463
+        "run": 4,
+        "law": "movingMeansAnOpenShipment",
+        "ms": 0.006191000000399072
       },
       {
         "budget": 10000,
         "caught": true,
-        "run": 6,
-        "law": "workingMeansInFlight",
-        "ms": 0.0019159999992552912
+        "run": 4,
+        "law": "movingMeansAnOpenShipment",
+        "ms": 0.005425000000286673
       }
     ]
   },
   {
-    "id": "L6",
-    "fn": "lifecycleOf",
-    "find": "if (state.holdOpen && state.closed) return 'ending';",
-    "replace": "if (state.holdOpen || state.closed) return 'ending';",
-    "note": "closed without hold-open ends",
+    "id": "S6",
+    "fn": "statusOf",
+    "find": "if (order.subscription && order.paused) return \"paused\"",
+    "replace": "if (order.subscription || order.paused) return \"paused\"",
+    "note": "paused without a subscription",
     "solver": {
       "caught": [],
       "open": [],
-      "gap": "changes a result no law forbids: submitted becomes ending on {\"settled\":null,\"stopRequested\":false,\"attempts\":[],\"holdOpen\":true,\"closed\":false,\"inputs\":[]}",
-      "ms": 883.5881140000001
+      "gap": "changes a result no law forbids: \"settling\" becomes \"paused\" on {\"resolution\":null,\"cancelRequested\":false,\"shipments\":[{\"outcome\":\"delivered\",\"round\":null,\"pickedUpAt\":\"\"},{\"outcome\":\"delivered\",\"round\":null,\"pickedUpAt\":\"\"},{\"outcome\":\"delivered\",\"pickedUpAt\":\"\"},{\"outcome\":\"delivered\",\"round\":0.0009765625,\"pickedUpAt\":\"\"}],\"subscription\":true,\"paused\":false,\"reorders\":[]}",
+      "ms": 457.87782500000003
     },
     "sampled": [
       {
         "budget": 100,
         "caught": false,
-        "ms": 0.28186099999948055
+        "ms": 0.23671999999987747
       },
       {
         "budget": 1000,
         "caught": false,
-        "ms": 1.670893999999862
+        "ms": 1.2852759999996124
       },
       {
         "budget": 10000,
         "caught": false,
-        "ms": 6.545540000000074
+        "ms": 13.143089999999575
       }
     ]
   },
   {
-    "id": "L7",
-    "fn": "lifecycleOf",
-    "find": "return turnOf(state).attempts.length > 0 ? 'ending' : 'submitted';",
-    "replace": "return turnOf(state).attempts.length > 1 ? 'ending' : 'submitted';",
-    "note": "one attempt reads as none",
+    "id": "S7",
+    "fn": "statusOf",
+    "find": "return roundOf(order).shipments.length > 0 ? \"settling\" : \"placed\"",
+    "replace": "return roundOf(order).shipments.length > 1 ? \"settling\" : \"placed\"",
+    "note": "one shipment reads as none",
     "solver": {
       "caught": [
-        "submittedHasNoAttemptThisTurn"
+        "placedHasNoShipmentThisRound"
       ],
       "open": [],
       "gap": "",
-      "ms": 1052.246134000001
-    },
-    "sampled": [
-      {
-        "budget": 100,
-        "caught": true,
-        "run": 6,
-        "law": "submittedHasNoAttemptThisTurn",
-        "ms": 0.03900600000088161
-      },
-      {
-        "budget": 1000,
-        "caught": true,
-        "run": 6,
-        "law": "submittedHasNoAttemptThisTurn",
-        "ms": 0.009095000001252629
-      },
-      {
-        "budget": 10000,
-        "caught": true,
-        "run": 6,
-        "law": "submittedHasNoAttemptThisTurn",
-        "ms": 0.007661999999982072
-      }
-    ]
-  },
-  {
-    "id": "L8",
-    "fn": "lifecycleOf",
-    "find": "return turnOf(state).attempts.length > 0 ? 'ending' : 'submitted';",
-    "replace": "return turnOf(state, 0).attempts.length > 0 ? 'ending' : 'submitted';",
-    "note": "always the first turn",
-    "solver": {
-      "caught": [
-        "submittedHasNoAttemptThisTurn"
-      ],
-      "open": [],
-      "gap": "",
-      "ms": 967.7900559999998
-    },
-    "sampled": [
-      {
-        "budget": 100,
-        "caught": true,
-        "run": 81,
-        "law": "submittedHasNoAttemptThisTurn",
-        "ms": 0.09453399999983958
-      },
-      {
-        "budget": 1000,
-        "caught": true,
-        "run": 81,
-        "law": "submittedHasNoAttemptThisTurn",
-        "ms": 0.02226600000176404
-      },
-      {
-        "budget": 10000,
-        "caught": true,
-        "run": 81,
-        "law": "submittedHasNoAttemptThisTurn",
-        "ms": 0.02776399999856949
-      }
-    ]
-  },
-  {
-    "id": "L9",
-    "fn": "lifecycleOf",
-    "find": "if (waitsForInput(state)) return 'input-required';",
-    "replace": "if (waitsForInput(state) || state.closed) return 'input-required';",
-    "note": "closed reads as waiting",
-    "solver": {
-      "caught": [
-        "inputRequiredNeedsHoldOpen",
-        "notHeldOpenNeverWaits"
-      ],
-      "open": [],
-      "gap": "",
-      "ms": 916.875
+      "ms": 565.6645799999997
     },
     "sampled": [
       {
         "budget": 100,
         "caught": true,
         "run": 53,
-        "law": "inputRequiredNeedsHoldOpen",
-        "ms": 0.13819300000068324
+        "law": "placedHasNoShipmentThisRound",
+        "ms": 0.10295099999984814
       },
       {
         "budget": 1000,
         "caught": true,
         "run": 53,
-        "law": "inputRequiredNeedsHoldOpen",
-        "ms": 0.03176300000086485
+        "law": "placedHasNoShipmentThisRound",
+        "ms": 0.05234999999993306
       },
       {
         "budget": 10000,
         "caught": true,
         "run": 53,
-        "law": "inputRequiredNeedsHoldOpen",
-        "ms": 0.016632000000754488
+        "law": "placedHasNoShipmentThisRound",
+        "ms": 0.046141000000716303
+      }
+    ]
+  },
+  {
+    "id": "S8",
+    "fn": "statusOf",
+    "find": "return roundOf(order).shipments.length > 0 ? \"settling\" : \"placed\"",
+    "replace": "return roundOf(order, 0).shipments.length > 0 ? \"settling\" : \"placed\"",
+    "note": "always the first round",
+    "solver": {
+      "caught": [
+        "placedHasNoShipmentThisRound"
+      ],
+      "open": [],
+      "gap": "",
+      "ms": 663.6764350000003
+    },
+    "sampled": [
+      {
+        "budget": 100,
+        "caught": true,
+        "run": 53,
+        "law": "placedHasNoShipmentThisRound",
+        "ms": 0.07342200000039156
+      },
+      {
+        "budget": 1000,
+        "caught": true,
+        "run": 53,
+        "law": "placedHasNoShipmentThisRound",
+        "ms": 0.046529000000191445
+      },
+      {
+        "budget": 10000,
+        "caught": true,
+        "run": 53,
+        "law": "placedHasNoShipmentThisRound",
+        "ms": 0.02938300000005256
+      }
+    ]
+  },
+  {
+    "id": "S9",
+    "fn": "statusOf",
+    "find": "if (awaitsReorder(order)) return \"awaiting-reorder\"",
+    "replace": "if (awaitsReorder(order) || order.paused) return \"awaiting-reorder\"",
+    "note": "paused reads as waiting",
+    "solver": {
+      "caught": [
+        "awaitingNeedsASubscription",
+        "noSubscriptionNeverWaits"
+      ],
+      "open": [],
+      "gap": "",
+      "ms": 583.01685
+    },
+    "sampled": [
+      {
+        "budget": 100,
+        "caught": true,
+        "run": 11,
+        "law": "awaitingNeedsASubscription",
+        "ms": 0.07789299999967625
+      },
+      {
+        "budget": 1000,
+        "caught": true,
+        "run": 11,
+        "law": "awaitingNeedsASubscription",
+        "ms": 0.02852199999961158
+      },
+      {
+        "budget": 10000,
+        "caught": true,
+        "run": 11,
+        "law": "awaitingNeedsASubscription",
+        "ms": 0.0219809999998688
       }
     ]
   },
   {
     "id": "W1",
-    "fn": "waitsForInput",
-    "find": "!state.closed && last?.ended",
-    "replace": "last?.ended",
-    "note": "a closed task still waits",
+    "fn": "awaitsReorder",
+    "find": "!order.paused &&",
+    "replace": "",
+    "note": "a paused subscription still waits",
     "solver": {
       "caught": [],
       "open": [],
-      "gap": "equivalent in lifecycleOf (proved)",
-      "ms": 835.1543110000002
+      "gap": "equivalent in statusOf (proved)",
+      "ms": 524.2744229999998
     },
     "sampled": [
       {
         "budget": 100,
         "caught": false,
-        "ms": 0.23871900000085589
+        "ms": 0.17923500000051718
       },
       {
         "budget": 1000,
         "caught": false,
-        "ms": 0.5322659999983443
+        "ms": 0.6650410000002012
       },
       {
         "budget": 10000,
         "caught": false,
-        "ms": 2.3536850000000413
+        "ms": 5.795689000000493
       }
     ]
   },
   {
     "id": "W2",
-    "fn": "waitsForInput",
-    "find": "last?.ended === 'succeeded'",
-    "replace": "last?.ended === 'failed'",
-    "note": "waits after a failure, not a success",
+    "fn": "awaitsReorder",
+    "find": "last?.outcome === \"delivered\"",
+    "replace": "last?.outcome === \"lost\"",
+    "note": "waits after a loss, not a delivery",
     "solver": {
       "caught": [],
       "open": [],
-      "gap": "changes a result no law forbids: input-required becomes ending on {\"settled\":null,\"stopRequested\":false,\"attempts\":[{\"ended\":\"succeeded\",\"spawnedAt\":\"\"},{\"ended\":\"succeeded\",\"spawnedAt\":\"\"},{\"ended\":\"succeeded\",\"spawnedAt\":\"\"},{\"ended\":\"succeeded\",\"spawnedAt\":\"\"}],\"holdOpen\":true,\"closed\":false,\"inputs\":[]}",
-      "ms": 820.1577909999996
+      "gap": "changes a result no law forbids: \"settling\" becomes \"awaiting-reorder\" on {\"resolution\":null,\"cancelRequested\":false,\"shipments\":[{\"outcome\":\"lost\",\"pickedUpAt\":\"\"},{\"outcome\":\"lost\",\"pickedUpAt\":\"\"}],\"subscription\":true,\"paused\":false,\"reorders\":[]}",
+      "ms": 505.5162049999999
     },
     "sampled": [
       {
         "budget": 100,
         "caught": false,
-        "ms": 0.22540499999922758
+        "ms": 0.18750600000021223
       },
       {
         "budget": 1000,
         "caught": false,
-        "ms": 0.3737460000011197
+        "ms": 0.6551990000007208
       },
       {
         "budget": 10000,
         "caught": false,
-        "ms": 2.8039890000000014
+        "ms": 4.927711000000272
       }
     ]
   },
   {
     "id": "W3",
-    "fn": "waitsForInput",
-    "find": "(last.turn ?? 0) === state.inputs.length",
-    "replace": "(last.turn ?? 1) === state.inputs.length",
-    "note": "an unnumbered turn is turn 1",
+    "fn": "awaitsReorder",
+    "find": "(last.round ?? 0) === order.reorders.length",
+    "replace": "(last.round ?? 1) === order.reorders.length",
+    "note": "an unnumbered round is round 1",
     "solver": {
       "caught": [],
       "open": [],
-      "gap": "changes a result no law forbids: input-required becomes ending on {\"settled\":null,\"stopRequested\":false,\"attempts\":[{\"ended\":\"succeeded\",\"spawnedAt\":\"\"},{\"ended\":\"succeeded\",\"spawnedAt\":\"\"},{\"ended\":\"succeeded\",\"spawnedAt\":\"\"},{\"ended\":\"succeeded\",\"spawnedAt\":\"\"}],\"holdOpen\":true,\"closed\":false,\"inputs\":[]}",
-      "ms": 1123.825594
+      "gap": "changes a result no law forbids: \"awaiting-reorder\" becomes \"settling\" on {\"resolution\":null,\"cancelRequested\":false,\"shipments\":[{\"outcome\":\"delivered\",\"pickedUpAt\":\"\"},{\"outcome\":\"delivered\",\"pickedUpAt\":\"\"}],\"subscription\":true,\"paused\":false,\"reorders\":[]}",
+      "ms": 501.50222399999984
     },
     "sampled": [
       {
         "budget": 100,
         "caught": false,
-        "ms": 0.21244300000034855
+        "ms": 0.19977499999913562
       },
       {
         "budget": 1000,
         "caught": false,
-        "ms": 0.31042899999920337
+        "ms": 0.48416300000099
       },
       {
         "budget": 10000,
         "caught": false,
-        "ms": 2.432114000001093
+        "ms": 5.027103000000352
       }
     ]
   },
   {
     "id": "W4",
-    "fn": "waitsForInput",
-    "find": "(last.turn ?? 0) === state.inputs.length",
-    "replace": "(last.turn ?? 0) <= state.inputs.length",
-    "note": "an earlier turn's end waits",
+    "fn": "awaitsReorder",
+    "find": "(last.round ?? 0) === order.reorders.length",
+    "replace": "(last.round ?? 0) <= order.reorders.length",
+    "note": "an earlier round's delivery waits",
     "solver": {
       "caught": [],
       "open": [],
-      "gap": "changes a result no law forbids: ending becomes input-required on {\"settled\":null,\"stopRequested\":false,\"attempts\":[{\"ended\":\"succeeded\",\"spawnedAt\":\"\"},{\"ended\":\"succeeded\",\"turn\":0,\"spawnedAt\":\"\"},{\"ended\":\"succeeded\",\"turn\":null,\"spawnedAt\":\"\"},{\"ended\":\"succeeded\",\"turn\":null,\"spawnedAt\":\"\"}],\"holdOpen\":true,\"closed\":false,\"inputs\":[]}",
-      "ms": 847.4410500000013
+      "gap": "changes a result no law forbids: \"settling\" becomes \"awaiting-reorder\" on {\"resolution\":null,\"cancelRequested\":false,\"shipments\":[{\"outcome\":\"delivered\",\"round\":null,\"pickedUpAt\":\"\"},{\"outcome\":\"delivered\",\"round\":null,\"pickedUpAt\":\"\"},{\"outcome\":\"delivered\",\"pickedUpAt\":\"\"},{\"outcome\":\"delivered\",\"round\":null,\"pickedUpAt\":\"\"}],\"subscription\":true,\"paused\":false,\"reorders\":[]}",
+      "ms": 561.4427730000007
     },
     "sampled": [
       {
         "budget": 100,
         "caught": false,
-        "ms": 0.20705199999792967
+        "ms": 0.1725559999995312
       },
       {
         "budget": 1000,
         "caught": false,
-        "ms": 0.28296899999986636
+        "ms": 0.416639999999461
       },
       {
         "budget": 10000,
         "caught": false,
-        "ms": 2.3029630000019097
+        "ms": 5.042505000001256
       }
     ]
   },
   {
     "id": "W5",
-    "fn": "waitsForInput",
-    "find": "state.holdOpen === true && !state.settled && ",
-    "replace": "state.holdOpen === true && ",
-    "note": "a settled task waits",
+    "fn": "awaitsReorder",
+    "find": "!order.resolution &&",
+    "replace": "",
+    "note": "a resolved order waits",
     "solver": {
       "caught": [],
       "open": [],
-      "gap": "equivalent in lifecycleOf (proved)",
-      "ms": 861.5491169999987
+      "gap": "equivalent in statusOf (proved)",
+      "ms": 461.44972999999845
     },
     "sampled": [
       {
         "budget": 100,
         "caught": false,
-        "ms": 0.22490900000047986
+        "ms": 0.19213099999979022
       },
       {
         "budget": 1000,
         "caught": false,
-        "ms": 0.2656860000024608
+        "ms": 0.45250900000064576
       },
       {
         "budget": 10000,
         "caught": false,
-        "ms": 2.315855000000738
+        "ms": 4.69333799999913
       }
     ]
   },
   {
-    "id": "T1",
-    "fn": "turnOf",
-    "find": "const attempts = state.attempts.filter((a) => (a.turn ?? 0) === n);",
-    "replace": "const attempts = state.attempts.filter((a) => (a.turn ?? 0) >= n);",
-    "note": "later turns count as this one",
+    "id": "R1",
+    "fn": "roundOf",
+    "find": "(s.round ?? 0) === n",
+    "replace": "(s.round ?? 0) >= n",
+    "note": "later rounds count as this one",
     "solver": {
       "caught": [],
       "open": [],
-      "gap": "changes a result no law forbids: submitted becomes ending on {\"settled\":null,\"stopRequested\":false,\"attempts\":[{\"ended\":\"succeeded\",\"turn\":null,\"spawnedAt\":\"\"}],\"closed\":false,\"inputs\":[]}",
-      "ms": 824.9372240000012
+      "gap": "changes a result no law forbids: \"placed\" becomes \"settling\" on {\"resolution\":null,\"cancelRequested\":false,\"shipments\":[{\"outcome\":\"delivered\",\"round\":null,\"pickedUpAt\":\"\"},{\"outcome\":\"delivered\",\"round\":null,\"pickedUpAt\":\"\"}],\"paused\":false,\"reorders\":[{}]}",
+      "ms": 470.97601399999985
     },
     "sampled": [
       {
         "budget": 100,
         "caught": false,
-        "ms": 0.22540899999876274
+        "ms": 0.16490599999997357
       },
       {
         "budget": 1000,
         "caught": false,
-        "ms": 0.27560299999822746
+        "ms": 0.45665099999860104
       },
       {
         "budget": 10000,
         "caught": false,
-        "ms": 2.430227000000741
+        "ms": 4.49821300000076
       }
     ]
   },
   {
-    "id": "T2",
-    "fn": "turnOf",
-    "find": "const attempts = state.attempts.filter((a) => (a.turn ?? 0) === n);",
-    "replace": "const attempts = state.attempts.filter((a) => a.turn === n);",
-    "note": "an unnumbered attempt is in no turn",
+    "id": "R2",
+    "fn": "roundOf",
+    "find": "(s.round ?? 0) === n",
+    "replace": "s.round === n",
+    "note": "an unnumbered shipment is in no round",
     "solver": {
       "caught": [
-        "submittedHasNoAttemptThisTurn"
+        "placedHasNoShipmentThisRound"
       ],
       "open": [],
       "gap": "",
-      "ms": 842.2703959999999
+      "ms": 494.49246200000016
     },
     "sampled": [
       {
         "budget": 100,
-        "caught": false,
-        "ms": 0.08769800000300165
+        "caught": true,
+        "run": 98,
+        "law": "placedHasNoShipmentThisRound",
+        "ms": 0.0879930000010063
       },
       {
         "budget": 1000,
         "caught": true,
-        "run": 110,
-        "law": "submittedHasNoAttemptThisTurn",
-        "ms": 0.02848400000220863
+        "run": 98,
+        "law": "placedHasNoShipmentThisRound",
+        "ms": 0.03756799999973737
       },
       {
         "budget": 10000,
         "caught": true,
-        "run": 110,
-        "law": "submittedHasNoAttemptThisTurn",
-        "ms": 0.023160000000643777
+        "run": 98,
+        "law": "placedHasNoShipmentThisRound",
+        "ms": 0.04071699999985867
       }
     ]
   },
   {
-    "id": "T3",
-    "fn": "turnOf",
-    "find": "export function turnOf(state: State, n = state.inputs.length)",
-    "replace": "export function turnOf(state: State, n = state.attempts.length)",
-    "note": "the turn counted by attempts",
+    "id": "R3",
+    "fn": "roundOf",
+    "find": "n = order.reorders.length",
+    "replace": "n = order.shipments.length",
+    "note": "the round counted by shipments",
     "solver": {
       "caught": [
-        "submittedHasNoAttemptThisTurn"
+        "placedHasNoShipmentThisRound"
       ],
       "open": [],
       "gap": "",
-      "ms": 830.1186369999996
+      "ms": 514.4324149999993
     },
     "sampled": [
       {
         "budget": 100,
         "caught": true,
-        "run": 53,
-        "law": "submittedHasNoAttemptThisTurn",
-        "ms": 0.06864299999870127
+        "run": 93,
+        "law": "placedHasNoShipmentThisRound",
+        "ms": 0.10121699999945122
       },
       {
         "budget": 1000,
         "caught": true,
-        "run": 53,
-        "law": "submittedHasNoAttemptThisTurn",
-        "ms": 0.02013500000248314
+        "run": 93,
+        "law": "placedHasNoShipmentThisRound",
+        "ms": 0.037871000000450294
       },
       {
         "budget": 10000,
         "caught": true,
-        "run": 53,
-        "law": "submittedHasNoAttemptThisTurn",
-        "ms": 0.012986999998247484
+        "run": 93,
+        "law": "placedHasNoShipmentThisRound",
+        "ms": 0.06269600000086939
       }
     ]
   },
   {
     "id": "E1",
-    "fn": "lifecycleOf",
-    "find": "if (last && last.ended === null)",
-    "replace": "if (last && !last.ended)",
-    "note": "equivalent: `ended` is an outcome or null (a control; nothing should catch it)",
+    "fn": "statusOf",
+    "find": "if (last && last.outcome === null)",
+    "replace": "if (last && !last.outcome)",
+    "note": "equivalent: `outcome` is an outcome or null (a control; nothing should catch it)",
     "solver": {
       "caught": [],
       "open": [],
-      "gap": "equivalent in lifecycleOf (proved)",
-      "ms": 789.7097009999998
+      "gap": "equivalent in statusOf (proved)",
+      "ms": 526.7266010000003
     },
     "sampled": [
       {
         "budget": 100,
         "caught": false,
-        "ms": 0.2037400000008347
+        "ms": 0.21134899999924528
       },
       {
         "budget": 1000,
         "caught": false,
-        "ms": 0.42660199999954784
+        "ms": 0.3940280000006169
       },
       {
         "budget": 10000,
         "caught": false,
-        "ms": 2.502363999999943
+        "ms": 4.069713000000775
       }
     ]
   }

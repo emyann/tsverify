@@ -72,7 +72,7 @@ export const copies = (xs: ReadonlyArray<number>): number => {
   return out.length
 }
 
-/** A state folded from events, as `fold` builds one: the caller's values stored, the fresh parts changed. */
+/** A state folded from events, as a fold builds one: the caller's values stored, the fresh parts changed. */
 type Item = { readonly name: string; readonly tags: ReadonlyArray<string> }
 type Folded = { names: string[]; last: Item | undefined; count: number }
 export const folds = (items: ReadonlyArray<Item>): Folded => {

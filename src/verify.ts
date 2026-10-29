@@ -474,11 +474,17 @@ const valueOf = (u: Universe, want: unknown): Val => {
 }
 
 /** Runs `f` with a fresh Z3 context and frees Z3's worker threads after, so the process can exit. */
-export const withZ3 = async <A>(f: (z3: Ctx) => Promise<A>): Promise<A> => {
+/** A Z3 context to verify many contracts with, and how to let it go: a test opens one before its cases and closes it after. */
+export const openZ3 = async (): Promise<{ readonly z3: Ctx; readonly close: () => Promise<void> }> => {
   const api = await init()
+  return { z3: api.Context("main"), close: async () => void (await killThreads(api.em)) }
+}
+
+export const withZ3 = async <A>(f: (z3: Ctx) => Promise<A>): Promise<A> => {
+  const { z3, close } = await openZ3()
   try {
-    return await f(api.Context("main"))
+    return await f(z3)
   } finally {
-    await killThreads(api.em)
+    await close()
   }
 }

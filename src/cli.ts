@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 // `node src/cli.ts <spec.ts> <export> [--bound 4] [--timeout 10000]`: verifies
 // one contract and prints each law's verdict, the states the result reaches,
 // and what the model assumed. Exits 1 when a law is not proved.

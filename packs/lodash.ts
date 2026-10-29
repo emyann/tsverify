@@ -1,4 +1,4 @@
-// What the verifier may assume of the lodash functions the pilots call: a pack,
+// What the verifier may assume of the lodash functions the examples call: a pack,
 // as Verus's `vstd` holds the specifications of Rust's standard library. A spec
 // brings it in force by importing it. Nothing here is proved: each law is
 // trusted, and `test/lodash.test.ts` runs every one against the real lodash.

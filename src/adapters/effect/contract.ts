@@ -1,7 +1,7 @@
 // What a spec author writes for an Effect program: the core's `computation`,
 // typed from the Effect itself. It imports only Effect's types.
 //
-//   computation<{ journal: Pick<JournalShape, "read" | "append"> }>()(requestStop, { ensures: { … } })
+//   computation<{ ledger: LedgerShape }>()(withdraw, { ensures: { … } })
 //
 // A law takes the program's arguments, its outcome and the calls it made to the
 // operations named in the type argument.

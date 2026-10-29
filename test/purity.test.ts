@@ -1,5 +1,6 @@
-// The purity check: each impure fixture refused for its reason, each pure one
-// accepted, and `fold`, read in place, accepted with the helpers it reads.
+// The purity check: each impure fixture refused for its reason, and each pure
+// one accepted. A fold that builds its state by changing it is accepted in
+// test/account.test.ts.
 import assert from "node:assert/strict"
 import path from "node:path"
 import { describe, it } from "node:test"
@@ -10,8 +11,7 @@ import type { FunctionNode } from "../src/value.ts"
 
 const root = path.resolve(import.meta.dirname, "..")
 const file = path.join(root, "fixtures/purity.ts")
-const domain = path.resolve(root, "../hkb-v2/packages/agent-runtime/src/core/domain.ts")
-const project = loadProject([file, domain], path.join(root, "tsconfig.json"))
+const project = loadProject([file], path.join(root, "tsconfig.json"))
 
 /** The exported function `name` of `f`. */
 const fnOf = (f: string, name: string): FunctionNode => {
@@ -59,10 +59,4 @@ describe("pure", () => {
       const p = purity(file, name)
       assert.deepEqual(p.pure ? "pure" : p.why, "pure")
     })
-
-  it("`fold`, read in place, with the helpers it changes its state through", () => {
-    const p = purity(domain, "fold")
-    assert.ok(p.pure, p.pure ? "" : p.why)
-    assert.deepEqual([...p.read].sort(), ["endAttempt", "fileInto", "fold", "foldInto"])
-  })
 })
