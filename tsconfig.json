@@ -13,6 +13,9 @@
     "skipLibCheck": true,
     "types": [
       "node"
+    ],
+    "customConditions": [
+      "tsverify-source"
     ]
   },
   "include": [

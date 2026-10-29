@@ -542,7 +542,7 @@ const assumedCall = (L: Lowering, a: AssumedFn, args: ReadonlyArray<Val>, at: ts
       : undefined
   const known = key === undefined ? undefined : L.opaque.get(key)
   if (known !== undefined) return known
-  const result = symbolicOf(L, checker.getTypeAtLocation(at), [u.fresh(a.name.replace(/\s.*/, ""))], indices, at)
+  const result = symbolicOf(L, checker.getTypeAtLocation(at), [u.given(a.name.replace(/\s.*/, ""))], indices, at)
   if (key !== undefined) L.opaque.set(key, result)
   L.trust.used.add(a)
   u.opaqueCalls.add(a.name)

@@ -95,12 +95,16 @@ const viewParams = (checker: ts.TypeChecker, call: ts.CallExpression): Array<ts.
   return ps.map((p) => checker.getTypeOfSymbol(p))
 }
 
-/** Every `const x = assume(...)` at the top of a module of the program, outside the packages. */
+/**
+ * Every `const x = assume(...)` at the top of a module of the program: a spec's, or a pack's it imports, a package's
+ * among them when the package ships the pack as source (tsverify's own, `tsverify/packs/lodash`). A declaration file
+ * holds no law to read.
+ */
 export const readAssumptions = (project: Project): Assumptions => {
   const { checker, program } = project
   const bySymbol = new Map<ts.Symbol, { name: string; body: FunctionNode | undefined; pure: boolean; views: Array<View>; pureAt: string }>()
   for (const sf of program.getSourceFiles()) {
-    if (sf.isDeclarationFile || sf.fileName.replaceAll("\\", "/").includes("/node_modules/")) continue
+    if (sf.isDeclarationFile) continue
     for (const stmt of sf.statements) {
       if (!ts.isVariableStatement(stmt)) continue
       for (const d of stmt.declarationList.declarations) {

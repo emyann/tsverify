@@ -8,13 +8,35 @@ It reads pure functions; loops, through the invariants the code carries (proof m
 code that calls operations behind an interface and ends in a success or a failure. Effect is not part of the core. It is
 one adapter, beside async/await and plain TypeScript, as `docs/design-2026-10-28-core-and-adapters.md` lays out.
 
-Pinned: Node ≥ 24.16, `z3-solver` 5.3.2, `typescript` 6.0.3. Optional: `effect` 4.0.6 (the Effect adapter reads its
-types) and `lodash-es` 4.18.1 (the lodash pack).
+Pinned: Node ≥ 24.16, `z3-solver` 5.3.2, `typescript` 6.0.3. Optional peers: `effect` 4 (the Effect adapter reads its
+types; tested on 4.0.6) and `lodash-es` 4 (the lodash pack; tested on 4.18.1).
+
+## Install
+
+It is not on a registry yet, and its version is 0.0.0: `npm pack` here builds it and writes `tsverify-0.0.0.tgz`, which a
+project installs as it would any tarball.
+
+```sh
+npm install --save-dev ./tsverify-0.0.0.tgz   # in the project; `effect` too for an Effect program
+npx tsverify                                  # every spec and implementation under the current folder
+npx tsverify src/charge.ts charge             # one contract, with everything it knows
+npx tsverify --json                           # the same verdicts as one JSON document, for CI or an agent
+```
+
+The command exits 0 when every law and every obligation is proved, 1 when one is not (a counterexample, or a law bounded,
+vacuous, unsupported), 2 on a usage error (a path that is not there, nothing to verify, no `tsconfig.json`), and 3 when the
+verifier itself fails, which says nothing of the code. `--json` prints one document and nothing else: `passed` (what the exit code
+says), `contracts` (each verdict in full: its `file`, its `laws`, `obligations`, `trusted`, `cover` and `notes`, and
+whether it `passed`) and `totals`. A counterexample's values are JSON, a value JSON cannot hold written as a string of its
+JavaScript text (`"5n"`, `"undefined"`, `"NaN"`); its `world` is what the world gave the code on that run: each operation
+call's outcome, each declared function's result.
+
+## In this repository
 
 ```sh
 npm run verify      # every contract below here, a line per law, then a total
 npm run verify -- examples/account                                   # one folder, or one file
-npm test            # 188 tests, ~45 s
+npm test            # 196 tests, ~45 s
 npm run verify -- examples/charge/charge.ts charge                   # code written against its spec
 npm run verify -- examples/order/order.spec.ts status                # a state machine, its doc comment as laws
 npm run verify -- examples/account/account.spec.ts folded            # a loop, its invariants written or found
@@ -36,13 +58,14 @@ of a `*.spec.ts`. Each file is verified as a program of its own, read through th
 `vacuous`: a law over the inputs alone, or `!A || B` whose `A` no allowed input meets. The verifier asks it of every law
 it proves, by giving the law any value of its result's type in place of the function's.
 
-What a program imports:
+What a program imports, the first two being what a spec and its code import (and the code only its types):
 - `tsverify`: what a spec author writes. `spec` and `Implementation`; `contract` and `computation` for code that already
   exists; `assume`; and the proof code `invariant`, `assert`, `lemma`. It has no dependencies, and runs as a test oracle
   too.
 - `tsverify/effect`: `spec` and `computation` for an Effect program, typed from the Effect.
-- `tsverify/api`: the verifier as a program calls it (`loadProject`, `verify`, `openZ3`, `purityOf`).
-- `tsverify/mutants`: laws against planted bugs, the solver beside property testing.
+- `tsverify/api`: the verifier as a program calls it (`loadProject`, `verify`, `openZ3`, `purityOf`). It changes with the
+  verifier.
+- `tsverify/mutants`: laws against planted bugs, the solver beside property testing. It changes with the verifier too.
 - `tsverify/packs/lodash`: what the verifier may assume of the lodash functions it covers.
 
 ## A spec, then the code
@@ -485,9 +508,8 @@ verifier were caught that way while building it.
   closures allocated each time. A loop pays for them at run time.
 - **The terms a verification keys by are kept alive** until the process ends, because Z3 reuses the id of a term it has
   freed. A long-lived process verifying many contracts grows.
-- **Not packaged.** The entries are TypeScript files that Node runs by stripping their types, which it refuses inside
-  `node_modules`: a path dependency (`"tsverify": "file:../tsverify"`) works, an install from a registry would need a
-  build first.
+- **A pack ships as TypeScript.** Its laws are functions the verifier reads, so `tsverify/packs/lodash` points its types
+  at its source: a project's `tsc` checks that file under the project's own options.
 
 ## How much of a code base it reads
 
@@ -498,8 +520,25 @@ and `--names` keeps the names in the reasons, so a refusal of a library function
 function is read on its own, every callee the purity check accepts taken as declared `pure`: what a spec gets by writing
 one declaration per helper. The refusals are the verifier's to-do list for that code base.
 
+## Building and packing
+
+The repository runs its TypeScript source and no build. Each entry of `exports` names its source under a condition of
+its own, `tsverify-source`: `tsconfig.json` sets it in `customConditions`, and every script passes
+`--conditions=tsverify-source`, so a test that imports `tsverify` gets `src/contract.ts`. A project that installs the
+package sets no such condition and gets `dist/`: `npm run build` emits it (JavaScript and declarations, through
+`tsconfig.build.json`), and `npm pack` runs the build first. The verifier knows its own modules by package, the nearest
+`package.json` named `tsverify`, and by their path in it, source or built (`ownModule` in `src/project.ts`), so a spec
+reads the same whether it imports this checkout, a linked copy or an installed one.
+
+`test/install.test.ts` packs the package, installs the tarball into a new project with some of the examples copied in,
+and asks the installed command what the source answers on the same files: the same verdicts. It also checks that the
+tarball holds nothing but the build and the packs, and that a planted bug's counterexample breaks the installed code when
+it runs. It needs `npm` and, when the npm cache lacks a dependency, the network.
+
 ## Next
 
+- Integer division (`/` on bigints, which truncates toward zero) and a string's `length` (its UTF-16 code units): the
+  first two refusals a new project's first spec met.
 - The next forms, by how often they stop real code: `instanceof` on a value of type `unknown` and `Effect.die`, which a
   `catch` after `Effect.try` uses to keep the errors it knows and die of the rest; `Effect.exit`, `forEach`, `mapError`,
   `catchCause`, `suspend`; destructuring with rest or defaults; `let` in a computation's body.
@@ -512,4 +551,4 @@ one declaration per helper. The refusals are the verifier's to-do list for that 
 - Packs for the most-called libraries, each tested against its library; a check of a package's purity from its JavaScript.
 - Equivalence as a first-class check: "this refactor preserves behaviour", run on a diff.
 - A versioned report bound to source hashes.
-- A build, so the package installs from a registry.
+- A first release: a license, a version past 0.0.0, and the registry.

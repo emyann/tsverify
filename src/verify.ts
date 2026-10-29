@@ -623,8 +623,7 @@ export const solve = async (side: Lowered, goals: ReadonlyArray<Bool<"main">>, o
 
 const witness = (side: Lowered, model: Model<"main">): Witness => {
   try {
-    const roots = new Set([...side.u.leaves.values()].map((l) => l.segments[0]!))
-    for (const p of side.params) roots.delete(p)
+    const roots = new Set([...side.u.leaves.values()].map((l) => l.segments[0]!).filter((r) => side.u.shown.has(r)))
     // A declared function's result inside a quantifier is one per element: a function of the index, not a value to show.
     for (const l of side.u.leaves.values()) if (l.arity > l.segments.filter((s) => s === "[]").length) roots.delete(l.segments[0]!)
     const world = Object.fromEntries([...roots].sort().map((r) => [r, fromModel(side.u, model, r)]))

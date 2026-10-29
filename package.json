@@ -8,29 +8,55 @@
     "node": ">=24.16.0"
   },
   "exports": {
-    ".": "./src/contract.ts",
-    "./effect": "./src/adapters/effect/contract.ts",
-    "./api": "./src/api.ts",
-    "./mutants": "./src/mutants.ts",
-    "./packs/lodash": "./packs/lodash.ts"
+    ".": {
+      "tsverify-source": "./src/contract.ts",
+      "types": "./dist/src/contract.d.ts",
+      "default": "./dist/src/contract.js"
+    },
+    "./effect": {
+      "tsverify-source": "./src/adapters/effect/contract.ts",
+      "types": "./dist/src/adapters/effect/contract.d.ts",
+      "default": "./dist/src/adapters/effect/contract.js"
+    },
+    "./api": {
+      "tsverify-source": "./src/api.ts",
+      "types": "./dist/src/api.d.ts",
+      "default": "./dist/src/api.js"
+    },
+    "./mutants": {
+      "tsverify-source": "./src/mutants.ts",
+      "types": "./dist/src/mutants.d.ts",
+      "default": "./dist/src/mutants.js"
+    },
+    "./packs/lodash": {
+      "tsverify-source": "./packs/lodash.ts",
+      "types": "./packs/lodash.ts",
+      "default": "./dist/packs/lodash.js"
+    }
   },
   "bin": {
-    "tsverify": "./src/cli.ts"
+    "tsverify": "./dist/src/cli.js"
   },
+  "files": [
+    "dist",
+    "packs/*.ts"
+  ],
   "scripts": {
+    "build": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\" && tsc -p tsconfig.build.json",
+    "prepack": "npm run build",
     "typecheck": "tsc --noEmit",
-    "test": "node --test test/*.test.ts",
-    "verify": "node src/cli.ts",
-    "bench": "node bench/mutants.ts --json bench/results.json",
-    "coverage": "node bench/coverage.ts"
+    "test": "node --conditions=tsverify-source --test test/*.test.ts",
+    "verify": "node --conditions=tsverify-source src/cli.ts",
+    "bench": "node --conditions=tsverify-source bench/mutants.ts --json bench/results.json",
+    "coverage": "node --conditions=tsverify-source bench/coverage.ts"
   },
   "dependencies": {
     "typescript": "6.0.3",
     "z3-solver": "5.3.2"
   },
   "peerDependencies": {
-    "effect": "4.0.6",
-    "lodash-es": "4.18.1"
+    "effect": "^4.0.6",
+    "lodash-es": "^4.17.21"
   },
   "peerDependenciesMeta": {
     "effect": {

@@ -1,5 +1,6 @@
 // The command: every contract of a folder, a total and the exit code; one
-// contract by name, with everything known of it; a path that is not there.
+// contract by name, with everything known of it; the same as one JSON
+// document; a path that is not there.
 import assert from "node:assert/strict"
 import { spawnSync } from "node:child_process"
 import path from "node:path"
@@ -51,4 +52,46 @@ it("refuses a path that is not there, with code 2", () => {
   const r = cli("no/such/folder")
   assert.equal(r.code, 2)
   assert.match(r.err, /no such file or folder/)
+})
+
+it("refuses a --project that is not there, with code 2", () => {
+  const r = cli("examples/charge", "--project", "no/tsconfig.json")
+  assert.equal(r.code, 2)
+  assert.match(r.err, /--project no\/tsconfig\.json: no such file/)
+})
+
+interface Report {
+  readonly passed: boolean
+  readonly contracts: ReadonlyArray<{
+    readonly file: string
+    readonly contract: string
+    readonly passed: boolean
+    readonly laws: ReadonlyArray<{ readonly name: string; readonly status: string; readonly args?: unknown; readonly world?: unknown }>
+  }>
+  readonly totals: { readonly contracts: number; readonly files: number; readonly laws: Readonly<Record<string, number>> }
+}
+
+it("--json: one document and nothing else, its passed what the exit code says", () => {
+  const r = cli("examples/charge", "--json")
+  assert.equal(r.code, 0, r.err)
+  const report = JSON.parse(r.out) as Report
+  assert.equal(report.passed, true)
+  assert.deepEqual(
+    report.contracts.map((c) => [c.file, c.contract, c.passed, c.laws.map((l) => l.status)]),
+    [["examples/charge/charge.ts", "charge", true, ["proved", "proved"]]],
+  )
+  assert.deepEqual(report.totals, { contracts: 1, files: 1, laws: { proved: 2 }, obligations: {}, unsupported: 0 })
+})
+
+it("--json: a counterexample's world is what the world gave the code, none of the verifier's own names", () => {
+  const r = cli("examples/lodash/labels.spec.ts", "--json")
+  assert.equal(r.code, 1, r.err)
+  const report = JSON.parse(r.out) as Report
+  assert.equal(report.passed, false)
+  const law = report.contracts.find((c) => c.contract === "labels")?.laws.find((l) => l.name === "severalOnlyWithTwoDifferent")
+  assert.equal(law?.status, "counterexample")
+  // The labels, and what `uniq` was taken to return for them: the two the same, which lodash would never return.
+  const [labels] = law.args as [ReadonlyArray<string>]
+  assert.deepEqual(Object.values(law.world as Record<string, unknown>), [labels])
+  assert.deepEqual(Object.keys(law.world as Record<string, unknown>).map((k) => k.replace(/!\d+$/, "")), ["uniq"])
 })

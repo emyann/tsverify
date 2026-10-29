@@ -31,7 +31,7 @@ import ts from "typescript"
 import type { Arith, Bool } from "z3-solver"
 import { type Lowering, arithmetic, cond as condOf, firstIndex, inSpec, later, lowerCall, lowerExpr, member, propertyKey } from "./lower.ts"
 import { ite, nullishOr, strictEq, truthy } from "./ops.ts"
-import { CONTRACT_MODULE, declared, functionOf, unwrap } from "./project.ts"
+import { CONTRACT_MODULE, declared, functionOf, ownModule, unwrap } from "./project.ts"
 import { symbolicOf } from "./symbolic.ts"
 import { type Env, type FunctionNode, type Thunk, UNDEFINED, Unsupported, type Val, lazy, lazyRecord, locate, memoElems } from "./value.ts"
 
@@ -637,7 +637,7 @@ const programFunction = (L: Lowering, e: ts.CallExpression, st: State): { readon
   if (sym !== undefined && sym.flags & ts.SymbolFlags.Alias) sym = L.checker.getAliasedSymbol(sym)
   const d = sym?.valueDeclaration
   if (d === undefined || d.getSourceFile().isDeclarationFile || d.getSourceFile().fileName.includes("/node_modules/")) return undefined
-  if (path(d) === CONTRACT_MODULE) return undefined
+  if (ownModule(d.getSourceFile().fileName, CONTRACT_MODULE)) return undefined
   if (ts.isFunctionDeclaration(d) && d.body !== undefined) return { node: d, env: new Map() }
   if (ts.isVariableDeclaration(d) && d.initializer !== undefined && (d.parent.flags & ts.NodeFlags.Const) !== 0) {
     const init = unwrap(d.initializer)
@@ -646,8 +646,6 @@ const programFunction = (L: Lowering, e: ts.CallExpression, st: State): { readon
   }
   return undefined
 }
-
-const path = (n: ts.Node): string => n.getSourceFile().fileName
 
 const ASSIGN_OPS: ReadonlyMap<ts.SyntaxKind, ts.SyntaxKind> = new Map([
   [K.PlusEqualsToken, K.PlusToken],

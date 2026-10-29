@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// tsverify [<file or folder>...] [--project tsconfig.json] [--bound 4] [--timeout 10000] [--verbose]
+// tsverify [<file or folder>...] [--project tsconfig.json] [--bound 4] [--timeout 10000] [--verbose] [--json]
 //   Verifies every contract each file exports: every implementation of a spec (`const f: Implementation<typeof S>`),
 //   and every `contract`, computation and lemma of a `*.spec.ts`, in each folder (the current one by default), a line
 //   per law, then a total. Exits 1 unless every law is proved and says something of its function, and every
@@ -7,6 +7,8 @@
 // tsverify <spec.ts> <export>
 //   Verifies one contract, with everything the verification knows: the states its result reaches, what it trusted
 //   and what it assumed.
+// --json prints one JSON document instead, of every verdict in full (`Report`), and the same exit code.
+// Exits 0 when everything is proved, 1 when something is not, 2 on a usage error, 3 when the verifier itself fails.
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs"
 import path from "node:path"
 import ts from "typescript"
@@ -14,7 +16,13 @@ import { contractsIn, loadProject } from "./project.ts"
 import type { Ctx } from "./value.ts"
 import { type Options, type Verification, verify, withZ3 } from "./verify.ts"
 
-const USAGE = "usage: tsverify [<file or folder>...] [--project tsconfig.json] [--bound N] [--timeout MS] [--verbose]\n       tsverify <spec.ts> <export>"
+// A failure of the verifier is no verdict on the code: exit 3, so no caller reads it as a law not proved.
+process.on("uncaughtException", (e) => {
+  console.error(`tsverify failed, which says nothing of the code: ${e instanceof Error ? (e.stack ?? e.message) : String(e)}`)
+  process.exit(3)
+})
+
+const USAGE = "usage: tsverify [<file or folder>...] [--project tsconfig.json] [--bound N] [--timeout MS] [--verbose] [--json]\n       tsverify <spec.ts> <export> [--json]"
 const argv = process.argv.slice(2)
 const VALUED = new Set(["--project", "--bound", "--timeout"])
 const positional = argv.filter((a, i) => !a.startsWith("--") && !VALUED.has(argv[i - 1] ?? ""))
@@ -23,6 +31,7 @@ const flag = (f: string): string | undefined => {
   return i < 0 ? undefined : argv[i + 1]
 }
 const verbose = argv.includes("--verbose")
+const json = argv.includes("--json")
 const bound = flag("--bound") === undefined ? undefined : Number(flag("--bound"))
 const timeoutMs = flag("--timeout") === undefined ? undefined : Number(flag("--timeout"))
 const opts: Options = { ...(bound ? { bound } : {}), ...(timeoutMs ? { timeoutMs } : {}) }
@@ -30,7 +39,13 @@ const opts: Options = { ...(bound ? { bound } : {}), ...(timeoutMs ? { timeoutMs
 /** The `tsconfig.json` a file is checked by: `--project`, or the nearest one above it. */
 const tsconfigOf = (file: string): string => {
   const given = flag("--project")
-  if (given !== undefined) return path.resolve(given)
+  if (given !== undefined) {
+    if (!existsSync(given)) {
+      console.error(`--project ${given}: no such file; name a tsconfig.json, or leave --project out to use the nearest one above each file`)
+      process.exit(2)
+    }
+    return path.resolve(given)
+  }
   const found = ts.findConfigFile(path.dirname(file), ts.sys.fileExists)
   if (found === undefined) {
     console.error(`no tsconfig.json above ${file}: pass one with --project <tsconfig.json>`)
@@ -52,6 +67,25 @@ const contractFilesUnder = (dir: string): Array<string> =>
   })
 
 const show = (x: unknown) => JSON.stringify(x, (_, v) => (typeof v === "bigint" ? `${v}n` : typeof v === "number" && !Number.isFinite(v) ? String(v) : v))
+
+/** A counterexample's value as JSON holds it: a bigint, `undefined`, `NaN` or `±Infinity` as a string of its JavaScript text (`"5n"`). */
+const plain = (x: unknown): unknown =>
+  typeof x === "bigint"
+    ? `${x}n`
+    : x === undefined
+      ? "undefined"
+      : typeof x === "number" && !Number.isFinite(x)
+        ? String(x)
+        : Array.isArray(x)
+          ? x.map(plain)
+          : x !== null && typeof x === "object"
+            ? Object.fromEntries(Object.entries(x).map(([k, v]) => [k, plain(v)]))
+            : x
+const plainArgs = <T extends { readonly args?: ReadonlyArray<unknown>; readonly world?: Readonly<Record<string, unknown>> }>(r: T): T => ({
+  ...r,
+  ...(r.args !== undefined ? { args: plain(r.args) } : {}),
+  ...(r.world !== undefined ? { world: plain(r.world) } : {}),
+})
 const rel = (p: string) => path.relative(process.cwd(), p) || p
 
 /** The report of one verification, each line indented by `pad`. */
@@ -94,15 +128,59 @@ const passed = (v: Verification) => v.unsupported === undefined && v.laws.every(
 
 const one = async (z3: Ctx, file: string, name: string, pad: string, full: boolean): Promise<Verification> => {
   const v = await verify(z3, loadProject([file], tsconfigOf(file)), file, name, opts)
+  if (json) return v
   if (v.unsupported !== undefined) console.log(`${pad}${name}: not verified — ${v.unsupported}`)
   else console.log([`${pad}${name}`, ...report(v, `${pad}  `, full)].join("\n"))
   return v
 }
 
+const tally = <A,>(xs: ReadonlyArray<A>, key: (x: A) => string): Record<string, number> =>
+  xs.reduce<Record<string, number>>((m, x) => ({ ...m, [key(x)]: (m[key(x)] ?? 0) + 1 }), {})
+
+/**
+ * What `--json` prints: every contract verified, each with its file (relative to the current folder) and whether it
+ * passed, and the totals. `passed` is what the exit code says: 0 when every contract passed.
+ */
+interface Report {
+  readonly passed: boolean
+  readonly contracts: ReadonlyArray<Verification & { readonly file: string; readonly passed: boolean }>
+  readonly totals: {
+    readonly contracts: number
+    readonly files: number
+    readonly laws: Readonly<Record<string, number>>
+    readonly obligations: Readonly<Record<string, number>>
+    readonly unsupported: number
+  }
+}
+const printReport = (verdicts: ReadonlyArray<{ readonly file: string; readonly v: Verification }>) => {
+  const contracts = verdicts.map(({ file, v }) => ({
+    file: rel(file),
+    ...v,
+    laws: v.laws.map(plainArgs),
+    obligations: v.obligations.map(plainArgs),
+    cover: v.cover.map(plainArgs),
+    passed: passed(v),
+  }))
+  const out: Report = {
+    passed: contracts.every((c) => c.passed),
+    contracts,
+    totals: {
+      contracts: contracts.length,
+      files: new Set(contracts.map((c) => c.file)).size,
+      laws: tally(contracts.flatMap((c) => c.laws), (l) => l.status),
+      obligations: tally(contracts.flatMap((c) => c.obligations), (o) => o.status),
+      unsupported: contracts.filter((c) => c.unsupported !== undefined).length,
+    },
+  }
+  console.log(JSON.stringify(out, null, 2))
+}
+
 // One contract, named: everything about it.
 const [first, second] = positional
 if (positional.length === 2 && first !== undefined && second !== undefined && !existsSync(second)) {
-  const v = await withZ3((z3) => one(z3, path.resolve(first), second, "", true))
+  const file = path.resolve(first)
+  const v = await withZ3((z3) => one(z3, file, second, "", true))
+  if (json) printReport([{ file, v }])
   process.exit(passed(v) ? 0 : 1)
 }
 
@@ -119,7 +197,7 @@ if (files.length === 0) {
   process.exit(2)
 }
 
-const verdicts: Array<Verification> = []
+const found: Array<{ readonly file: string; readonly v: Verification }> = []
 let filesRead = 0
 await withZ3(async (z3) => {
   for (const file of files.sort()) {
@@ -127,13 +205,18 @@ await withZ3(async (z3) => {
     const names = contractsIn(loadProject([file], tsconfigOf(file)), file)
     if (names.length === 0) continue
     filesRead++
-    console.log(rel(file))
-    for (const name of names) verdicts.push(await one(z3, file, name, "  ", verbose))
+    if (!json) console.log(rel(file))
+    for (const name of names) found.push({ file, v: await one(z3, file, name, "  ", verbose) })
   }
 })
+const verdicts = found.map((f) => f.v)
+if (json) {
+  printReport(found)
+  process.exit(verdicts.every(passed) ? 0 : 1)
+}
 
 const count = <A,>(xs: ReadonlyArray<A>, key: (x: A) => string) =>
-  Object.entries(xs.reduce<Record<string, number>>((m, x) => ({ ...m, [key(x)]: (m[key(x)] ?? 0) + 1 }), {}))
+  Object.entries(tally(xs, key))
     .map(([k, n]) => `${n} ${k}`)
     .join(", ")
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`

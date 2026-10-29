@@ -17,9 +17,9 @@ export const tsAdapter: Adapter = {
   name: "ts",
   expr: (L, e, env) => {
     const z3 = L.u.z3
-    const freshStr = (what: string): Val => ({ kind: "str", term: L.u.leaf([L.u.fresh(what), "$"], "str", []) as never })
+    const freshStr = (what: string): Val => ({ kind: "str", term: L.u.leaf([L.u.given(what), "$"], "str", []) as never })
     const freshNum = (what: string): Val => {
-      const base = L.u.fresh(what)
+      const base = L.u.given(what)
       const cls = L.u.leaf([base, "~cls"], "int", []) as never as ReturnType<typeof z3.Int.val>
       L.u.assume(cls.eq(0)) // a time is finite
       return { kind: "num", cls, real: L.u.leaf([base, "$"], "num", []) as never }

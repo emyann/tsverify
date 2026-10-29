@@ -48,7 +48,10 @@ from a plain one. In both, the engine and the laws are the same.
 
 `@x/contract` never imports Effect or TypeScript. `@x/verify-effect` is the only package that knows Effect's names. A
 project with no Effect never installs it. Today the three are one package, `tsverify`, whose entries split the same
-way: `tsverify` (zero dependencies), `tsverify/api`, `tsverify/effect`.
+way: `tsverify` (zero dependencies), `tsverify/api`, `tsverify/effect`. It installs from its tarball: `npm pack` builds
+`dist/` (JavaScript and declarations), the packs ship as source for the verifier to read their laws, and the verifier knows
+its own modules by package and path, source or built, so a spec reads the same through an installed copy
+(`test/install.test.ts`).
 
 ## The core's model
 
@@ -283,7 +286,7 @@ solver. Verus has `&mut` from the language; here the lowering refuses what Rust'
    type error (`c.op === "reed"` compares a union of the real names with a string none of them is).
 3. **The name.** Settled: `tsverify`.
 4. **Where a loop's invariants live.** Mostly nowhere: a `for…of` loop with none written gets each law, restated for
-   the elements gone through, as a guess, and keeps those proved on entry and kept (Houdini's way). The account fold and
-   Nemia's `fold` need none written. Where a guess is not enough, the open choice: in the code (a call per iteration and
+   the elements gone through, as a guess, and keeps those proved on entry and kept (Houdini's way). The account fold, and a
+   fold of the same shape in a real code base read in place, need none written. Where a guess is not enough, the open choice: in the code (a call per iteration and
    an import of `tsverify`), a `//@` comment at the loop (no cost, checked by the verifier, not by `tsc`), or a proof
    file naming the function (no trace in the code; a pointer an edit can break, refused then, never a false proof).

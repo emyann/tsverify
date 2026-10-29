@@ -12,7 +12,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import path from "node:path"
 import { pathToFileURL } from "node:url"
 import ts from "typescript"
-import { CONTRACT_MODULE, loadProject } from "./project.ts"
+import { loadProject } from "./project.ts"
 import type { Ctx } from "./value.ts"
 import { verify } from "./verify.ts"
 
@@ -191,7 +191,7 @@ export const runMutants = async (z3: Ctx, suite: MutantSuite, progress: MutantPr
       const sameSpec = path.join(path.dirname(suite.spec), "same.spec.ts")
       const params = Array.from({ length: arityOf(ts.createSourceFile("source.ts", original, ts.ScriptTarget.Latest, true), main) }, (_, i) => `a${i}`)
       const sameText = [
-        `import { contract } from ${JSON.stringify(relative(sameSpec, CONTRACT_MODULE))}`,
+        `import { contract } from "tsverify"`,
         `import { ${main} } from ${JSON.stringify(relative(sameSpec, suite.source))}`,
         `import { ${main} as planted } from ${JSON.stringify(relative(sameSpec, planted))}`,
         `export const same = contract(${main}, { ensures: { same: (${[...params, "r"].join(", ")}) => r === planted(${params.join(", ")}) } })`,

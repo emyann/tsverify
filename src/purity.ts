@@ -23,9 +23,8 @@
 //
 // What it takes on trust, and the report says: a property read runs no getter;
 // a module constant is never changed by other code; the function terminates.
-import path from "node:path"
 import ts from "typescript"
-import { CONTRACT_MODULE } from "./project.ts"
+import { CONTRACT_MODULE, declared as ownExport } from "./project.ts"
 import type { AssumedFn } from "./trust.ts"
 import { type FunctionNode, locate } from "./value.ts"
 
@@ -99,8 +98,7 @@ export const purityOf = (checker: ts.TypeChecker, fn: FunctionNode, assumed: (ca
     // A recursive call sees what is known so far; the caller's summary is complete once its body is read, and a
     // recursive call adds nothing a body does not already show of itself.
     summaries.set(f, s)
-    // The proof code (`invariant`, `assert`) is the verifier's, not the program's: it does nothing when it runs.
-    if (path.resolve(f.getSourceFile().fileName) !== CONTRACT_MODULE) read.push(nameOf(f))
+    read.push(nameOf(f))
     const own = new Set<ts.Node>()
     ts.forEachChild(f, function mark(n) {
       own.add(n)
@@ -286,6 +284,8 @@ export const purityOf = (checker: ts.TypeChecker, fn: FunctionNode, assumed: (ca
         return
       }
       if (ts.isIdentifier(callee)) {
+        // The proof code (`invariant`, `assert`) is the verifier's, not the program's: it does nothing when it runs.
+        if (ownExport(checker, callee, CONTRACT_MODULE, "invariant") || ownExport(checker, callee, CONTRACT_MODULE, "assert")) return
         if (isLib(checker, callee)) {
           if (!PURE_GLOBAL_FNS.has(callee.text)) effect(`calls \`${callee.text}\`, which the check does not know to be pure`, e)
           return

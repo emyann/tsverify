@@ -81,6 +81,19 @@ export class Universe {
   }
 
   /**
+   * The roots a counterexample shows beside its arguments, as its `world`: what the world gave the code, each an
+   * operation call's outcome, a declared function's result or a time read. Every other fresh root is the verifier's own
+   * (a loop's state, a quantifier's index, the vacuity check's result).
+   */
+  readonly shown = new Set<string>()
+  /** A fresh root that a counterexample shows. */
+  given(prefix: string): string {
+    const name = this.fresh(prefix)
+    this.shown.add(name)
+    return name
+  }
+
+  /**
    * Adds a fact about leaves at `indices`. It lands in the innermost scope that
    * binds one of them (a fact about element `i` of a quantifier is that
    * quantifier's), else in the global scope.

@@ -3,7 +3,7 @@
 // brings it in force by importing it. Nothing here is proved: each law is
 // trusted, and `test/lodash.test.ts` runs every one against the real lodash.
 import { clamp, uniq } from "lodash-es"
-import { assume } from "../src/contract.ts"
+import { assume } from "tsverify"
 
 /** `uniq` on strings: the same strings, none added, none lost, and never more of them. */
 export const uniqOfStrings = assume<[xs: ReadonlyArray<string>], string[]>(uniq, {

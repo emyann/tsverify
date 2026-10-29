@@ -1,6 +1,7 @@
 // The TypeScript side: a program over the spec's files (with any file's text
 // replaced, or a file added, in memory: how a planted bug is read), its
 // diagnostics, and a contract read from source.
+import { existsSync, readFileSync } from "node:fs"
 import path from "node:path"
 import ts from "typescript"
 import { type FunctionNode, Unsupported } from "./value.ts"
@@ -60,8 +61,45 @@ export const exportedConst = (project: Project, file: string, name: string): ts.
   throw new Error(`no \`export const ${name}\` in ${file}`)
 }
 
-export const CONTRACT_MODULE = path.resolve(import.meta.dirname, "contract.ts")
-const EFFECT_CONTRACT_MODULE = path.resolve(import.meta.dirname, "adapters/effect/contract.ts")
+/** A module of tsverify's that a spec imports: `tsverify` and `tsverify/effect`. */
+export type OwnModule = "contract" | "adapters/effect/contract"
+export const CONTRACT_MODULE: OwnModule = "contract"
+const EFFECT_CONTRACT_MODULE: OwnModule = "adapters/effect/contract"
+
+/** The nearest `package.json` above each folder asked of: its folder and its `name`. */
+const packages = new Map<string, { readonly root: string; readonly name: unknown } | undefined>()
+const packageOf = (dir: string): { readonly root: string; readonly name: unknown } | undefined => {
+  if (packages.has(dir)) return packages.get(dir)
+  const manifest = path.join(dir, "package.json")
+  let found: { readonly root: string; readonly name: unknown } | undefined
+  if (existsSync(manifest)) {
+    let name: unknown
+    try {
+      name = (JSON.parse(readFileSync(manifest, "utf8")) as { name?: unknown }).name
+    } catch {
+      name = undefined
+    }
+    found = { root: dir, name }
+  } else {
+    const up = path.dirname(dir)
+    found = up === dir ? undefined : packageOf(up)
+  }
+  packages.set(dir, found)
+  return found
+}
+
+/**
+ * Whether `fileName` is tsverify's module `name`: its source (`src/contract.ts`) or what the build makes of it
+ * (`dist/src/contract.d.ts`, `.js`), in whichever copy of the package the program reads — this one, a linked one or
+ * one installed under `node_modules`.
+ */
+export const ownModule = (fileName: string, name: OwnModule): boolean => {
+  const file = path.resolve(fileName)
+  const pkg = packageOf(path.dirname(file))
+  if (pkg?.name !== "tsverify") return false
+  const rel = path.relative(pkg.root, file).replaceAll("\\", "/").replace(/\.d\.[cm]?ts$|\.[cm]?[jt]s$/, "")
+  return rel === `src/${name}` || rel === `dist/src/${name}`
+}
 
 export interface ContractSource {
   readonly name: string
@@ -213,12 +251,12 @@ const lawsOf = (checker: ts.TypeChecker, lawsArg: ts.Expression): Pick<ContractS
 export const unwrap = (e: ts.Expression): ts.Expression =>
   ts.isParenthesizedExpression(e) || ts.isSatisfiesExpression(e) ? unwrap(e.expression) : e
 
-/** Whether `e` resolves to the export `name` of `file`. */
-export const declared = (checker: ts.TypeChecker, e: ts.Expression, file: string, name: string): boolean => {
+/** Whether `e` resolves to the export `name` of tsverify's module `module`. */
+export const declared = (checker: ts.TypeChecker, e: ts.Expression, module: OwnModule, name: string): boolean => {
   let sym = checker.getSymbolAtLocation(ts.isPropertyAccessExpression(e) ? e.name : e)
   if (sym !== undefined && sym.flags & ts.SymbolFlags.Alias) sym = checker.getAliasedSymbol(sym)
   const decl = sym?.declarations?.[0]
-  return sym?.name === name && decl !== undefined && path.resolve(decl.getSourceFile().fileName) === file
+  return sym?.name === name && decl !== undefined && ownModule(decl.getSourceFile().fileName, module)
 }
 
 /** What `fn` names: a function written in place, a function declaration, or the value of a `const` (a function or a computation's definition). */
