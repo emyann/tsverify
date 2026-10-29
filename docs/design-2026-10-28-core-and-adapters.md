@@ -1,6 +1,6 @@
 # A TypeScript verifier with Effect as an adapter
 
-**Date:** 28 October 2026. **Status:** proposal, not built. It supersedes the handoff's framing of an "Effect verifier".
+**Date:** 28 October 2026. **Status:** the core and both adapters are built for the subset `requestStop` needs, and the proof below holds (`test/stop.test.ts`). Operation contracts, loops and the wider Effect forms are not built. It supersedes the handoff's framing of an "Effect verifier".
 
 ## The answer in one paragraph
 

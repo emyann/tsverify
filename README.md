@@ -4,14 +4,20 @@ A prototype verifier for ordinary TypeScript. A spec author writes laws as plain
 and the code they're about, from source through the TypeScript compiler API. Z3 then proves each law for every input,
 or returns an input that breaks it.
 
+It reads both pure functions and *computations*: code that calls operations behind an interface and ends in a success or a
+failure. Effect is not part of the core. It is one adapter, beside async/await and plain TypeScript, as
+`docs/design-2026-10-28-core-and-adapters.md` lays out. (The repository's name predates that decision.)
+
 The starting point was a design handoff, `docs/handoff-2026-10-28.md`. That document is a hypothesis, and parts of it were
 changed on evidence: see *What changed from the handoff*.
 
 Pinned: Node ≥ 24.16, `z3-solver` 5.3.2, `typescript` 6.0.3, `effect` 4.0.6 (used only by the Phase 0 spike).
 
 ```sh
-npm test            # 24 tests, ~4.5 s
+npm test            # 43 tests, ~11 s
 npm run pilot       # verify Nemia's lifecycleOf against its laws
+npm run verify -- pilots/stop/stop.spec.ts effectStop   # Nemia's requestStop (Effect) against five laws
+npm run verify -- pilots/stop/stop.spec.ts asyncStop    # its async twin, against the same five
 npm run bench       # planted bugs: the solver vs property testing (~20 s)
 npm run verify -- <spec.ts> <export>
 npm run typecheck
@@ -87,6 +93,55 @@ The value over property testing on this kind of code is therefore not catching m
 - reachability with witnesses;
 - gap witnesses that show where the spec is weak.
 
+## Computations: `requestStop` and its async twin
+
+`requestStop` (hkb-v2, `agent-runtime/src/core/engine/filing.ts`) is an `Effect.fn` verb. It reads the journal through the
+`Journal` service, asks a guard, fails with `StopRefused`, or appends a `stop-requested` entry.
+`pilots/stop/stop.async.ts` is the same verb in plain TypeScript: async, its journal given as an interface, its refusal
+thrown. `pilots/stop/laws.ts` states five laws once, over the outcome and the calls made:
+- **readsFirst.** The journal is read first, for this task.
+- **readFailurePassesThrough.** A failed read ends the request with that failure, and nothing else is called.
+- **refusedWritesNothing.** A refused stop writes nothing.
+- **acceptedWritesOneStop.** An accepted stop writes exactly one entry, last, to this task, of kind `stop-requested`.
+- **refusedExactlyWhenTheGuardSays.** The request is refused exactly when the guard gives words for the journal read.
+
+`pilots/stop/stop.spec.ts` holds both programs to these laws. `test/stop.test.ts` shows:
+
+- **All five are proved on both programs**, each in 5–100 ms.
+- **Every end each program can come to is reachable:** success, `StopRefused` and `JournalError` for the verb; success and
+  failure for the twin.
+- **The real programs keep all five laws** when run on 24 runs: 4 journals, 2 task ids, and a read or an append that fails.
+- **7 bugs planted in each program are all caught.** They are: writing before the guard, inverting the guard, writing the
+  wrong kind, writing to another task, writing twice, refusing only an empty id, and reading another task. Each one planted
+  in the twin also breaks a law when the planted code is run.
+
+`fold` (a loop) and `verbTakes` (`.find`) are read as **opaque**: unknown pure functions of their arguments, the same result
+for the same arguments. The report names them and why. That makes the proofs modular: the verb's orchestration is proved
+whatever the helpers compute, and the helpers' own laws are a separate proof, as `lifecycleOf`'s are.
+
+A counterexample that leans on an opaque function is reported as *abstract*: it holds of the code with that function
+unknown, and may not hold of the real one.
+
+## Effect as an adapter
+
+The core knows computations, not libraries:
+- **Values:** primitives, records, tagged unions, arrays.
+- **Computations:** a body that runs steps (`yield*` or `await`) and ends in `{ _tag: "Success", value }` or
+  `{ _tag: "Failure", error }`.
+- **Operations:** methods of something the code is given. Each call is recorded in a trace `{ target, op, args, outcome }`
+  and ends in any outcome its types allow.
+
+An adapter (`src/adapter.ts`) tells the core which forms are which:
+
+| Adapter | What it reads |
+|---|---|
+| `src/adapters/ts.ts` | `new Date()`, `Date.now()` (a fresh time per call); `Error` subclasses with field initializers |
+| `src/adapters/async.ts` | async functions as computations; `await` steps; methods returning a promise as operations; `Rejects<A, E>` for what a promise rejects with |
+| `src/adapters/effect/` | `Effect.fn(...)(function* ...)`; `yield*`; `Context.Service` keys as services; methods returning an Effect as operations; `Effect.succeed`, `fail`, `void`; `Schema.TaggedError` and `Data.TaggedError` construction; a `computation` helper typed from the Effect |
+
+The core never names a library. What no adapter reads is refused where the code uses it: for Effect today, `pipe`, `map`,
+`catch`, concurrency and resources.
+
 ## How it works
 
 | File | Role |
@@ -99,7 +154,10 @@ The value over property testing on this kind of code is therefore not catching m
 | `src/universe.ts` | the Z3 context, its unknowns (one function per path through arrays), assumptions and quantifier scopes |
 | `src/concrete.ts` | model to JS values (replay), and JS values to constraints (the translator check) |
 | `src/verify.ts` | the queries: laws, reachability, the translator check |
+| `src/computation.ts` | outcomes, traces, operations, and the lowering of a computation's body step by step |
+| `src/adapter.ts`, `src/adapters/` | the adapter interface and the three adapters |
 | `src/cli.ts` | `npm run verify` |
+| `bench/coverage.ts` | how much of a code base the verifier reads (`npm run coverage -- <tsconfig>`) |
 
 **Two sides.** Each contract is lowered twice:
 - The **proof side** keeps arrays of any length and real quantifiers. It may over-approximate: a filtered array is modelled
@@ -171,8 +229,28 @@ Phase 0's findings about Effect 4.0.6 still hold (`spike/dump-representations.ts
 - **No certificate yet.** A result is not bound to hashes of the code, spec and tool versions, as the handoff asked.
 - **The tool itself is plain TypeScript, not Effect.**
 
+## How much of a real code base it reads
+
+`npm run coverage -- <tsconfig>` lowers every exported function of a project. On hkb-v2:
+- **Today:** 507 of 2,261 functions (22%). That counts functions read with some helpers opaque.
+- **Before this round:** 212 (10%).
+
+The first refusals left, most frequent first:
+- package functions no adapter models;
+- spreads;
+- loops, `let` and mutation;
+- callbacks as parameters;
+- string methods;
+- regular expressions.
+
+Exported functions that *return* an Effect are still barely read. They are written `(x) => Effect.gen(...)` or with `pipe`,
+which the Effect adapter does not read yet. The probe does not count `Effect.fn` constants at all.
+
 ## Next
 
+- The Effect adapter's next forms: `Effect.gen`, `pipe`, `map`, `flatMap`, `catchTag`, `catch`.
+- Contracts on operations, assumed by every caller and proved by each implementation (a layer, a class).
+- Loops, with invariants as typed no-op calls (`invariant(() => ...)`).
 - Pin `inFlight`'s finding with the code owner: the domain says `spawnedAt` is never empty, or the code says `!== null`.
 - Add the five laws the gap witnesses point to, then rerun the benchmark.
 - A second real target with different shapes: `decide`'s `observe` (durations, numbers) or a verb guard.

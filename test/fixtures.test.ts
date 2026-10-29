@@ -59,13 +59,17 @@ describe("a refused construct leaves its contract unverified", () => {
     ["numberArithmetic", /arithmetic on `number` rounds/],
     ["looseEquality", /operator == is not modeled/],
     ["letCapture", /`limit` is a binding the verifier cannot see/],
-    ["recursion", /recursion is not modeled/],
     ["bigintDivision", /bigint `\/` truncates/],
     ["loop", /only `const` bindings are modeled/],
-    ["elementAccess", /element access `a\[i\]` is not modeled/],
+    ["elementAccess", /element access on a array: `\.at\(0\)` reads an array/],
     ["global", /`Math` is a binding the verifier cannot see/],
     ["stringLength", /UTF-16 code units/],
   ]
+  it("recursion: the recursive call is an unknown function of its arguments, said in the notes", async () => {
+    const v = await verify(z3, project, fixture("refused"), "recursion")
+    assert.equal(v.unsupported, undefined)
+    assert.ok(v.notes.some((n) => /`countdown` was not read \(recursion is not modeled\)/.test(n)), v.notes.join("\n"))
+  })
   it("unnarrowed: a member of a value the checker has not shown present", async () => {
     const v = await verify(z3, project, fixture("ill-typed"), "unnarrowed")
     assert.match(v.unsupported ?? "(verified)", /fixtures\/ill-typed\.ts:\d+:\d+: a member of a value the type checker has not shown/)

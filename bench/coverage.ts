@@ -6,12 +6,12 @@
 import path from "node:path"
 import { writeFileSync } from "node:fs"
 import ts from "typescript"
-import { emptyEnv, type Lowering, lowerCall } from "../src/lower.ts"
+import { emptyEnv, lowerCall, lowering } from "../src/lower.ts"
 import { loadProject } from "../src/project.ts"
 import { symbolicOf } from "../src/symbolic.ts"
 import { Universe } from "../src/universe.ts"
 import { type FunctionNode, Unsupported } from "../src/value.ts"
-import { withZ3 } from "../src/verify.ts"
+import { ADAPTERS, withZ3 } from "../src/verify.ts"
 
 const tsconfig = path.resolve(process.argv[2] ?? "tsconfig.json")
 const jsonOut = process.argv.includes("--json") ? process.argv[process.argv.indexOf("--json") + 1] : undefined
@@ -68,7 +68,7 @@ await withZ3(async (z3) => {
     const effect = returnsEffect(f.node)
     if (effect) effects++
     const u = new Universe(z3)
-    const L: Lowering = { u, checker: project.checker, stack: [], constants: new Map() }
+    const L = lowering({ u, checker: project.checker }, ADAPTERS)
     try {
       const args = f.node.parameters.map((p, i) =>
         symbolicOf(L, project.checker.getTypeAtLocation(p), [ts.isIdentifier(p.name) ? p.name.text : `arg${i}`], [], p),

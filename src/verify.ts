@@ -10,13 +10,21 @@
 import { init, killThreads } from "z3-solver"
 import type { Arith, Bool, Model } from "z3-solver"
 import ts from "typescript"
+import type { Adapter } from "./adapter.ts"
+import { asyncAdapter } from "./adapters/async.ts"
+import { effectAdapter } from "./adapters/effect/index.ts"
+import { tsAdapter } from "./adapters/ts.ts"
+import { emptyTrace, runBody } from "./computation.ts"
 import { TooLong, fromModel, literal, pin } from "./concrete.ts"
-import { emptyEnv, type Lowering, lowerCall, num } from "./lower.ts"
+import { emptyEnv, type Lowering, lowerCall, lowering, num } from "./lower.ts"
 import { strictEq, truthy } from "./ops.ts"
 import { type ContractSource, type Project, readContract } from "./project.ts"
 import { symbolicOf } from "./symbolic.ts"
 import { Universe } from "./universe.ts"
-import { type Ctx, Unsupported, type Val } from "./value.ts"
+import { type Ctx, type FunctionNode, Unsupported, type Val } from "./value.ts"
+
+/** The adapters every verification reads with, in the order they are asked. */
+export const ADAPTERS: ReadonlyArray<Adapter> = [effectAdapter, asyncAdapter, tsAdapter]
 
 export type LawStatus =
   /** No allowed input breaks it: `unsat` on the proof side. */
@@ -33,6 +41,13 @@ export interface LawResult {
   readonly status: LawStatus
   /** On a counterexample: the arguments, as JavaScript values. */
   readonly args?: ReadonlyArray<unknown>
+  /** On a counterexample of a computation: how each operation call it made ended, by call. */
+  readonly world?: Readonly<Record<string, unknown>>
+  /**
+   * Set when the counterexample leans on functions read as unknown (their bodies refused): it holds of the code with
+   * them unknown, and may not of the real ones. It names them.
+   */
+  readonly abstract?: ReadonlyArray<string>
   readonly reason?: string
   readonly ms: number
 }
@@ -67,9 +82,14 @@ export interface Lowered {
   readonly u: Universe
   readonly L: Lowering
   readonly source: ContractSource
+  /** The function read: the contract's, or a computation's body. */
+  readonly fn: FunctionNode
   readonly params: ReadonlyArray<string>
   readonly args: ReadonlyArray<Val>
+  /** A function's result, or a computation's outcome. */
   readonly result: Val
+  /** A computation's calls, in order; undefined for a function. */
+  readonly trace: Val | undefined
   readonly pre: Bool<"main">
 }
 
@@ -79,18 +99,31 @@ const ALWAYS = [
 ]
 
 /** Lowers the contract's function and precondition on one side (`bound` set: the search side). */
-export const lowerSide = (z3: Ctx, project: Project, source: ContractSource, bound?: number): Lowered => {
+export const lowerSide = (z3: Ctx, project: Project, source: ContractSource, bound?: number, adapters = ADAPTERS): Lowered => {
   const u = new Universe(z3, bound)
-  const L: Lowering = { u, checker: project.checker, stack: [], constants: new Map() }
-  const params = source.fn.parameters.map((p, i) => (ts.isIdentifier(p.name) ? p.name.text : `arg${i}`))
-  const args = source.fn.parameters.map((p, i) => symbolicOf(L, project.checker.getTypeAtLocation(p), [params[i]!], [], p))
-  const result = lowerCall(L, source.fn, emptyEnv, args, source.fn)
-  const pre = source.requires === undefined ? z3.Bool.val(true) : truthy(u, lowerCall(L, source.requires, emptyEnv, args, source.requires))
-  return { u, L, source, params, args, result, pre }
+  const L = lowering({ u, checker: project.checker }, adapters)
+  const symbolicArgs = (fn: FunctionNode) => {
+    const params = fn.parameters.map((p, i) => (ts.isIdentifier(p.name) ? p.name.text : `arg${i}`))
+    return { params, args: fn.parameters.map((p, i) => symbolicOf(L, project.checker.getTypeAtLocation(p), [params[i]!], [], p)) }
+  }
+  const preOf = (args: ReadonlyArray<Val>) =>
+    source.requires === undefined ? z3.Bool.val(true) : truthy(u, lowerCall(L, source.requires, emptyEnv, args, source.requires))
+  if (source.kind === "function") {
+    const t = source.target
+    if (!(ts.isArrowFunction(t) || ts.isFunctionExpression(t) || ts.isFunctionDeclaration(t)))
+      throw new Unsupported("a `contract` is about a function; a computation takes `computation<...>()`", t)
+    const { params, args } = symbolicArgs(t)
+    return { u, L, source, fn: t, params, args, result: lowerCall(L, t, emptyEnv, args, t), trace: undefined, pre: preOf(args) }
+  }
+  const c = adapters.map((a) => a.computation?.(L, source.target)).find((x) => x !== undefined)
+  if (c === undefined) throw new Unsupported("no adapter reads this as a computation (an async function, `Effect.fn(...)(function* ...)`)", source.target)
+  const { params, args } = symbolicArgs(c.node)
+  const r = runBody(L, c.node, c.style, emptyEnv, args, emptyTrace(L), c.node)
+  return { u, L, source, fn: c.node, params, args, result: r.outcome, trace: r.trace, pre: preOf(args) }
 }
 
 const lawOn = (side: Lowered, law: ContractSource["ensures"][number]): Bool<"main"> =>
-  truthy(side.u, lowerCall(side.L, law.law, emptyEnv, [...side.args, side.result], law.law))
+  truthy(side.u, lowerCall(side.L, law.law, emptyEnv, side.trace === undefined ? [...side.args, side.result] : [...side.args, side.result, side.trace], law.law))
 
 export const verify = async (z3: Ctx, project: Project, file: string, name: string, opts: Options = {}): Promise<Verification> => {
   const source = readContract(project, file, name)
@@ -137,12 +170,12 @@ export const verify = async (z3: Ctx, project: Project, file: string, name: stri
   }
 
   const cover: Array<CoverResult> = []
-  const returns = project.checker.getReturnTypeOfSignature(project.checker.getSignatureFromDeclaration(source.fn)!)
+  const returns = project.checker.getReturnTypeOfSignature(project.checker.getSignatureFromDeclaration(proof.fn)!)
   const literals = (returns.isUnion() ? returns.types : [returns]).filter((t) => t.isStringLiteral())
-  if (proof.result.kind === "str" && literals.length > 0)
+  if (source.kind === "function" && proof.result.kind === "str" && literals.length > 0)
     for (const t of literals) {
       const value = (t as ts.StringLiteralType).value
-      const is = (side: Lowered) => strictEq(side.u, side.result, { kind: "str", term: z3.String.val(value) }, source.fn)
+      const is = (side: Lowered) => strictEq(side.u, side.result, { kind: "str", term: z3.String.val(value) }, side.fn)
       const found = await solve(search, [search.pre, is(search)], opts)
       let c: CoverResult
       if (found.status === "sat") c = { value, status: "reachable", ...found.witness }
@@ -158,14 +191,65 @@ export const verify = async (z3: Ctx, project: Project, file: string, name: stri
       cover.push(c)
       opts.progress?.(`cover ${value}: ${c.status}`)
     }
+  if (source.kind === "computation")
+    for (const [value, goal] of outcomesOf(project, proof)) {
+      const found = await solve(search, [search.pre, goal(search)], opts)
+      let c: CoverResult
+      if (found.status === "sat") c = { value, status: "reachable", ...found.witness }
+      else {
+        const any = await solve(proof, [proof.pre, goal(proof)], opts)
+        c =
+          any.status === "unsat"
+            ? { value, status: "unreachable" }
+            : any.status === "sat" && !proof.u.abstracted
+              ? { value, status: "reachable", ...any.witness }
+              : { value, status: found.status === "unsat" ? "bounded" : "unknown" }
+      }
+      cover.push(c)
+      opts.progress?.(`cover ${value}: ${c.status}`)
+    }
   return { contract: name, laws, cover, notes: [...ALWAYS, ...proof.u.notes] }
+}
+
+/**
+ * The ends a computation can come to, as cover goals: success, and a failure for each `_tag` its declared failure
+ * type names (one undistinguished failure when it declares none).
+ */
+const outcomesOf = (project: Project, side: Lowered): Array<readonly [string, (s: Lowered) => Bool<"main">]> => {
+  const field = (v: Val, n: string): Val | undefined => (v.kind === "record" ? v.field(n) : undefined)
+  const tagIs = (v: Val | undefined, t: string, z3: Ctx): Bool<"main"> =>
+    v?.kind === "str" ? v.term.eq(z3.String.val(t)) : z3.Bool.val(false)
+  const sig = project.checker.getTypeAtLocation(side.source.target).getCallSignatures()[0]
+  const returns = sig?.getReturnType()
+  const op = returns === undefined ? undefined : side.L.adapters.map((a) => a.operation?.(side.L, returns)).find((x) => x !== undefined)
+  const failures = op?.failure === undefined ? [] : op.failure.isUnion() ? op.failure.types : [op.failure]
+  const tags = failures.flatMap((f) => {
+    const t = project.checker.getPropertyOfType(f, "_tag")
+    const tt = t === undefined ? undefined : project.checker.getTypeOfSymbol(t)
+    return tt?.isStringLiteral() ? [tt.value] : []
+  })
+  const goals: Array<readonly [string, (s: Lowered) => Bool<"main">]> = [["Success", (s) => tagIs(field(s.result, "_tag"), "Success", s.u.z3)]]
+  if (tags.length === 0) goals.push(["Failure", (s) => tagIs(field(s.result, "_tag"), "Failure", s.u.z3)])
+  for (const t of tags)
+    goals.push([
+      `Failure ${t}`,
+      (s) => s.u.z3.And(tagIs(field(s.result, "_tag"), "Failure", s.u.z3), tagIs(field(field(s.result, "error") ?? { kind: "nullish", which: "undefined" }, "_tag"), t, s.u.z3)),
+    ])
+  return goals
 }
 
 const why = (o: Outcome): string =>
   o.status === "unknown" ? o.reason : o.status === "sat" ? "the proof side's model rests on an approximation" : "proved"
 
+type Witness = {
+  readonly args?: ReadonlyArray<unknown>
+  readonly world?: Readonly<Record<string, unknown>>
+  readonly abstract?: ReadonlyArray<string>
+  readonly reason?: string
+}
+
 type Outcome =
-  | { readonly status: "sat"; readonly witness: { readonly args?: ReadonlyArray<unknown>; readonly reason?: string } }
+  | { readonly status: "sat"; readonly witness: Witness }
   | { readonly status: "unsat" }
   | { readonly status: "unknown"; readonly reason: string }
 
@@ -192,9 +276,16 @@ export const solve = async (side: Lowered, goals: ReadonlyArray<Bool<"main">>, o
   return { status: "sat", witness: witness(side, model) }
 }
 
-const witness = (side: Lowered, model: Model<"main">): { args?: ReadonlyArray<unknown>; reason?: string } => {
+const witness = (side: Lowered, model: Model<"main">): Witness => {
   try {
-    return { args: side.params.map((p) => fromModel(side.u, model, p)) }
+    const roots = new Set([...side.u.leaves.values()].map((l) => l.segments[0]!))
+    for (const p of side.params) roots.delete(p)
+    const world = Object.fromEntries([...roots].sort().map((r) => [r, fromModel(side.u, model, r)]))
+    return {
+      args: side.params.map((p) => fromModel(side.u, model, p)),
+      ...(roots.size > 0 ? { world } : {}),
+      ...(side.u.opaqueCalls.size > 0 ? { abstract: [...side.u.opaqueCalls] } : {}),
+    }
   } catch (e) {
     if (e instanceof TooLong) return { reason: `the counterexample holds ${e.message}; too long to replay` }
     throw e
@@ -219,7 +310,7 @@ export const disagreements = async (
     const pins = params.flatMap((p, i) => pin(u, p, args[i]))
     const solver = new z3.Solver()
     solver.set("timeout", 20_000)
-    for (const a of [...u.assumptions, ...pins, z3.Not(strictEq(u, result, valueOf(u, want), side.source.fn))]) solver.add(a)
+    for (const a of [...u.assumptions, ...pins, z3.Not(strictEq(u, result, valueOf(u, want), side.fn))]) solver.add(a)
     const status = await solver.check()
     if (status !== "unsat") out.push({ args, expected: want, status })
   }

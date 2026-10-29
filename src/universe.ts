@@ -39,6 +39,11 @@ export class Universe {
    * evidence. Never set on the search side, which is exact.
    */
   abstracted = false
+  /**
+   * The functions read as unknown pure functions (their bodies refused). A model that leans on one is a
+   * counterexample of the code with those functions unknown, not of the real code: it is reported as abstract.
+   */
+  readonly opaqueCalls = new Set<string>()
   private readonly scopes: Array<Scope> = [{ bound: undefined, items: [] }]
   private counter = 0
 

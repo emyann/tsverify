@@ -9,6 +9,8 @@
 // are refused where the lowering meets them, and the report names the reliance.
 import ts from "typescript"
 import type { Arith } from "z3-solver"
+import { operation } from "./computation.ts"
+import type { Lowering } from "./lower.ts"
 import { MAX_LENGTH, type Universe } from "./universe.ts"
 import { NUM, Unsupported, type Val, exactRational, lazyRecord } from "./value.ts"
 
@@ -19,9 +21,14 @@ export interface Typing {
 
 const F = ts.TypeFlags
 
+/** The members of a type or of several: unions flattened, each member once. */
+const membersOf = (type: ts.Type | ReadonlyArray<ts.Type>): Array<ts.Type> => [
+  ...new Set((Array.isArray(type) ? (type as ReadonlyArray<ts.Type>) : [type as ts.Type]).flatMap((m) => (m.isUnion() ? m.types : [m]))),
+]
+
 export const symbolicOf = (
-  t: Typing,
-  type: ts.Type,
+  t: Lowering,
+  type: ts.Type | ReadonlyArray<ts.Type>,
   segments: ReadonlyArray<string>,
   indices: ReadonlyArray<Arith<"main">>,
   at: ts.Node,
@@ -29,7 +36,7 @@ export const symbolicOf = (
 ): Val => {
   const { u } = t
   const z3 = u.z3
-  const members = type.isUnion() ? type.types : [type]
+  const members = membersOf(type)
   const canNull = members.some((m) => m.flags & F.Null)
   const canUndefined = optional || members.some((m) => m.flags & (F.Undefined | F.Void))
   const rest = members.filter((m) => !(m.flags & (F.Null | F.Undefined | F.Void)))
@@ -43,7 +50,7 @@ export const symbolicOf = (
   return maybeOf(t, segments, indices, canNull, canUndefined, () => present(t, rest, [...segments, "!"], indices, at, path))
 
   function maybeOf(
-    t: Typing,
+    t: Lowering,
     segments: ReadonlyArray<string>,
     indices: ReadonlyArray<Arith<"main">>,
     canNull: boolean,
@@ -59,7 +66,7 @@ export const symbolicOf = (
 
 /** A value of a union with no null or undefined left in it. */
 const present = (
-  t: Typing,
+  t: Lowering,
   members: ReadonlyArray<ts.Type>,
   segments: ReadonlyArray<string>,
   indices: ReadonlyArray<Arith<"main">>,
@@ -107,15 +114,31 @@ const present = (
       )
     return { kind: "int", origin: "bigint", term }
   }
-  if (members.length !== 1) throw new Unsupported(`${path}: a union of ${members.map((m) => checker.typeToString(m)).join(" | ")} is not modeled`, at)
+  const id = `${path}@${indices.map((i) => i.sexpr()).join(",")}`
+  if (members.length > 1) {
+    // A union of object types: one record, each field the union of the types the members holding it give it. The
+    // type checker lets a field be read only where the value is narrowed to members that have it.
+    if (!members.every((m) => m.flags & F.Object && !checker.isArrayType(m) && m.getCallSignatures().length === 0))
+      throw new Unsupported(`${path}: a union of ${members.map((m) => checker.typeToString(m)).join(" | ")} is not modeled`, at)
+    return lazyRecord((name) => {
+      const props = members.flatMap((m) => {
+        const p = checker.getPropertyOfType(m, name)
+        return p === undefined ? [] : [p]
+      })
+      if (props.length === 0) return undefined
+      const optional = props.some((p) => (p.flags & ts.SymbolFlags.Optional) !== 0)
+      return symbolicOf(t, props.map((p) => checker.getTypeOfSymbol(p)), [...segments, `.${name}`], indices, at, optional)
+    }, id)
+  }
   const type = members[0]!
 
   // A branded primitive, `bigint & Brand<"X">`: the brand is a name the checker sees and the value does not carry.
   if (type.isIntersection()) {
     const primitive = type.types.find((m) => m.flags & (F.BigIntLike | F.NumberLike | F.StringLike | F.BooleanLike))
-    if (primitive === undefined) throw new Unsupported(`${path}: the intersection ${checker.typeToString(type)} is not modeled`, at)
-    u.notes.add("A brand on a primitive is ignored: it names the value's validation, not a property the verifier can use.")
-    return present(t, [primitive], segments, indices, at, path)
+    if (primitive !== undefined) {
+      u.notes.add("A brand on a primitive is ignored: it names the value's validation, not a property the verifier can use.")
+      return present(t, [primitive], segments, indices, at, path)
+    }
   }
   if (type.flags & (F.Any | F.Unknown | F.Never)) throw new Unsupported(`${path}: type ${checker.typeToString(type)} is not modeled`, at)
   if (checker.isTupleType(type)) throw new Unsupported(`${path}: tuples are not modeled`, at)
@@ -128,6 +151,7 @@ const present = (
     return {
       kind: "array",
       length,
+      id,
       elem: (i) => {
         const key = i.sexpr()
         let v = elems.get(key)
@@ -139,14 +163,28 @@ const present = (
       },
     }
   }
-  if (type.getCallSignatures().length > 0) throw new Unsupported(`${path}: a function as data is not modeled`, at)
-  if (type.flags & F.Object)
+  const signatures = type.getCallSignatures()
+  if (signatures.length > 0) {
+    // A method of something the code is given: an operation, when an adapter says its result is a computation.
+    if (signatures.length > 1) throw new Unsupported(`${path}: an overloaded function is not modeled`, at)
+    const returns = signatures[0]!.getReturnType()
+    for (const a of t.adapters) {
+      const op = a.operation?.(t, returns)
+      if (op === undefined) continue
+      const last = segments.at(-1) ?? ""
+      if (indices.length > 0 || !last.startsWith(".")) throw new Unsupported(`${path}: an operation is a method of a value given to the code`, at)
+      const target = segments.slice(0, -1).join("").replace(/[!$]/g, "")
+      return operation(t, target, last.slice(1), op, at)
+    }
+    throw new Unsupported(`${path}: a function as data is not modeled (no adapter reads its result as a computation)`, at)
+  }
+  if (type.flags & F.Object || type.isIntersection())
     return lazyRecord((name) => {
       const prop = checker.getPropertyOfType(type, name)
       if (prop === undefined) return undefined
       const propType = checker.getTypeOfSymbol(prop)
       return symbolicOf(t, propType, [...segments, `.${name}`], indices, at, (prop.flags & ts.SymbolFlags.Optional) !== 0)
-    })
+    }, id)
   throw new Unsupported(`${path}: type ${checker.typeToString(type)} is not modeled`, at)
 }
 

@@ -11,7 +11,7 @@
       ],
       "open": [],
       "gap": "",
-      "ms": 815.4289909999998
+      "ms": 898.4962879999998
     },
     "sampled": [
       {
@@ -19,21 +19,21 @@
         "caught": true,
         "run": 23,
         "law": "succeededCompletes",
-        "ms": 0.16331600000012259
+        "ms": 0.11848200000031284
       },
       {
         "budget": 1000,
         "caught": true,
         "run": 23,
         "law": "succeededCompletes",
-        "ms": 0.05049600000029386
+        "ms": 0.04828399999996691
       },
       {
         "budget": 10000,
         "caught": true,
         "run": 23,
         "law": "succeededCompletes",
-        "ms": 0.03220800000008239
+        "ms": 0.03229300000020885
       }
     ]
   },
@@ -49,7 +49,7 @@
       ],
       "open": [],
       "gap": "",
-      "ms": 805.5792880000004
+      "ms": 848.0051819999999
     },
     "sampled": [
       {
@@ -57,21 +57,21 @@
         "caught": true,
         "run": 7,
         "law": "stoppedCancels",
-        "ms": 0.1030430000000706
+        "ms": 0.08967899999970541
       },
       {
         "budget": 1000,
         "caught": true,
         "run": 7,
         "law": "stoppedCancels",
-        "ms": 0.020618999999896914
+        "ms": 0.020895999999993364
       },
       {
         "budget": 10000,
         "caught": true,
         "run": 7,
         "law": "stoppedCancels",
-        "ms": 0.012567000000217377
+        "ms": 0.011543000000074244
       }
     ]
   },
@@ -87,7 +87,7 @@
       ],
       "open": [],
       "gap": "",
-      "ms": 778.2452269999999
+      "ms": 866.1533520000003
     },
     "sampled": [
       {
@@ -95,21 +95,21 @@
         "caught": true,
         "run": 95,
         "law": "stopOutranks",
-        "ms": 0.2248899999999594
+        "ms": 0.21847499999967113
       },
       {
         "budget": 1000,
         "caught": true,
         "run": 95,
         "law": "stopOutranks",
-        "ms": 0.05940099999997983
+        "ms": 0.07113000000026659
       },
       {
         "budget": 10000,
         "caught": true,
         "run": 95,
         "law": "stopOutranks",
-        "ms": 0.054302000000006956
+        "ms": 0.06607100000019273
       }
     ]
   },
@@ -125,7 +125,7 @@
       ],
       "open": [],
       "gap": "",
-      "ms": 769.275329
+      "ms": 782.290602
     },
     "sampled": [
       {
@@ -133,21 +133,21 @@
         "caught": true,
         "run": 24,
         "law": "stoppingOnlyWhenAsked",
-        "ms": 0.11887500000011642
+        "ms": 0.1178539999991699
       },
       {
         "budget": 1000,
         "caught": true,
         "run": 24,
         "law": "stoppingOnlyWhenAsked",
-        "ms": 0.041529000000082306
+        "ms": 0.04267900000013469
       },
       {
         "budget": 10000,
         "caught": true,
         "run": 24,
         "law": "stoppingOnlyWhenAsked",
-        "ms": 0.021782999999231833
+        "ms": 0.02559800000017276
       }
     ]
   },
@@ -163,7 +163,7 @@
       ],
       "open": [],
       "gap": "",
-      "ms": 790.2471480000004
+      "ms": 756.462109
     },
     "sampled": [
       {
@@ -171,21 +171,21 @@
         "caught": true,
         "run": 6,
         "law": "workingMeansInFlight",
-        "ms": 0.012201999999888358
+        "ms": 0.013009000000238302
       },
       {
         "budget": 1000,
         "caught": true,
         "run": 6,
         "law": "workingMeansInFlight",
-        "ms": 0.0033990000001722365
+        "ms": 0.0034749999995256076
       },
       {
         "budget": 10000,
         "caught": true,
         "run": 6,
         "law": "workingMeansInFlight",
-        "ms": 0.00360499999987951
+        "ms": 0.002660000000105356
       }
     ]
   },
@@ -199,23 +199,23 @@
       "caught": [],
       "open": [],
       "gap": "changes a result no law forbids: submitted becomes ending on {\"settled\":null,\"stopRequested\":false,\"attempts\":[],\"holdOpen\":true,\"closed\":false,\"inputs\":[]}",
-      "ms": 800.2464930000006
+      "ms": 767.4243800000004
     },
     "sampled": [
       {
         "budget": 100,
         "caught": false,
-        "ms": 0.3110050000004776
+        "ms": 0.2683839999999691
       },
       {
         "budget": 1000,
         "caught": false,
-        "ms": 1.3100050000002739
+        "ms": 0.95527200000015
       },
       {
         "budget": 10000,
         "caught": false,
-        "ms": 4.459584999999606
+        "ms": 3.418923000000177
       }
     ]
   },
@@ -231,7 +231,7 @@
       ],
       "open": [],
       "gap": "",
-      "ms": 780.4384120000004
+      "ms": 773.3911850000004
     },
     "sampled": [
       {
@@ -239,21 +239,21 @@
         "caught": true,
         "run": 6,
         "law": "submittedHasNoAttemptThisTurn",
-        "ms": 0.03473500000018248
+        "ms": 0.04255699999976059
       },
       {
         "budget": 1000,
         "caught": true,
         "run": 6,
         "law": "submittedHasNoAttemptThisTurn",
-        "ms": 0.006025000000590808
+        "ms": 0.00737699999990582
       },
       {
         "budget": 10000,
         "caught": true,
         "run": 6,
         "law": "submittedHasNoAttemptThisTurn",
-        "ms": 0.007969999999659194
+        "ms": 0.008498000000145112
       }
     ]
   },
@@ -269,7 +269,7 @@
       ],
       "open": [],
       "gap": "",
-      "ms": 817.6787709999999
+      "ms": 794.5171609999998
     },
     "sampled": [
       {
@@ -277,21 +277,21 @@
         "caught": true,
         "run": 81,
         "law": "submittedHasNoAttemptThisTurn",
-        "ms": 0.05733500000133063
+        "ms": 0.05762400000094203
       },
       {
         "budget": 1000,
         "caught": true,
         "run": 81,
         "law": "submittedHasNoAttemptThisTurn",
-        "ms": 0.017840000000433065
+        "ms": 0.01697299999977986
       },
       {
         "budget": 10000,
         "caught": true,
         "run": 81,
         "law": "submittedHasNoAttemptThisTurn",
-        "ms": 0.032063999999081716
+        "ms": 0.039405000001352164
       }
     ]
   },
@@ -308,7 +308,7 @@
       ],
       "open": [],
       "gap": "",
-      "ms": 792.9844209999992
+      "ms": 815.7705019999994
     },
     "sampled": [
       {
@@ -316,21 +316,21 @@
         "caught": true,
         "run": 53,
         "law": "inputRequiredNeedsHoldOpen",
-        "ms": 0.11541899999974703
+        "ms": 0.19390199999907054
       },
       {
         "budget": 1000,
         "caught": true,
         "run": 53,
         "law": "inputRequiredNeedsHoldOpen",
-        "ms": 0.04909399999996822
+        "ms": 0.026378000000477186
       },
       {
         "budget": 10000,
         "caught": true,
         "run": 53,
         "law": "inputRequiredNeedsHoldOpen",
-        "ms": 0.01929300000119838
+        "ms": 0.013750999998592306
       }
     ]
   },
@@ -344,23 +344,23 @@
       "caught": [],
       "open": [],
       "gap": "equivalent in lifecycleOf (proved)",
-      "ms": 863.1833449999995
+      "ms": 898.9250769999999
     },
     "sampled": [
       {
         "budget": 100,
         "caught": false,
-        "ms": 0.20645799999874725
+        "ms": 0.22706099999959406
       },
       {
         "budget": 1000,
         "caught": false,
-        "ms": 0.42448200000035285
+        "ms": 0.39768200000071374
       },
       {
         "budget": 10000,
         "caught": false,
-        "ms": 2.175508999998783
+        "ms": 1.8924740000002203
       }
     ]
   },
@@ -374,23 +374,23 @@
       "caught": [],
       "open": [],
       "gap": "changes a result no law forbids: input-required becomes ending on {\"settled\":null,\"stopRequested\":false,\"attempts\":[{\"ended\":\"succeeded\",\"spawnedAt\":\"\"},{\"ended\":\"succeeded\",\"spawnedAt\":\"\"},{\"ended\":\"succeeded\",\"spawnedAt\":\"\"},{\"ended\":\"succeeded\",\"spawnedAt\":\"\"}],\"holdOpen\":true,\"closed\":false,\"inputs\":[]}",
-      "ms": 688.879441000001
+      "ms": 729.4178379999994
     },
     "sampled": [
       {
         "budget": 100,
         "caught": false,
-        "ms": 0.2167410000001837
+        "ms": 0.20759499999985565
       },
       {
         "budget": 1000,
         "caught": false,
-        "ms": 0.4511259999999311
+        "ms": 0.35870599999907427
       },
       {
         "budget": 10000,
         "caught": false,
-        "ms": 2.2518069999987347
+        "ms": 2.3185109999994893
       }
     ]
   },
@@ -404,23 +404,23 @@
       "caught": [],
       "open": [],
       "gap": "changes a result no law forbids: input-required becomes ending on {\"settled\":null,\"stopRequested\":false,\"attempts\":[{\"ended\":\"succeeded\",\"spawnedAt\":\"\"},{\"ended\":\"succeeded\",\"spawnedAt\":\"\"},{\"ended\":\"succeeded\",\"spawnedAt\":\"\"},{\"ended\":\"succeeded\",\"spawnedAt\":\"\"}],\"holdOpen\":true,\"closed\":false,\"inputs\":[]}",
-      "ms": 716.5757979999998
+      "ms": 709.6515619999991
     },
     "sampled": [
       {
         "budget": 100,
         "caught": false,
-        "ms": 0.2014229999986128
+        "ms": 0.23156500000004598
       },
       {
         "budget": 1000,
         "caught": false,
-        "ms": 0.2793359999996028
+        "ms": 0.26498200000060024
       },
       {
         "budget": 10000,
         "caught": false,
-        "ms": 2.3317910000005213
+        "ms": 2.238760000000184
       }
     ]
   },
@@ -433,24 +433,24 @@
     "solver": {
       "caught": [],
       "open": [],
-      "gap": "changes a result no law forbids: ending becomes input-required on {\"settled\":null,\"stopRequested\":false,\"attempts\":[{\"ended\":\"succeeded\",\"spawnedAt\":\"\"},{\"ended\":\"succeeded\",\"spawnedAt\":\"\",\"turn\":null},{\"ended\":\"succeeded\",\"spawnedAt\":\"\",\"turn\":null}],\"holdOpen\":true,\"closed\":false,\"inputs\":[]}",
-      "ms": 691.9968389999995
+      "gap": "changes a result no law forbids: ending becomes input-required on {\"settled\":null,\"stopRequested\":false,\"attempts\":[{\"ended\":\"succeeded\",\"spawnedAt\":\"\",\"turn\":null},{\"ended\":\"succeeded\",\"spawnedAt\":\"\"},{\"ended\":\"succeeded\",\"spawnedAt\":\"\",\"turn\":null}],\"holdOpen\":true,\"closed\":false,\"inputs\":[]}",
+      "ms": 700.2416699999994
     },
     "sampled": [
       {
         "budget": 100,
         "caught": false,
-        "ms": 0.19724400000086462
+        "ms": 0.19574199999988195
       },
       {
         "budget": 1000,
         "caught": false,
-        "ms": 0.3888090000000375
+        "ms": 0.2598259999995207
       },
       {
         "budget": 10000,
         "caught": false,
-        "ms": 1.9556229999998322
+        "ms": 2.09603000000061
       }
     ]
   },
@@ -464,23 +464,23 @@
       "caught": [],
       "open": [],
       "gap": "equivalent in lifecycleOf (proved)",
-      "ms": 916.4477690000003
+      "ms": 780.2375739999989
     },
     "sampled": [
       {
         "budget": 100,
         "caught": false,
-        "ms": 0.2366920000004029
+        "ms": 0.2165819999991072
       },
       {
         "budget": 1000,
         "caught": false,
-        "ms": 0.4518320000006497
+        "ms": 0.3897480000014184
       },
       {
         "budget": 10000,
         "caught": false,
-        "ms": 2.9965749999992113
+        "ms": 2.209863000000041
       }
     ]
   },
@@ -493,24 +493,24 @@
     "solver": {
       "caught": [],
       "open": [],
-      "gap": "changes a result no law forbids: submitted becomes ending on {\"settled\":null,\"stopRequested\":false,\"attempts\":[{\"ended\":\"succeeded\",\"spawnedAt\":\"\",\"turn\":null}],\"closed\":false,\"inputs\":[]}",
-      "ms": 694.5971550000031
+      "gap": "changes a result no law forbids: submitted becomes ending on {\"settled\":null,\"stopRequested\":false,\"attempts\":[{\"ended\":\"succeeded\",\"spawnedAt\":\"\",\"turn\":0.0009765625},{\"ended\":\"succeeded\",\"spawnedAt\":\"\",\"turn\":null},{\"ended\":\"succeeded\",\"spawnedAt\":\"\",\"turn\":null}],\"closed\":false,\"inputs\":[]}",
+      "ms": 667.805938999998
     },
     "sampled": [
       {
         "budget": 100,
         "caught": false,
-        "ms": 0.2490140000008978
+        "ms": 0.21349199999895063
       },
       {
         "budget": 1000,
         "caught": false,
-        "ms": 0.3095339999999851
+        "ms": 0.28884000000107335
       },
       {
         "budget": 10000,
         "caught": false,
-        "ms": 2.4278770000018994
+        "ms": 1.9594709999983024
       }
     ]
   },
@@ -526,27 +526,27 @@
       ],
       "open": [],
       "gap": "",
-      "ms": 716.302042000003
+      "ms": 718.1216999999997
     },
     "sampled": [
       {
         "budget": 100,
         "caught": false,
-        "ms": 0.08486700000139535
+        "ms": 0.07733300000109011
       },
       {
         "budget": 1000,
         "caught": true,
         "run": 110,
         "law": "submittedHasNoAttemptThisTurn",
-        "ms": 0.02537799999845447
+        "ms": 0.02523799999835319
       },
       {
         "budget": 10000,
         "caught": true,
         "run": 110,
         "law": "submittedHasNoAttemptThisTurn",
-        "ms": 0.037336000001232605
+        "ms": 0.02028200000131619
       }
     ]
   },
@@ -562,7 +562,7 @@
       ],
       "open": [],
       "gap": "",
-      "ms": 753.2000499999995
+      "ms": 720.185548999998
     },
     "sampled": [
       {
@@ -570,21 +570,21 @@
         "caught": true,
         "run": 53,
         "law": "submittedHasNoAttemptThisTurn",
-        "ms": 0.07097499999872525
+        "ms": 0.07676200000059907
       },
       {
         "budget": 1000,
         "caught": true,
         "run": 53,
         "law": "submittedHasNoAttemptThisTurn",
-        "ms": 0.018468999998731306
+        "ms": 0.018471999999746913
       },
       {
         "budget": 10000,
         "caught": true,
         "run": 53,
         "law": "submittedHasNoAttemptThisTurn",
-        "ms": 0.02256900000065798
+        "ms": 0.011561999999685213
       }
     ]
   },
@@ -598,23 +598,23 @@
       "caught": [],
       "open": [],
       "gap": "equivalent in lifecycleOf (proved)",
-      "ms": 716.268920999999
+      "ms": 696.8056640000032
     },
     "sampled": [
       {
         "budget": 100,
         "caught": false,
-        "ms": 0.1998070000008738
+        "ms": 0.19049200000154087
       },
       {
         "budget": 1000,
         "caught": false,
-        "ms": 0.3117649999985588
+        "ms": 0.35779099999854225
       },
       {
         "budget": 10000,
         "caught": false,
-        "ms": 2.218680999998469
+        "ms": 1.8878629999999248
       }
     ]
   }

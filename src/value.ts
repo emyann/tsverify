@@ -35,12 +35,38 @@ export type Val =
       readonly isUndefined: Bool<"main">
       readonly value: Val | undefined
     }
-  /** An object: a field is built on first read; `undefined` for a field its type does not have. */
-  | { readonly kind: "record"; readonly field: (name: string) => Val | undefined }
-  /** An array: its length, and its element at an index (built on demand; may refuse). */
-  | { readonly kind: "array"; readonly length: Arith<"main">; readonly elem: (i: Arith<"main">) => Val }
+  /**
+   * An object: a field is built on first read; `undefined` for a field its type does not have. `id`, when set,
+   * names the value for an opaque call: two records with one id are the same value.
+   */
+  | { readonly kind: "record"; readonly field: (name: string) => Val | undefined; readonly id?: string }
+  /**
+   * An array: its length, and its element at an index (built on demand; may refuse). `size` is its length when
+   * known exactly; `maxSize` bounds it, so a quantifier over it can be written out element by element.
+   */
+  | {
+      readonly kind: "array"
+      readonly length: Arith<"main">
+      readonly elem: (i: Arith<"main">) => Val
+      readonly id?: string
+      readonly size?: number
+      readonly maxSize?: number
+    }
   /** A function value: its node and the bindings it closes over. */
   | { readonly kind: "fn"; readonly node: FunctionNode; readonly env: Env }
+  /** A function the verifier models itself: a library's, or an operation's. */
+  | { readonly kind: "builtin"; readonly name: string; readonly call: (args: ReadonlyArray<Val>, at: ts.Node) => Val }
+  /**
+   * A computation not yet run: an Effect, a pending call of an async function or an operation. Running it from a
+   * trace gives its outcome and the trace with its calls added; each run is a run of its own.
+   */
+  | { readonly kind: "comp"; readonly run: (trace: Val) => Ran }
+
+/** A computation's end: its outcome (`{ _tag: "Success", value } | { _tag: "Failure", error }`) and the trace after it. */
+export interface Ran {
+  readonly outcome: Val
+  readonly trace: Val
+}
 
 /** The classes of a `number`. */
 export const NUM = { finite: 0, nan: 1, posInf: 2, negInf: 3 } as const
@@ -81,7 +107,7 @@ export const lazy = (f: () => Val): Thunk => {
 }
 
 /** A record whose fields are built on first read and kept. */
-export const lazyRecord = (build: (name: string) => Val | undefined): Val => {
+export const lazyRecord = (build: (name: string) => Val | undefined, id?: string): Val => {
   const memo = new Map<string, Val | undefined>()
   return {
     kind: "record",
@@ -89,5 +115,31 @@ export const lazyRecord = (build: (name: string) => Val | undefined): Val => {
       if (!memo.has(name)) memo.set(name, build(name))
       return memo.get(name)
     },
+    ...(id === undefined ? {} : { id }),
+  }
+}
+
+/** A value's identity for an opaque call: equal identities are equal values; `undefined` when it has none. */
+export const identity = (v: Val): string | undefined => {
+  switch (v.kind) {
+    case "int":
+    case "bool":
+    case "str":
+      return v.term.sexpr()
+    case "num":
+      return `num(${v.cls.sexpr()},${v.real.sexpr()})`
+    case "nullish":
+      return v.which
+    case "maybe": {
+      const inner = v.value === undefined ? "none" : identity(v.value)
+      return inner === undefined ? undefined : `maybe(${v.isNull.sexpr()},${v.isUndefined.sexpr()},${inner})`
+    }
+    case "record":
+    case "array":
+      return v.id
+    case "fn":
+    case "builtin":
+    case "comp":
+      return undefined
   }
 }

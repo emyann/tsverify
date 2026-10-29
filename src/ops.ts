@@ -44,6 +44,8 @@ export const truthy = (u: Universe, v: Val): Bool<"main"> => {
     case "record":
     case "array":
     case "fn":
+    case "builtin":
+    case "comp":
       return T(u)
   }
 }
@@ -134,6 +136,8 @@ export const nullishOr = (u: Universe, a: Val, b: () => Val, at: ts.Node): Val =
 /** The value `c ? a : b`. */
 export const ite = (u: Universe, c: Bool<"main">, a: Val, b: Val, at: ts.Node): Val => {
   const z3 = u.z3
+  if (a === b || z3.isTrue(c)) return a
+  if (z3.isFalse(c)) return b
   if (a.kind === "maybe" || b.kind === "maybe" || a.kind === "nullish" || b.kind === "nullish") {
     if (a.kind === "nullish" && b.kind === "nullish" && a.which === b.which) return a
     const pa = parts(u, a)
@@ -153,12 +157,25 @@ export const ite = (u: Universe, c: Bool<"main">, a: Val, b: Val, at: ts.Node): 
   if (a.kind === "int" && b.kind === "int" && a.origin === b.origin)
     return { kind: "int", origin: a.origin, term: z3.If(c, a.term, b.term) }
   if (a.kind === "record" && b.kind === "record")
-    return lazyRecord((name) => {
-      const fa = a.field(name)
-      const fb = b.field(name)
-      return fa === undefined || fb === undefined ? undefined : ite(u, c, fa, fb, at)
-    })
-  if (a.kind === "array" && b.kind === "array")
-    return { kind: "array", length: z3.If(c, a.length, b.length), elem: (i) => ite(u, c, a.elem(i), b.elem(i), at) }
+    // A field one side lacks belongs to a variant the other is not: the type checker lets it be read only where it exists.
+    return lazyRecord(
+      (name) => {
+        const fa = a.field(name)
+        const fb = b.field(name)
+        return fa === undefined ? fb : fb === undefined ? fa : ite(u, c, fa, fb, at)
+      },
+      a.id !== undefined && b.id !== undefined ? `ite(${c.sexpr()},${a.id},${b.id})` : undefined,
+    )
+  if (a.kind === "array" && b.kind === "array") {
+    const maxSize = a.maxSize !== undefined && b.maxSize !== undefined ? Math.max(a.maxSize, b.maxSize) : undefined
+    return {
+      kind: "array",
+      length: z3.If(c, a.length, b.length),
+      elem: (i) => ite(u, c, a.elem(i), b.elem(i), at),
+      ...(a.size !== undefined && a.size === b.size ? { size: a.size } : {}),
+      ...(maxSize === undefined ? {} : { maxSize }),
+      ...(a.id !== undefined && b.id !== undefined ? { id: `ite(${c.sexpr()},${a.id},${b.id})` } : {}),
+    }
+  }
   throw new Unsupported(`a value that is a ${describe(a)} on one path and a ${describe(b)} on another is not modeled`, at)
 }

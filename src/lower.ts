@@ -3,16 +3,18 @@
 // Supported: literals of every primitive, null and undefined; `const` bindings
 // (evaluated when first read); `if` with early returns; `?:`, `&&`, `||`, `!`,
 // `??`, `===`, `!==`, `<` and friends; `+ - *` on bigints, `+` on strings;
-// unary `-`; property access and optional chaining; object and
-// array literals; calls to functions of the program (inlined) and to closures;
+// unary `-`; property access and optional chaining; `t[k]` for a literal k on a
+// tuple; object and array literals; template strings (as unknown strings of
+// their parts); calls to functions of the program (inlined, or opaque when they
+// cannot be read), to closures, to an adapter's functions and to computations;
 // on arrays `.length`, `.at(k)` for a literal k, `.filter(p).length`, `.some(p)`,
 // `.every(p)`, `.includes(x)` for strings and booleans.
 //
 // Refused with a source span: arithmetic on `number` (its rounding is not
-// modeled) and bigint `/` `%` (they truncate; Z3's do not), `==`, assignments and loops, casts and non-null assertions (each is
-// a claim the verifier would have to trust), `any`, recursion, a binding it
-// cannot see (a `let`, a global, an import from a package), string length and
-// template strings (code units and number formatting).
+// modeled) and bigint `/` `%` (they truncate; Z3's do not), `==`, assignments
+// and loops, casts and non-null assertions (each is a claim the verifier would
+// have to trust), `any`, recursion, a binding it cannot see (a `let`, a global,
+// an import from a package no adapter models), string length (code units).
 //
 // Reading a binding only when it is used means a binding the result does not
 // need is never checked. The code under verification is taken to throw nothing:
@@ -20,16 +22,31 @@
 // seen. The report says so.
 import ts from "typescript"
 import type { Arith, Bool } from "z3-solver"
+import type { Adapter } from "./adapter.ts"
+import { computationCall } from "./computation.ts"
 import { type Order, compare, isNullish, ite, nullishOr, strictEq, truthy } from "./ops.ts"
-import type { Typing } from "./symbolic.ts"
-import { type Env, type FunctionNode, NUM, type Thunk, Unsupported, type Val, exactRational, lazy, lazyRecord } from "./value.ts"
+import { type Typing, symbolicOf } from "./symbolic.ts"
+import { type Env, type FunctionNode, NUM, type Thunk, Unsupported, type Val, exactRational, identity, lazy, lazyRecord } from "./value.ts"
 
 export interface Lowering extends Typing {
   /** The functions being inlined, innermost last: a guard against recursion. */
   readonly stack: Array<FunctionNode>
   /** Module-level constants, lowered once each. */
   readonly constants: Map<ts.Declaration, Val>
+  /** The libraries' adapters, asked in order. */
+  readonly adapters: ReadonlyArray<Adapter>
+  /** Results of opaque calls and template strings, by callee and arguments' identities: the same call, the same value. */
+  readonly opaque: Map<string, Val>
 }
+
+/** A fresh lowering over a universe. */
+export const lowering = (typing: Typing, adapters: ReadonlyArray<Adapter>): Lowering => ({
+  ...typing,
+  adapters,
+  stack: [],
+  constants: new Map(),
+  opaque: new Map(),
+})
 
 const K = ts.SyntaxKind
 const EMPTY: Env = new Map()
@@ -39,22 +56,11 @@ const bool = (term: Bool<"main">): Val => ({ kind: "bool", term })
 /** The value of calling `fn` (closing over `env`) with `args`. */
 export const lowerCall = (L: Lowering, fn: FunctionNode, env: Env, args: ReadonlyArray<Val>, at: ts.Node): Val => {
   if (L.stack.includes(fn)) throw new Unsupported("recursion is not modeled", at)
-  if (fn.asteriskToken !== undefined) throw new Unsupported("generators are not modeled", fn)
-  if (fn.modifiers?.some((m) => m.kind === K.AsyncKeyword)) throw new Unsupported("async functions are not modeled", fn)
+  if (fn.asteriskToken !== undefined) throw new Unsupported("a generator called as a plain function is not modeled", fn)
+  if (fn.modifiers?.some((m) => m.kind === K.AsyncKeyword)) throw new Unsupported("an async function read as a plain one", fn)
   L.stack.push(fn)
   try {
-    const scope = new Map(env)
-    fn.parameters.forEach((p, i) => {
-      const given = args[i]
-      if (p.dotDotDotToken !== undefined) throw new Unsupported("rest parameters are not modeled", p)
-      const value: Thunk =
-        given !== undefined
-          ? () => given
-          : p.initializer !== undefined
-            ? lazy(() => lowerExpr(L, p.initializer!, scope))
-            : () => ({ kind: "nullish", which: "undefined" })
-      bind(L, p.name, value, scope)
-    })
+    const scope = bindParameters(L, fn, env, args)
     const body = fn.body
     if (body === undefined) throw new Unsupported("a function with no body", fn)
     if (!ts.isBlock(body)) return lowerExpr(L, body, scope)
@@ -66,8 +72,25 @@ export const lowerCall = (L: Lowering, fn: FunctionNode, env: Env, args: Readonl
   }
 }
 
+/** A function's parameters bound to `args` over `env`: a missing argument is its default, or undefined. */
+export const bindParameters = (L: Lowering, fn: FunctionNode, env: Env, args: ReadonlyArray<Val>): Map<string, Thunk> => {
+  const scope = new Map(env)
+  fn.parameters.forEach((p, i) => {
+    const given = args[i]
+    if (p.dotDotDotToken !== undefined) throw new Unsupported("rest parameters are not modeled", p)
+    const value: Thunk =
+      given !== undefined
+        ? () => given
+        : p.initializer !== undefined
+          ? lazy(() => lowerExpr(L, p.initializer!, scope))
+          : () => ({ kind: "nullish", which: "undefined" })
+    bind(L, p.name, value, scope)
+  })
+  return scope
+}
+
 /** Binds a name or an object pattern to a value, each name read on first use. */
-const bind = (L: Lowering, name: ts.BindingName, value: Thunk, scope: Map<string, Thunk>): void => {
+export const bind = (L: Lowering, name: ts.BindingName, value: Thunk, scope: Map<string, Thunk>): void => {
   if (ts.isIdentifier(name)) {
     scope.set(name.text, value)
     return
@@ -152,11 +175,20 @@ export const lowerExpr = (L: Lowering, e: ts.Expression, env: Env): Val => {
   if (e.kind === K.TrueKeyword) return bool(z3.Bool.val(true))
   if (e.kind === K.FalseKeyword) return bool(z3.Bool.val(false))
   if (e.kind === K.NullKeyword) return { kind: "nullish", which: "null" }
-  if (ts.isTemplateExpression(e)) throw new Unsupported("template strings format numbers, which is not modeled", e)
+  if (ts.isTemplateExpression(e)) return template(L, e, env)
+  if (ts.isYieldExpression(e) || ts.isAwaitExpression(e))
+    throw new Unsupported("a step (`yield*`, `await`) is modeled as a statement: `const x = yield* e`, `yield* e`, `return yield* e`", e)
 
+  if (ts.isIdentifier(e) && env.has(e.text)) return env.get(e.text)!()
+  if (ts.isIdentifier(e) || ts.isPropertyAccessExpression(e) || ts.isCallExpression(e) || ts.isNewExpression(e))
+    for (const a of L.adapters) {
+      const v = a.expr?.(L, e, env)
+      if (v !== undefined) return v
+    }
   if (ts.isIdentifier(e)) return identifier(L, e, env)
   if (ts.isPropertyAccessExpression(e)) return propertyAccess(L, e, env)
-  if (ts.isElementAccessExpression(e)) throw new Unsupported("element access `a[i]` is not modeled; `.at(i)` is", e)
+  if (ts.isElementAccessExpression(e)) return elementAccess(L, e, env)
+  if (ts.isNewExpression(e)) throw new Unsupported(`\`new\` of a class no adapter models`, e)
   if (ts.isCallExpression(e)) return call(L, e, env)
   if (ts.isArrowFunction(e) || ts.isFunctionExpression(e)) return { kind: "fn", node: e, env }
 
@@ -205,6 +237,47 @@ export const lowerExpr = (L: Lowering, e: ts.Expression, env: Env): Val => {
   }
   if (ts.isBinaryExpression(e)) return binary(L, e, env)
   throw new Unsupported(`a ${K[e.kind]} is not modeled`, e)
+}
+
+/**
+ * A template string: an unknown string, the same for the same parts (its literal
+ * text and its substitutions' identities), and non-empty when its literal text is.
+ */
+const template = (L: Lowering, e: ts.TemplateExpression, env: Env): Val => {
+  const z3 = L.u.z3
+  const text = e.head.text + e.templateSpans.map((s) => s.literal.text).join("")
+  const ids = e.templateSpans.map((s) => {
+    try {
+      return identity(lowerExpr(L, s.expression, env))
+    } catch (err) {
+      if (err instanceof Unsupported) return undefined
+      throw err
+    }
+  })
+  const key = ids.every((i) => i !== undefined) ? `template:${e.getSourceFile().fileName}:${e.pos}(${ids.join(",")})` : undefined
+  const known = key === undefined ? undefined : L.opaque.get(key)
+  if (known !== undefined) return known
+  const term = L.u.leaf([L.u.fresh("template"), "$"], "str", []) as never as ReturnType<typeof z3.String.val>
+  if (text.length > 0) L.u.assume(z3.Not(term.eq(z3.String.val(""))))
+  const v: Val = { kind: "str", term }
+  if (key !== undefined) L.opaque.set(key, v)
+  L.u.notes.add("A template string is an unknown string of its parts: equal parts, equal strings; non-empty when its literal text is.")
+  return v
+}
+
+/** `t[k]` for a whole-number literal k on a tuple (or any record): its field `k`. */
+const elementAccess = (L: Lowering, e: ts.ElementAccessExpression, env: Env): Val => {
+  const k = literalIndex(e.argumentExpression)
+  if (k === undefined || k < 0n) throw new Unsupported("element access `a[i]` is modeled for a literal index on a tuple; `.at(i)` on an array", e)
+  const obj = lowerExpr(L, e.expression, env)
+  return optionally(L, obj, e, e.expression, (v) => {
+    if (v.kind === "record") {
+      const f = v.field(String(k))
+      if (f === undefined) throw new Unsupported(`no element ${k}`, e)
+      return f
+    }
+    throw new Unsupported(`element access on a ${v.kind}: \`.at(${k})\` reads an array`, e)
+  })
 }
 
 export const num = (z3: Lowering["u"]["z3"], n: number): Val => ({
@@ -293,6 +366,11 @@ const call = (L: Lowering, e: ts.CallExpression, env: Env): Val => {
   if (e.questionDotToken !== undefined) throw new Unsupported("an optional call is not modeled", e)
   const callee = e.expression
   if (ts.isPropertyAccessExpression(callee)) {
+    // A library function named through its namespace (`Effect.fail`): the adapter's, before any receiver is read.
+    for (const a of L.adapters) {
+      const f = a.expr?.(L, callee, env)
+      if (f !== undefined) return callValue(L, f, e, env)
+    }
     const receiver = lowerExpr(L, callee.expression, env)
     return optionally(L, receiver, callee, callee.expression, (r) => {
       if (r.kind === "array") return arrayMethod(L, r, callee.name.text, e, env)
@@ -304,10 +382,38 @@ const call = (L: Lowering, e: ts.CallExpression, env: Env): Val => {
 }
 
 const callValue = (L: Lowering, f: Val, e: ts.CallExpression, env: Env): Val => {
-  if (f.kind !== "fn") throw new Unsupported(`calling a ${f.kind}`, e)
   if (e.arguments.some(ts.isSpreadElement)) throw new Unsupported("spread arguments are not modeled", e)
+  if (f.kind === "builtin") return f.call(e.arguments.map((a) => lowerExpr(L, a, env)), e)
+  if (f.kind !== "fn") throw new Unsupported(`calling a ${f.kind}`, e)
   const args = e.arguments.map((a) => lowerExpr(L, a, env))
-  return lowerCall(L, f.node, f.env, args, e)
+  for (const a of L.adapters) {
+    const c = a.computation?.(L, f.node)
+    if (c !== undefined) return computationCall(L, c.node, c.style, f.env, args, e)
+  }
+  if (f.env !== EMPTY) return lowerCall(L, f.node, f.env, args, e)
+  // A function of the program: inlined, or, when its body cannot be read, an unknown pure function of its arguments.
+  try {
+    return lowerCall(L, f.node, f.env, args, e)
+  } catch (err) {
+    if (!(err instanceof Unsupported)) throw err
+    return opaqueCall(L, f.node, args, err.message, e)
+  }
+}
+
+/** The result of a pure function the verifier does not read: unknown but for its type, the same for the same arguments. */
+const opaqueCall = (L: Lowering, fn: FunctionNode, args: ReadonlyArray<Val>, why: string, at: ts.Node): Val => {
+  const name = fn.name?.getText() ?? (ts.isVariableDeclaration(fn.parent) ? fn.parent.name.getText() : "a function")
+  const ids = args.map(identity)
+  const key = ids.every((i) => i !== undefined) ? `call:${fn.getSourceFile().fileName}:${fn.pos}(${ids.join(",")})` : undefined
+  const known = key === undefined ? undefined : L.opaque.get(key)
+  if (known !== undefined) return known
+  const sig = L.checker.getSignatureFromDeclaration(fn)
+  if (sig === undefined) throw new Unsupported(`\`${name}\` has no signature to read its result's type from`, at)
+  const v = symbolicOf(L, L.checker.getReturnTypeOfSignature(sig), [L.u.fresh(name)], [], at)
+  if (key !== undefined) L.opaque.set(key, v)
+  L.u.opaqueCalls.add(name)
+  L.u.notes.add(`\`${name}\` was not read (${why.replace(/^\S+:\d+:\d+: /, "")}): it is an unknown pure function of its arguments${key === undefined ? ", and here of arguments without identity, so each call is its own" : ""}.`)
+  return v
 }
 
 /** A whole-number literal argument, such as the -1 of `.at(-1)`. */
@@ -334,14 +440,16 @@ const arrayMethod = (L: Lowering, arr: Extract<Val, { kind: "array" }>, name: st
     return (i) => truthy(u, lowerCall(L, f.node, f.env, [arr.elem(i)], e))
   }
   /** `exists` (or `forall`) an index of the array where `p` holds, with the facts about element i inside. */
+  /** How many elements to write a quantifier out over: the array's own bound (exact on both sides), else the search side's. */
+  const writtenOut = arr.maxSize ?? u.bound
   const quantify = (q: "exists" | "forall", p: (i: Arith<"main">) => Bool<"main">): Bool<"main"> => {
-    if (u.bound !== undefined) {
+    if (writtenOut !== undefined) {
       // Written out: element k for each k below the bound, counted only where k < length.
-      const each = Array.from({ length: u.bound }, (_, k) => {
+      const each = Array.from({ length: writtenOut }, (_, k) => {
         const i = z3.Int.val(k)
         return q === "exists" ? z3.And(i.lt(arr.length), p(i)) : z3.Implies(i.lt(arr.length), p(i))
       })
-      return q === "exists" ? z3.Or(...each) : z3.And(...each)
+      return q === "exists" ? z3.Or(z3.Bool.val(false), ...each) : z3.And(z3.Bool.val(true), ...each)
     }
     const i = z3.Int.const(u.fresh("i"))
     const inRange = z3.And(i.ge(0), i.lt(arr.length))
@@ -354,6 +462,10 @@ const arrayMethod = (L: Lowering, arr: Extract<Val, { kind: "array" }>, name: st
     case "at": {
       const k = literalIndex(arg(0))
       if (k === undefined || e.arguments.length !== 1) throw new Unsupported("`.at(k)` is modeled for a whole-number literal k", e)
+      if (arr.size !== undefined) {
+        const index = k < 0n ? arr.size + Number(k) : Number(k)
+        return index < 0 || index >= arr.size ? { kind: "nullish", which: "undefined" } : arr.elem(z3.Int.val(index))
+      }
       const index = k < 0n ? arr.length.add(z3.Int.val(k)) : z3.Int.val(k)
       return {
         kind: "maybe",
@@ -380,10 +492,10 @@ const arrayMethod = (L: Lowering, arr: Extract<Val, { kind: "array" }>, name: st
       if (u.depth > 0) throw new Unsupported("`.filter` inside a quantifier (`.some`, `.every`, another `.filter`) is not modeled", e)
       const p = predicate()
       let count: Arith<"main">
-      if (u.bound !== undefined) {
+      if (writtenOut !== undefined) {
         count = z3.Sum(
           z3.Int.val(0),
-          ...Array.from({ length: u.bound }, (_, k) => z3.If(z3.And(z3.Int.val(k).lt(arr.length), p(z3.Int.val(k))), z3.Int.val(1), z3.Int.val(0))),
+          ...Array.from({ length: writtenOut }, (_, k) => z3.If(z3.And(z3.Int.val(k).lt(arr.length), p(z3.Int.val(k))), z3.Int.val(1), z3.Int.val(0))),
         )
       } else {
         count = z3.Int.const(u.fresh("filtered"))
@@ -394,6 +506,7 @@ const arrayMethod = (L: Lowering, arr: Extract<Val, { kind: "array" }>, name: st
       return {
         kind: "array",
         length: count,
+        ...(arr.maxSize === undefined ? {} : { maxSize: arr.maxSize }),
         elem: () => {
           throw new Unsupported("an element of a filtered array is not modeled (its length is)", e)
         },

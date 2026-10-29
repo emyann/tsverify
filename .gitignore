@@ -1,3 +1,4 @@
 node_modules/
 *.swp
 bench/.tmp/
+pilots/stop/stop.planted-*.ts

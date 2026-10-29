@@ -61,29 +61,44 @@ export const exportedConst = (project: Project, file: string, name: string): ts.
 }
 
 const CONTRACT_MODULE = path.resolve(import.meta.dirname, "contract.ts")
+const EFFECT_CONTRACT_MODULE = path.resolve(import.meta.dirname, "adapters/effect/contract.ts")
 
 export interface ContractSource {
   readonly name: string
-  /** The function the contract is about, resolved through the type checker: the contract's link to the code. */
-  readonly fn: FunctionNode
+  /** `function`: laws over the arguments and the result. `computation`: over the arguments, the outcome and the calls. */
+  readonly kind: "function" | "computation"
+  /**
+   * What the contract is about, resolved through the type checker (the contract's link to the code): a function, or
+   * the expression that defines a computation (`Effect.fn(...)(function* ...)`), which an adapter reads.
+   */
+  readonly target: ts.Node
   readonly requires: FunctionNode | undefined
   readonly ensures: ReadonlyArray<{ readonly name: string; readonly law: FunctionNode }>
 }
 
 /**
- * Reads `export const <name> = contract(fn, { requires?, ensures: { law: pred, ... } })`
- * from source: every part written in place, the predicates functions, `fn` a
- * function of the program.
+ * Reads, from source, `export const <name> = contract(fn, { requires?, ensures: { law: pred, ... } })` or
+ * `computation<Ops>()(fn, { ... })`: every part written in place, the predicates functions, `fn` a function or a
+ * computation of the program.
  */
 export const readContract = (project: Project, file: string, name: string): ContractSource => {
   const { checker } = project
   const init = unwrap(exportedConst(project, file, name))
-  if (!ts.isCallExpression(init) || declarationFile(checker, init.expression) !== CONTRACT_MODULE)
-    throw new Unsupported(`\`${name}\` is not a call to \`contract\` from ${CONTRACT_MODULE}`, init)
+  const helper = !ts.isCallExpression(init)
+    ? undefined
+    : declared(checker, init.expression, CONTRACT_MODULE, "contract")
+      ? "function"
+      : ts.isCallExpression(init.expression) &&
+          (declared(checker, init.expression.expression, CONTRACT_MODULE, "computation") ||
+            declared(checker, init.expression.expression, EFFECT_CONTRACT_MODULE, "computation"))
+        ? "computation"
+        : undefined
+  if (helper === undefined || !ts.isCallExpression(init))
+    throw new Unsupported(`\`${name}\` is not a \`contract(...)\` or a \`computation<...>()(...)\` of this package`, init)
   const [fnArg, lawsArg] = init.arguments
   if (fnArg === undefined || lawsArg === undefined || !ts.isObjectLiteralExpression(unwrap(lawsArg)))
     throw new Unsupported("a contract is `contract(fn, { requires?, ensures: { ... } })`, written in place", init)
-  const fn = functionOf(checker, fnArg)
+  const target = targetOf(checker, fnArg)
   let requires: FunctionNode | undefined
   const ensures: Array<{ name: string; law: FunctionNode }> = []
   for (const p of (unwrap(lawsArg) as ts.ObjectLiteralExpression).properties) {
@@ -101,17 +116,31 @@ export const readContract = (project: Project, file: string, name: string): Cont
       }
     } else throw new Unsupported(`a contract has no part \`${p.name.text}\``, p)
   }
-  return { name, fn, requires, ensures }
+  return { name, kind: helper, target, requires, ensures }
 }
 
 const unwrap = (e: ts.Expression): ts.Expression =>
   ts.isParenthesizedExpression(e) || ts.isSatisfiesExpression(e) ? unwrap(e.expression) : e
 
-const declarationFile = (checker: ts.TypeChecker, e: ts.Expression): string | undefined => {
+/** Whether `e` resolves to the export `name` of `file`. */
+const declared = (checker: ts.TypeChecker, e: ts.Expression, file: string, name: string): boolean => {
   let sym = checker.getSymbolAtLocation(ts.isPropertyAccessExpression(e) ? e.name : e)
   if (sym !== undefined && sym.flags & ts.SymbolFlags.Alias) sym = checker.getAliasedSymbol(sym)
   const decl = sym?.declarations?.[0]
-  return decl === undefined ? undefined : path.resolve(decl.getSourceFile().fileName)
+  return sym?.name === name && decl !== undefined && path.resolve(decl.getSourceFile().fileName) === file
+}
+
+/** What `fn` names: a function written in place, a function declaration, or the value of a `const` (a function or a computation's definition). */
+const targetOf = (checker: ts.TypeChecker, e: ts.Expression): ts.Node => {
+  const x = unwrap(e)
+  if (!ts.isIdentifier(x)) return x
+  let sym = checker.getSymbolAtLocation(x)
+  if (sym !== undefined && sym.flags & ts.SymbolFlags.Alias) sym = checker.getAliasedSymbol(sym)
+  const decl = sym?.valueDeclaration
+  if (decl !== undefined && ts.isFunctionDeclaration(decl) && decl.body !== undefined) return decl
+  if (decl !== undefined && ts.isVariableDeclaration(decl) && decl.initializer !== undefined && (decl.parent.flags & ts.NodeFlags.Const) !== 0)
+    return unwrap(decl.initializer)
+  throw new Unsupported("expected a function or a computation the program declares", e)
 }
 
 /** A function written in place, or an identifier resolving to a function declaration or a `const` holding one. */
