@@ -50,7 +50,8 @@ type AnyFn = (...args: any) => any
  * return a promise, failing with what `Rejects<A, E>` declares).
  */
 export type LawOf<F> = F extends (...args: infer A) => infer R
-  ? R extends PromiseLike<infer V>
+  ? // In brackets, so a result that is a union (`"open" | "closed"`) gives one law over it, not a law per member.
+    [R] extends [PromiseLike<infer V>]
     ? (...args: [...A, Outcome<V, RejectionOf<R>>, ReadonlyArray<ParameterCallsOf<A>>]) => boolean
     : (...args: [...A, R]) => boolean
   : never

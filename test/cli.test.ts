@@ -54,6 +54,12 @@ it("refuses a path that is not there, with code 2", () => {
   assert.match(r.err, /no such file or folder/)
 })
 
+it("refuses files that hold no contract, with code 2: a spec is verified through its implementation", () => {
+  const r = cli("examples/charge/charge.spec.ts")
+  assert.equal(r.code, 2)
+  assert.match(r.err, /no contract in examples\/charge\/charge\.spec\.ts: a spec is verified through its implementation/)
+})
+
 it("refuses a --project that is not there, with code 2", () => {
   const r = cli("examples/charge", "--project", "no/tsconfig.json")
   assert.equal(r.code, 2)

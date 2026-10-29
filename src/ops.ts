@@ -10,7 +10,7 @@ import type ts from "typescript"
 
 /** A read of a value of type `unknown`, refused: it may be anything. */
 const refuseOpaque = (what: string, at?: ts.Node): never => {
-  throw new Unsupported(`${what} of a value of type \`unknown\` is not modeled; narrow its type first`, at)
+  throw new Unsupported(`${what} of a value of type \`unknown\` is not modeled: such a value is carried and never read; give it a type where it is made (for an error, a \`catch\` that builds a typed one)`, at)
 }
 
 const T = (u: Universe) => u.z3.Bool.val(true)

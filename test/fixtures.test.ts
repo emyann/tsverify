@@ -1,6 +1,10 @@
-// The small cases: the bigint `charge`, every refusal, and a spec module that
-// throws when imported (the verifier never runs what it judges).
+// The small cases: the bigint `charge`, every refusal, a project whose types
+// leave out `null`, and a spec module that throws when imported (the verifier
+// never runs what it judges).
 import assert from "node:assert/strict"
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import path from "node:path"
 import { after, before, describe, it } from "node:test"
 import { init, killThreads } from "z3-solver"
 import * as charge from "../fixtures/charge.ts"
@@ -54,15 +58,15 @@ describe("charge", () => {
 
 describe("a refused construct leaves its contract unverified", () => {
   const cases: ReadonlyArray<readonly [string, RegExp]> = [
-    ["cast", /a cast is a claim/],
-    ["nonNull", /`!` is a claim/],
-    ["numberArithmetic", /arithmetic on `number` rounds/],
-    ["looseEquality", /operator == is not modeled/],
-    ["letCapture", /`limit` is a binding the verifier cannot see/],
-    ["bigintDivision", /bigint `\/` truncates/],
-    ["elementAccess", /element access on a array: `\.at\(0\)` reads an array/],
+    ["cast", /a cast is a claim the verifier would have to trust: check the value instead/],
+    ["nonNull", /`!` is a claim the verifier would have to trust: check the value/],
+    ["numberArithmetic", /arithmetic on `number` rounds.*: use `bigint` where the values are whole/],
+    ["looseEquality", /operator == is not modeled: write `===`/],
+    ["letCapture", /`limit` is a binding the verifier cannot see .*: read it from a `const` or an argument/],
+    ["bigintDivision", /bigint `\/` is not modeled .*: keep it out of the code a law reads, or move it into a function the spec declares with `assume`/],
+    ["elementAccess", /`xs\[0\]` on an array is not read: write `xs\.at\(0\)`/],
     ["global", /`Math` is a binding the verifier cannot see/],
-    ["stringLength", /UTF-16 code units/],
+    ["stringLength", /UTF-16 code units.*: compare with `""`/],
   ]
   it("recursion: the recursive call is refused, saying what to declare instead", async () => {
     const v = await verify(z3, project, fixture("refused"), "recursion")
@@ -79,6 +83,19 @@ describe("a refused construct leaves its contract unverified", () => {
       assert.match(v.unsupported!, /fixtures\/refused\.ts:\d+:\d+: /)
       assert.deepEqual(v.laws, [])
     })
+})
+
+it("a project whose types leave out `null` is refused, saying which option to set", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "tsverify-loose-"))
+  try {
+    const tsconfig = path.join(dir, "tsconfig.json")
+    writeFileSync(tsconfig, JSON.stringify({ extends: new URL("../tsconfig.json", import.meta.url).pathname, compilerOptions: { strict: false } }))
+    const v = await verify(z3, loadProject([fixture("charge")], tsconfig), fixture("charge"), "right")
+    assert.match(v.unsupported ?? "(verified)", /`strictNullChecks` is off .*: set `"strict": true`/)
+    assert.deepEqual(v.laws, [])
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
 })
 
 describe("a spec module that throws when imported", () => {

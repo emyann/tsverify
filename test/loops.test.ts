@@ -39,6 +39,8 @@ describe("loops, through their invariants", () => {
     ["sumPlusOneAtLeastOne", ["bounded"], []],
     ["sumCappedNonNegative", ["bounded"], ["invariant entry: proved", "invariant kept: counterexample"]],
     ["sumFromNothingNonNegative", ["bounded"], ["invariant entry: counterexample", "invariant kept: proved"]],
+    // One invariant written, for `oneOfThem`: `noneLarger` is still guessed beside it, and both are proved.
+    ["largestOneOfThem", ["proved", "proved"], ["invariant entry: proved", "invariant entry: proved", "invariant kept: proved", "invariant kept: proved"]],
     ["maxIsAnUpperBound", ["proved"], ["invariant entry: proved", "invariant kept: proved"]],
     ["positivesNoMore", ["proved"], ["invariant entry: proved", "invariant kept: proved"]],
     ["firstNegativeIsNegative", ["proved", "proved"], ["invariant entry: proved", "invariant kept: proved"]],

@@ -676,7 +676,7 @@ const expressionStatement = (L: Lowering, e: ts.Expression, st: State): State =>
     const op = x.operator === K.PlusPlusToken ? K.PlusToken : K.MinusToken
     return assign(L, st, x.operand, (old) => {
       if (old.kind === "int" && old.origin === "bigint") return { ...old, term: op === K.PlusToken ? old.term.add(1) : old.term.sub(1) }
-      throw new Unsupported(`\`${ts.tokenToString(x.operator)}\` on a ${old.kind}: arithmetic on \`number\` rounds, which the model of numbers does not see`, x)
+      throw new Unsupported(`\`${ts.tokenToString(x.operator)}\` on a ${old.kind}: arithmetic on \`number\` rounds, which the model of numbers does not see: use \`bigint\` where the values are whole, or move it into a function the spec declares with \`assume\``, x)
     }, undefined, x)
   }
   if (ts.isDeleteExpression(x)) return assign(L, st, x.expression, () => UNDEFINED, undefined, x, true)
@@ -954,6 +954,9 @@ const havoc = (L: Lowering, st: State, cells: ReadonlySet<number>, tag: string, 
     store.set(c, { ...cell, thunk: lazy(() => symbolicOf(L, type, [L.u.fresh(`${cell.name}@${tag}`)], [], at)) })
   }
   L.u.abstracted = true
+  L.u.approximations.add(
+    `the loop at ${locate(at)} is read through its invariants alone, and none rules this run out: write one that does, first in its body (\`invariant((i) => ...)\`)`,
+  )
   return { ...st, store }
 }
 
@@ -972,11 +975,14 @@ const forOf = (L: Lowering, s: ts.ForOfStatement, st: State): Exits => {
   const arr = iterated
   const { invariants: written, rest } = invariantsOf(L, s.statement)
   for (const inv of written) noElement(L, inv, init.declarations[0]!.name as ts.Identifier)
-  // None written: the verifier's guesses, if it makes any for this loop, each read in the loop's state.
-  const invariants: ReadonlyArray<LoopClaim> =
-    written.length > 0 || L.guess === undefined
-      ? written.map((call) => writtenClaim(L, call))
-      : L.guess(s).map((g) => ({ ...g, claim: (at: State, i: Arith<"main">) => g.claim(envOf(L, at), i) }))
+  // What is written, then the verifier's guesses, if it makes any for this loop, each read in the loop's state: when
+  // nothing is written, or beside what is (`verify`'s second round, for a law what is written leaves unproved).
+  if (written.length > 0) L.wrote = true
+  const guessed = L.guess !== undefined && (written.length === 0 || L.guessBeside === true) ? L.guess(s) : []
+  const invariants: ReadonlyArray<LoopClaim> = [
+    ...written.map((call) => writtenClaim(L, call)),
+    ...guessed.map((g) => ({ ...g, claim: (at: State, i: Arith<"main">) => g.claim(envOf(L, at), i) })),
+  ]
   const changed = changedBy(L, st, [s.statement], s.statement)
   if (iterPlace !== undefined && changed.has(iterPlace.place.cell)) throw new Unsupported(`changes \`${s.expression.getText()}\` while iterating it`, s)
   const elementType = L.checker.getTypeAtLocation(init.declarations[0]!.name)

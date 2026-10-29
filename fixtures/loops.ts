@@ -47,6 +47,25 @@ export function sumCapped(xs: ReadonlyArray<bigint>): bigint {
 }
 export const sumCappedNonNegative = contract(sumCapped, { requires: nonNegative, ensures: { nonNegative: (_xs, out) => out >= 0n } })
 
+/**
+ * The largest element, starting from the first: an invariant written for one law, the other left to a guess. Writing
+ * the first does not lose the second.
+ */
+export function largestOf(xs: ReadonlyArray<bigint>): bigint {
+  let best = xs.at(0) ?? 0n
+  for (const x of xs) {
+    invariant(() => xs.length === 0 || xs.includes(best))
+    if (x > best) best = x
+  }
+  return best
+}
+export const largestOneOfThem = contract(largestOf, {
+  ensures: {
+    noneLarger: (xs, best) => xs.every((x) => x <= best),
+    oneOfThem: (xs, best) => xs.length === 0 || xs.includes(best),
+  },
+})
+
 /** An invariant false before the loop. */
 export function sumFromNothing(xs: ReadonlyArray<bigint>): bigint {
   let total = 0n

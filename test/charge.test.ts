@@ -5,7 +5,8 @@
 // breaks on; a wrong signature does not type-check; and a type that names no
 // spec is refused.
 import assert from "node:assert/strict"
-import { readFileSync, rmSync, writeFileSync } from "node:fs"
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
 import path from "node:path"
 import { after, before, describe, it } from "node:test"
 import { pathToFileURL } from "node:url"
@@ -48,20 +49,28 @@ describe("charge, written against its spec", () => {
     const v = await verify(z3, project, source, "charge")
     const law = v.laws.find((l) => l.name === "takesWhatItCan")!
     assert.equal(law.status, "counterexample", JSON.stringify(statuses(v)))
-    const planted = source.replace(/\.ts$/, ".planted.ts")
+    // Run from a folder of its own: `test/cli.test.ts` counts the files of examples/charge. It imports only types.
+    const dir = mkdtempSync(path.join(tmpdir(), "tsverify-charge-"))
+    const planted = path.join(dir, "charge.planted.ts")
     writeFileSync(planted, text)
     try {
       const { charge } = (await import(pathToFileURL(planted).href)) as { charge: (b: bigint, a: bigint) => bigint }
       const [balance, amount] = law.args as [bigint, bigint]
       assert.equal(ChargeSpec.ensures.takesWhatItCan!(balance, amount, charge(balance, amount)), false)
     } finally {
-      rmSync(planted)
+      rmSync(dir, { recursive: true, force: true })
     }
   })
 
   it("a body of the wrong type does not type-check: the spec's type is the implementation's", () => {
     const project = loadProject([source], tsconfig, new Map([[source, withBody('"none"')]]))
     assert.ok(diagnostics(project, source).length > 0)
+  })
+
+  it("a spec of a function whose result is a union types each law over the whole union", () => {
+    const spec = path.join(root, "examples/charge/light.spec.ts")
+    const text = `import { spec } from "tsverify"\nexport const NextSpec = spec<(light: "red" | "green") => "red" | "green">({ ensures: { changes: (light, next) => next !== light } })\n`
+    assert.deepEqual(diagnostics(loadProject([spec], tsconfig, new Map([[spec, text]])), spec), [])
   })
 
   it("a type that names no spec is refused, saying what it takes", async () => {

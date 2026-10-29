@@ -47,7 +47,7 @@ describe("steps inside expressions, verified", () => {
     const v = await verify(z3, project, file, "parsed")
     assert.equal(v.unsupported, undefined)
     assert.deepEqual(statuses(v), { callsNothing: "proved", readsTheError: "unsupported" })
-    assert.match(v.laws.find((l) => l.name === "readsTheError")!.reason!, /`===` of a value of type `unknown` is not modeled; narrow its type first/)
+    assert.match(v.laws.find((l) => l.name === "readsTheError")!.reason!, /`===` of a value of type `unknown` is not modeled: .*give it a type where it is made/)
   })
 
   it("a `catch` that reads what was thrown gives any error of its type: a law its type alone implies is vacuous", async () => {

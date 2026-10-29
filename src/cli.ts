@@ -66,16 +66,52 @@ const contractFilesUnder = (dir: string): Array<string> =>
     return e.name.endsWith(".spec.ts") || readFileSync(p, "utf8").includes("Implementation<") ? [p] : []
   })
 
-const show = (x: unknown) => JSON.stringify(x, (_, v) => (typeof v === "bigint" ? `${v}n` : typeof v === "number" && !Number.isFinite(v) ? String(v) : v))
+/** A value as JavaScript writes it, so a counterexample can be pasted into a call: `0n`, `"a"`, `[1, NaN]`, `{ id: "a" }`. */
+const literal = (x: unknown): string =>
+  typeof x === "bigint"
+    ? `${x}n`
+    : typeof x === "number"
+      ? Object.is(x, -0)
+        ? "-0"
+        : String(x)
+      : typeof x === "string"
+        ? JSON.stringify(x)
+        : x === undefined
+          ? "undefined"
+          : Array.isArray(x)
+            ? `[${x.map(literal).join(", ")}]`
+            : x !== null && typeof x === "object"
+              ? Object.keys(x).length === 0
+                ? "{}"
+                : `{ ${Object.entries(x).map(([k, v]) => `${/^[A-Za-z_$][\w$]*$/.test(k) ? k : JSON.stringify(k)}: ${literal(v)}`).join(", ")} }`
+              : String(x)
+/** A counterexample's arguments, as the call that takes them would write them. */
+const show = (args: ReadonlyArray<unknown>) => `(${args.map(literal).join(", ")})`
 
-/** A counterexample's value as JSON holds it: a bigint, `undefined`, `NaN` or `±Infinity` as a string of its JavaScript text (`"5n"`). */
+/** What the world gave the code on a counterexample's run: each operation's outcome, each declared function's result. */
+const given = (world: Readonly<Record<string, unknown>>) =>
+  Object.entries(world)
+    .map(([key, x]) => {
+      const what = key.replace(/!\d+$/, "")
+      if (x !== null && typeof x === "object" && "_tag" in x) {
+        const o = x as { readonly _tag: unknown; readonly value?: unknown; readonly error?: unknown }
+        if (o._tag === "Failure") return `${what} failed with ${literal(o.error)}`
+        if (o._tag === "Success") return "value" in o ? `${what} gave ${literal(o.value)}` : `${what} succeeded`
+      }
+      return `${what} gave ${literal(x)}`
+    })
+    .join(", ")
+
+/** A counterexample's value as JSON holds it: a bigint, `undefined`, `NaN`, `±Infinity` or `-0` as a string of its JavaScript text (`"5n"`). */
 const plain = (x: unknown): unknown =>
   typeof x === "bigint"
     ? `${x}n`
     : x === undefined
       ? "undefined"
-      : typeof x === "number" && !Number.isFinite(x)
-        ? String(x)
+      : typeof x === "number" && (!Number.isFinite(x) || Object.is(x, -0))
+        ? Object.is(x, -0)
+          ? "-0"
+          : String(x)
         : Array.isArray(x)
           ? x.map(plain)
           : x !== null && typeof x === "object"
@@ -88,6 +124,19 @@ const plainArgs = <T extends { readonly args?: ReadonlyArray<unknown>; readonly 
 })
 const rel = (p: string) => path.relative(process.cwd(), p) || p
 
+/** The same verdict, each place it names relative to the current folder, as the files it reports are. */
+const here = (s: string) => s.replaceAll(`${process.cwd()}${path.sep}`, "")
+const relative = (v: Verification): Verification => ({
+  ...v,
+  ...(v.unsupported !== undefined ? { unsupported: here(v.unsupported) } : {}),
+  notes: v.notes.map(here),
+  laws: v.laws.map((l) => (l.reason === undefined ? l : { ...l, reason: here(l.reason) })),
+  obligations: v.obligations.map((o) => ({ ...o, at: here(o.at), ...(o.reason !== undefined ? { reason: here(o.reason) } : {}) })),
+  trusted: v.trusted.map((t) => ({ ...t, declared: t.declared.map(here) })),
+})
+
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`
+
 /** The report of one verification, each line indented by `pad`. */
 const report = (v: Verification, pad: string, full: boolean): Array<string> => {
   const out: Array<string> = []
@@ -95,6 +144,7 @@ const report = (v: Verification, pad: string, full: boolean): Array<string> => {
   for (const l of v.laws) {
     out.push(`${pad}${l.status.padEnd(15)} ${l.name}  (${Math.round(l.ms)} ms)`)
     if (l.args !== undefined) out.push(`${under}e.g. ${show(l.args)}`)
+    if (l.world !== undefined && Object.keys(l.world).length > 0) out.push(`${under}where ${given(l.world)}`)
     if (l.abstract !== undefined) out.push(`${under}leans on what is declared of ${l.abstract.join(", ")}: true of them as declared, maybe not as they are`)
     if (l.reason !== undefined) out.push(`${under}${l.reason}`)
   }
@@ -114,7 +164,10 @@ const report = (v: Verification, pad: string, full: boolean): Array<string> => {
         const purity = t.purity === "checked" ? `pure, checked from source (read ${t.read?.join(", ")})` : t.purity === "unchecked" ? "pure, unchecked: no source" : "not pure: a fresh result per call"
         out.push(`${pad}  - ${t.name}: ${purity}${t.laws.length > 0 ? `; laws ${t.laws.join(", ")}` : ""} — ${t.declared.join(", ")}`)
       }
-    } else out.push(`${pad}trusted: ${v.trusted.map((t) => `${t.name} (${t.purity}${t.laws.length > 0 ? `, ${t.laws.length} laws` : ""})`).join(", ")}`)
+    } else
+      out.push(
+        `${pad}trusted: ${v.trusted.map((t) => `${t.name} (${t.purity === "impure" ? "not pure" : `pure, ${t.purity}`}${t.laws.length > 0 ? `; ${plural(t.laws.length, "law")}` : ""})`).join(", ")}`,
+      )
   }
   if (full) {
     if (v.cover.length > 0) out.push(`${pad}reaches: ${v.cover.map((c) => (c.status === "reachable" ? c.value : `${c.value} (${c.status})`)).join(", ")}`)
@@ -127,7 +180,7 @@ const report = (v: Verification, pad: string, full: boolean): Array<string> => {
 const passed = (v: Verification) => v.unsupported === undefined && v.laws.every((l) => l.status === "proved") && v.obligations.every((o) => o.status === "proved")
 
 const one = async (z3: Ctx, file: string, name: string, pad: string, full: boolean): Promise<Verification> => {
-  const v = await verify(z3, loadProject([file], tsconfigOf(file)), file, name, opts)
+  const v = relative(await verify(z3, loadProject([file], tsconfigOf(file)), file, name, opts))
   if (json) return v
   if (v.unsupported !== undefined) console.log(`${pad}${name}: not verified — ${v.unsupported}`)
   else console.log([`${pad}${name}`, ...report(v, `${pad}  `, full)].join("\n"))
@@ -210,6 +263,12 @@ await withZ3(async (z3) => {
   }
 })
 const verdicts = found.map((f) => f.v)
+if (verdicts.length === 0) {
+  console.error(
+    `no contract in ${files.map(rel).join(", ")}: a spec is verified through its implementation, \`const f: Implementation<typeof S> = ...\`, or a \`contract\`, \`computation\` or lemma the file exports\n${USAGE}`,
+  )
+  process.exit(2)
+}
 if (json) {
   printReport(found)
   process.exit(verdicts.every(passed) ? 0 : 1)
@@ -219,7 +278,6 @@ const count = <A,>(xs: ReadonlyArray<A>, key: (x: A) => string) =>
   Object.entries(tally(xs, key))
     .map(([k, n]) => `${n} ${k}`)
     .join(", ")
-const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`
 const laws = verdicts.flatMap((v) => v.laws)
 const obligations = verdicts.flatMap((v) => v.obligations)
 const unread = verdicts.filter((v) => v.unsupported !== undefined).length

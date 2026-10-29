@@ -91,6 +91,10 @@ export interface Lowering extends Typing {
    * elements gone through: candidates, proved or dropped like any other (`verify`).
    */
   guess?: (loop: ts.ForOfStatement) => ReadonlyArray<GuessedInvariant>
+  /** Whether a loop with invariants written gets the guesses too, beside them (`verify`'s second round). */
+  guessBeside?: boolean
+  /** Set when a loop of this side has invariants written. */
+  wrote?: boolean
 }
 
 /** An invariant the verifier guessed: its obligation's key, place and words, and its claim in a scope at `i`. */
@@ -245,8 +249,8 @@ export const lowerExpr = (L: Lowering, e: ts.Expression, env: Env): Val => {
   if (ts.isAsExpression(e) && ts.isConstTypeReference(e.type)) return lowerExpr(L, e.expression, env)
   if (ts.isSatisfiesExpression(e)) return lowerExpr(L, e.expression, env)
   if (ts.isAsExpression(e) || ts.isTypeAssertionExpression(e))
-    throw new Unsupported("a cast is a claim the verifier would have to trust", e)
-  if (ts.isNonNullExpression(e)) throw new Unsupported("`!` is a claim the verifier would have to trust", e)
+    throw new Unsupported("a cast is a claim the verifier would have to trust: check the value instead (`===`, its `_tag`, `x !== undefined`), so its type follows from the check", e)
+  if (ts.isNonNullExpression(e)) throw new Unsupported("`!` is a claim the verifier would have to trust: check the value (`x !== undefined`) and say what happens when it is missing", e)
 
   // Literals.
   if (ts.isBigIntLiteral(e)) return { kind: "int", origin: "bigint", term: z3.Int.val(BigInt(e.text.slice(0, -1).replaceAll("_", ""))) }
@@ -330,7 +334,7 @@ const template = (L: Lowering, e: ts.TemplateExpression, env: Env): Val => {
 /** `t[k]` for a whole-number literal k on a tuple (or any record): its field `k`. */
 const elementAccess = (L: Lowering, e: ts.ElementAccessExpression, env: Env): Val => {
   const k = literalIndex(e.argumentExpression)
-  if (k === undefined || k < 0n) throw new Unsupported("element access `a[i]` is modeled for a literal index on a tuple; `.at(i)` on an array", e)
+  if (k === undefined || k < 0n) throw new Unsupported("an element at a computed index is not read: `.at(k)` with a whole-number literal `k`, or `.find`, `.some`, `.every` or a `for…of` loop over the elements", e)
   const obj = lowerExpr(L, e.expression, env)
   return optionally(L, obj, e, e.expression, (v) => {
     if (v.kind === "record") {
@@ -338,7 +342,7 @@ const elementAccess = (L: Lowering, e: ts.ElementAccessExpression, env: Env): Va
       if (f === undefined) throw new Unsupported(`no element ${k}`, e)
       return f
     }
-    throw new Unsupported(`element access on a ${v.kind}: \`.at(${k})\` reads an array`, e)
+    throw new Unsupported(`\`${e.expression.getText()}[${k}]\` on an array is not read: write \`${e.expression.getText()}.at(${k})\`, whose type says it may be missing`, e)
   })
 }
 
@@ -376,7 +380,7 @@ const identifier = (L: Lowering, e: ts.Identifier, env: Env): Val => {
     const named = ts.isPropertyAccessExpression(e.parent) && e.parent.expression === e ? e.parent.getText() : e.text
     throw new Unread(`\`${named}\` is a package's, which the verifier does not read: declare what it may assume of it, \`assume(${named}, { pure: true, ensures: { ... } })\`, in the spec or a pack the spec imports`, e)
   }
-  throw new Unsupported(`\`${e.text}\` is a binding the verifier cannot see (a \`let\` or a global)`, e)
+  throw new Unsupported(`\`${e.text}\` is a binding the verifier cannot see (a \`let\` or a global): read it from a \`const\` or an argument, or move it into a function the spec declares with \`assume\``, e)
 }
 
 const isModuleConst = (d: ts.VariableDeclaration): boolean =>
@@ -434,7 +438,7 @@ export const member = (L: Lowering, obj: Val, name: string, at: ts.Node, objType
   }
   if (obj.kind === "array" && name === "length") return { kind: "int", origin: "count", term: obj.length }
   if (obj.kind === "str" && name === "length")
-    throw new Unsupported("a string's length counts UTF-16 code units, which is not modeled", at)
+    throw new Unsupported("a string's length counts UTF-16 code units, which is not modeled: compare with `\"\"` to ask whether it is empty, or move it into a function the spec declares with `assume`", at)
   throw new Unsupported(`member \`${name}\` of a ${obj.kind} is not modeled`, at)
 }
 
@@ -636,8 +640,9 @@ const arrayMethod = (L: Lowering, arr: Extract<Val, { kind: "array" }>, name: st
     case "includes": {
       if (e.arguments.length !== 1) throw new Unsupported("`.includes(x, from)` is not modeled", e)
       const x = lowerExpr(L, arg(0), env)
-      if (x.kind !== "str" && x.kind !== "bool")
-        throw new Unsupported("`.includes` is modeled on strings and booleans (it finds NaN, which `===` does not)", e)
+      // `includes` compares as `===` does but for NaN, which only a `number` can be: bigints and counts are whole.
+      if (x.kind !== "str" && x.kind !== "bool" && x.kind !== "int")
+        throw new Unsupported("`.includes` of a `number` finds NaN, which `===` does not, and is not modeled: write `.some((y) => y === x)`", e)
       return bool(quantify("exists", (i) => strictEq(u, arr.elem(i), x, e)))
     }
     case "filter": {
@@ -656,6 +661,7 @@ const arrayMethod = (L: Lowering, arr: Extract<Val, { kind: "array" }>, name: st
         count = z3.Int.const(u.fresh("filtered"))
         u.assume(z3.And(count.ge(0), count.le(arr.length), count.ge(1).eq(quantify("exists", p))))
         u.abstracted = true
+        u.approximations.add(`\`${e.getText()}\` is counted only as none or some on the proof side`)
       }
       u.notes.add("A filtered array is modeled by its length alone; its elements are refused where read.")
       return {
@@ -699,9 +705,10 @@ const binary = (L: Lowering, e: ts.BinaryExpression, env: Env): Val => {
     case K.MinusToken:
     case K.AsteriskToken:
     case K.SlashToken:
+    case K.PercentToken:
       return arithmetic(L, op, l, r, e)
     default:
-      throw new Unsupported(`operator ${ts.tokenToString(op)} is not modeled`, e.operatorToken)
+      throw new Unsupported(`operator ${ts.tokenToString(op)} is not modeled${op === K.EqualsEqualsToken || op === K.ExclamationEqualsToken ? `: write \`${op === K.EqualsEqualsToken ? "===" : "!=="}\` (and \`x === null || x === undefined\` for a nullish check)` : ""}`, e.operatorToken)
   }
 }
 
@@ -722,10 +729,10 @@ export const arithmetic = (L: Lowering, op: ts.SyntaxKind, l: Val, r: Val, e: ts
     if (op === K.PlusToken) return { ...l, term: l.term.add(r.term) }
     if (op === K.MinusToken) return { ...l, term: l.term.sub(r.term) }
     if (op === K.AsteriskToken) return { ...l, term: l.term.mul(r.term) }
-    throw new Unsupported("bigint `/` truncates toward zero, which Z3's division does not", e.operatorToken)
+    throw new Unsupported(`bigint \`${ts.tokenToString(op)}\` is not modeled (\`/\` and \`%\` truncate toward zero, which Z3's division does not): keep it out of the code a law reads, or move it into a function the spec declares with \`assume\``, e.operatorToken)
   }
   if (l.kind === "num" && r.kind === "num")
-    throw new Unsupported("arithmetic on `number` rounds, which the model of numbers does not see", e.operatorToken)
+    throw new Unsupported("arithmetic on `number` rounds, which the model of numbers does not see: use `bigint` where the values are whole, or move it into a function the spec declares with `assume`", e.operatorToken)
   if (op === K.PlusToken && l.kind === "str" && r.kind === "str") return { kind: "str", term: l.term.concat(r.term) }
   throw new Unsupported(`${ts.tokenToString(op)} between a ${l.kind} and a ${r.kind} is not modeled`, e)
 }
@@ -798,6 +805,13 @@ export const slice = (L: Lowering, arr: Extract<Val, { kind: "array" }>, args: R
   }
 }
 
+/** Whether every member of `type` declares `name` as a property it requires (not optional, not a method). */
+const requiredKey = (checker: ts.TypeChecker, type: ts.Type, name: string): boolean =>
+  (type.isUnion() ? type.types : [type]).every((t) => {
+    const p = checker.getPropertyOfType(t, name)
+    return p !== undefined && !(p.flags & (ts.SymbolFlags.Optional | ts.SymbolFlags.Method))
+  })
+
 /**
  * An object literal. A field's value is the last property's that may hold it: a property written in place holds its
  * key; a spread holds the keys of what it spreads, which the verifier knows of an object the code built (`has`) and of
@@ -823,6 +837,11 @@ const objectLiteral = (L: Lowering, e: ts.ObjectLiteralExpression, env: Env): Va
     if (v.kind === "record" && v.has !== undefined) {
       const has = v.has(name)
       if (has !== undefined) return { has, value: v.field(name) }
+    }
+    // A key its type requires: the value holds it, its own, as a value of its type is taken to be plain data.
+    if (v.kind === "record" && ts.isSpreadAssignment(at) && requiredKey(L.checker, L.checker.getNonNullableType(L.checker.getTypeAtLocation(at.expression)), name)) {
+      u.notes.add("A spread copies each property its value's type requires: the value is taken to be plain data, its properties its own, none a getter.")
+      return { has: z3.Bool.val(true), value: v.field(name) }
     }
     throw new Unsupported(
       `\`${name}\` is read from an object built with a spread of a value whose keys the verifier does not know (at run time it may hold more than its type says)`,

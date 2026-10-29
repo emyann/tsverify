@@ -234,8 +234,25 @@ export const effectAdapter: Adapter = {
         return { kind: "builtin", name: "Effect.fail", call: ([err]) => comp((trace) => ({ outcome: failure(L, err ?? { kind: "nullish", which: "undefined" }), trace })) }
       case "Effect.void":
         return comp((trace) => ({ outcome: success(L, { kind: "nullish", which: "undefined" }), trace }))
-      default:
-        return undefined
+      default: {
+        const name = effectName(L.checker, e)
+        if (name === undefined || !ts.isPropertyAccessExpression(e) || !name.startsWith("Effect.") || name === "Effect.fn" || name === "Effect.fnUntraced") return undefined
+        throw new Unsupported(`\`${name}\` is not read: ${INSTEAD[name.slice("Effect.".length)] ?? READ}`, e)
+      }
     }
   },
+}
+
+const READ =
+  "the Effect adapter reads `Effect.fn`, `gen`, `succeed`, `fail`, `void`, `sync`, `try`, `tryPromise`, `map`, `flatMap`, `catch`, `catchTag` and `pipe`; write the program with those"
+/** What to write instead of an Effect function the adapter does not read, where something it reads does the same. */
+const INSTEAD: Readonly<Record<string, string>> = {
+  forEach: "write a `for (const x of xs)` loop of `yield*` steps in the generator",
+  all: "write the steps one after another, `yield*` each",
+  mapError: "`Effect.catch` the error and `Effect.fail` with the one you want",
+  as: "`Effect.map(() => value)`",
+  asVoid: "`Effect.map(() => undefined)`",
+  andThen: "`Effect.flatMap`, or a second `yield*`",
+  tap: "a `yield*` of the step, then a `return` of what came before",
+  orElseSucceed: "`Effect.catch(() => Effect.succeed(value))`",
 }

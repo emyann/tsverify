@@ -136,7 +136,7 @@ export interface Lowered {
 }
 
 const ALWAYS = [
-  "The code under verification throws nothing: a binding it never reads is not evaluated.",
+  "The code throws only where it says so (a `throw`, a failure): an exception from anywhere else, a call or a binding never read, is not seen.",
   "Each argument has its TypeScript type; the code's own casts, `any` and `!` are refused.",
 ]
 
@@ -149,6 +149,7 @@ export const lowerSide = (
   adapters = ADAPTERS,
   trust: Trust = trustOf(readAssumptions(project)),
   guessFrom?: ReadonlySet<string>,
+  guessBeside = false,
 ): Lowered => {
   const u = new Universe(z3, bound)
   const L = lowering({ u, checker: project.checker }, adapters, trust)
@@ -170,7 +171,10 @@ export const lowerSide = (
     if (!(ts.isArrowFunction(t) || ts.isFunctionExpression(t) || ts.isFunctionDeclaration(t)))
       throw new Unsupported("a `contract` is about a function; a computation takes `computation<...>()`", t)
     const { params, args } = symbolicArgs(t)
-    if (guessFrom !== undefined) L.guess = guesser(L, source, t, args, guessFrom, unguessable)
+    if (guessFrom !== undefined) {
+      L.guess = guesser(L, source, t, args, guessFrom, unguessable)
+      L.guessBeside = guessBeside
+    }
     return { u, L, source, fn: t, params, args, result: lowerCall(L, t, emptyEnv, args, t), trace: undefined, pre: preOf(args), unguessable }
   }
   const c = adapters.map((a) => a.computation?.(L, source.target)).find((x) => x !== undefined)
@@ -252,6 +256,18 @@ const lawOnAnyResult = (side: Lowered, law: ContractSource["ensures"][number]): 
 }
 
 export const verify = async (z3: Ctx, project: Project, file: string, name: string, opts: Options = {}): Promise<Verification> => {
+  // Without it a type leaves out `null` and `undefined`, and so would every proof read from it. TypeScript 6 has it on by default.
+  const options = project.program.getCompilerOptions()
+  if (!(options.strictNullChecks ?? options.strict ?? true))
+    return {
+      contract: name,
+      laws: [],
+      cover: [],
+      notes: ALWAYS,
+      trusted: [],
+      obligations: [],
+      unsupported: '`strictNullChecks` is off in the tsconfig.json that reads this file, so its types leave out `null` and `undefined`, and a proof would too: set `"strict": true` (or `"strictNullChecks": true`)',
+    }
   let source: ContractSource
   try {
     source = readContract(project, file, name)
@@ -260,18 +276,16 @@ export const verify = async (z3: Ctx, project: Project, file: string, name: stri
     return { contract: name, laws: [], cover: [], notes: ALWAYS, trusted: [], obligations: [], unsupported: e.message }
   }
   const bound = opts.bound ?? 4
-  let proof: Lowered
-  let search: Lowered
   let trust: Trust
   // A loop with no invariant written gets the laws, restated for what it has gone through, as candidates. Round after
   // round, the candidates not proved on entry and kept by each iteration (all of them assumed at its start) are
-  // dropped, until those left are proved together: Houdini's way (Flanagan and Leino, ESC/Java, 2001).
-  let guessing = source.kind === "function" ? new Set(source.ensures.map((l) => l.name)) : undefined
-  const dropped: Array<string> = []
-  try {
-    trust = trustOf(readAssumptions(project))
-    proof = lowerSide(z3, project, source, undefined, ADAPTERS, trust, guessing)
-    search = lowerSide(z3, project, source, bound, ADAPTERS, trust, guessing)
+  // dropped, until those left are proved together: Houdini's way (Flanagan and Leino, ESC/Java, 2001). When what is
+  // written leaves a law unproved, the guesses are made again beside it, so writing an invariant never loses a guess.
+  const guessed = async (beside: boolean) => {
+    let guessing = source.kind === "function" ? new Set(source.ensures.map((l) => l.name)) : undefined
+    const dropped: Array<string> = []
+    let proof = lowerSide(z3, project, source, undefined, ADAPTERS, trust, guessing, beside)
+    let search = lowerSide(z3, project, source, bound, ADAPTERS, trust, guessing, beside)
     for (;;) {
       if (guessing === undefined || !proof.L.obligations.some((o) => o.guessed !== undefined)) break
       const within = { ...opts, within: [...(opts.within ?? []), `${file}#${name}`] }
@@ -280,21 +294,42 @@ export const verify = async (z3: Ctx, project: Project, file: string, name: stri
       if (failed.size === 0) break
       dropped.push(...failed)
       guessing = new Set([...guessing].filter((l) => !failed.has(l)))
-      proof = lowerSide(z3, project, source, undefined, ADAPTERS, trust, guessing)
-      search = lowerSide(z3, project, source, bound, ADAPTERS, trust, guessing)
+      proof = lowerSide(z3, project, source, undefined, ADAPTERS, trust, guessing, beside)
+      search = lowerSide(z3, project, source, bound, ADAPTERS, trust, guessing, beside)
     }
+    const kept = [...new Set(proof.L.obligations.flatMap((o) => (o.guessed === undefined ? [] : [o.guessed])))]
+    if (kept.length > 0 || dropped.length > 0)
+      proof.u.notes.add(
+        `For a loop${beside ? " with invariants written" : " with no invariant written"}, the verifier guessed each law as an invariant, restated for the elements gone through, and kept ${kept.join(", ") || "none"}${dropped.length > 0 ? `; it dropped ${dropped.join(", ")}, not proved on entry and kept` : ""}.`,
+      )
+    return { proof, search }
+  }
+  let sides: { readonly proof: Lowered; readonly search: Lowered }
+  try {
+    trust = trustOf(readAssumptions(project))
+    sides = await guessed(false)
   } catch (e) {
     if (!(e instanceof Unsupported)) throw e
     return { contract: name, laws: [], cover: [], notes: ALWAYS, trusted: [], obligations: [], unsupported: e.message }
   }
   if (source.kind === "lemma" && opts.within?.includes(`${file}#${name}`))
     return { contract: name, laws: [], cover: [], notes: ALWAYS, trusted: [], obligations: [], unsupported: `the lemma \`${name}\` leans on itself` }
-  const kept = [...new Set(proof.L.obligations.flatMap((o) => (o.guessed === undefined ? [] : [o.guessed])))]
-  if (kept.length > 0 || dropped.length > 0)
-    proof.u.notes.add(
-      `No invariant is written for a loop: the verifier guessed each law, restated for the elements gone through, and kept ${kept.join(", ") || "none"}${dropped.length > 0 ? `; it dropped ${dropped.join(", ")}, not proved on entry and kept` : ""}.`,
-    )
-  return judge(z3, project, file, proof, search, trust, opts)
+  const first = await judge(z3, project, file, sides.proof, sides.search, trust, opts)
+  // Only where it can help: a law left bounded while what is written all holds. A broken invariant keeps its law bounded
+  // whatever else is guessed.
+  if (source.kind !== "function" || sides.proof.L.wrote !== true || !first.laws.some((l) => l.status === "bounded") || !first.obligations.every((o) => o.status === "proved"))
+    return first
+  let beside: { readonly proof: Lowered; readonly search: Lowered }
+  try {
+    beside = await guessed(true)
+  } catch (e) {
+    if (!(e instanceof Unsupported)) throw e
+    return first
+  }
+  // Kept only where it proves more: a guess beside an invariant that fails proves nothing the report should carry.
+  const second = await judge(z3, project, file, beside.proof, beside.search, trust, opts)
+  const proved = (v: Verification) => v.laws.filter((l) => l.status === "proved").length
+  return proved(second) > proved(first) ? second : first
 }
 
 /**
@@ -371,8 +406,8 @@ export const judge = async (z3: Ctx, project: Project, file: string, proof: Lowe
         found.status === "sat"
           ? { status: "counterexample", ...found.witness }
           : found.status === "unsat"
-            ? { status: "bounded", reason: proved.status === "unsat" ? untrusted! : `not proved (${why(proved)}); no counterexample with arrays of at most ${bound} elements` }
-            : { status: "unknown", reason: `proof: ${why(proved)}; search: ${found.reason}` }
+            ? { status: "bounded", reason: proved.status === "unsat" ? untrusted! : `not proved: ${why(proved, proof.u)}; no counterexample with arrays of at most ${bound} elements` }
+            : { status: "unknown", reason: `proof: ${why(proved, proof.u)}; search: ${found.reason}` }
     }
     laws.push({ name: law.name, ...r, ms: performance.now() - started })
     searchable.set(law.name, onSearch)
@@ -496,7 +531,7 @@ const obligationsOf = async (
         reason:
           o.phase === "kept"
             ? `true of every input with arrays of at most ${bound} elements, and not proved kept by an iteration from any state it allows: strengthen it with what else the loop keeps`
-            : `not proved (${proved === undefined ? "the proof side does not meet it" : proved.status === "unsat" ? proof.u.truncated : why(proved)}); no counterexample with arrays of at most ${bound} elements`,
+            : `not proved (${proved === undefined ? "the proof side does not meet it" : proved.status === "unsat" ? proof.u.truncated : why(proved, proof.u)}); no counterexample with arrays of at most ${bound} elements`,
       })
     else out.push({ ...head, status: "unknown", reason: found?.status === "unknown" ? found.reason : "not met on either side" })
     opts.progress?.(`${o.kind} ${o.at}: ${out.at(-1)!.status}`)
@@ -583,8 +618,14 @@ const outcomesOf = (project: Project, side: Lowered): Array<readonly [string, (s
   return goals
 }
 
-const why = (o: Outcome): string =>
-  o.status === "unknown" ? o.reason : o.status === "sat" ? "the proof side's model rests on an approximation" : "proved"
+const why = (o: Outcome, u: Universe): string =>
+  o.status === "unknown"
+    ? o.reason
+    : o.status === "sat"
+      ? u.approximations.size > 0
+        ? [...u.approximations].join("; ")
+        : "the proof side's model rests on an approximation"
+      : "proved"
 
 type Witness = {
   readonly args?: ReadonlyArray<unknown>
@@ -621,12 +662,21 @@ export const solve = async (side: Lowered, goals: ReadonlyArray<Bool<"main">>, o
   return { status: "sat", witness: witness(side, model) }
 }
 
+/** An outcome as it ended: its value on a success, its error on a failure, not both (the model holds both). */
+const ended = (x: unknown): unknown => {
+  if (x === null || typeof x !== "object" || !("_tag" in x)) return x
+  const { value, error, ...rest } = x as { readonly _tag: unknown; readonly value?: unknown; readonly error?: unknown }
+  if (rest._tag === "Success") return "value" in x ? { ...rest, value } : rest
+  if (rest._tag === "Failure") return "error" in x ? { ...rest, error } : rest
+  return x
+}
+
 const witness = (side: Lowered, model: Model<"main">): Witness => {
   try {
     const roots = new Set([...side.u.leaves.values()].map((l) => l.segments[0]!).filter((r) => side.u.shown.has(r)))
     // A declared function's result inside a quantifier is one per element: a function of the index, not a value to show.
     for (const l of side.u.leaves.values()) if (l.arity > l.segments.filter((s) => s === "[]").length) roots.delete(l.segments[0]!)
-    const world = Object.fromEntries([...roots].sort().map((r) => [r, fromModel(side.u, model, r)]))
+    const world = Object.fromEntries([...roots].sort().map((r) => [r, ended(fromModel(side.u, model, r))]))
     return {
       args: side.params.map((p) => fromModel(side.u, model, p)),
       ...(roots.size > 0 ? { world } : {}),
