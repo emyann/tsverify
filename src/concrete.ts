@@ -7,7 +7,7 @@
 // elements, `{}` where none of an element was read.
 import type { Arith, Bool, Expr, Model } from "z3-solver"
 import type { Leaf, Universe } from "./universe.ts"
-import { NUM, exactRational } from "./value.ts"
+import { NUM, exactRational, fromZ3String, jsString } from "./value.ts"
 
 interface Node {
   readonly children: Map<string, Node>
@@ -55,7 +55,7 @@ const read = (u: Universe, model: Model, n: Node, indices: ReadonlyArray<number>
       case "bool":
         return z3.isTrue(v)
       case "str":
-        return (v as unknown as { asString(): string }).asString()
+        return fromZ3String((v as unknown as { asString(): string }).asString())
       case "num": {
         const cls = Number(model.eval(term(u, n.children.get("~cls")!.leaf!, indices), true).sexpr())
         if (cls === NUM.nan) return Number.NaN
@@ -136,7 +136,7 @@ const write = (u: Universe, n: Node, indices: ReadonlyArray<number>, value: unkn
 /** A JavaScript string, boolean or bigint as a Z3 literal. */
 export const literal = (u: Universe, value: unknown): Expr => {
   const z3 = u.z3
-  if (typeof value === "string") return z3.String.val(value)
+  if (typeof value === "string") return jsString(z3, value)
   if (typeof value === "boolean") return z3.Bool.val(value)
   if (typeof value === "bigint") return z3.Int.val(value)
   throw new Error(`no literal for ${typeof value}`)

@@ -13,11 +13,11 @@ import type { Style } from "./adapter.ts"
 import { bind, bindParameters, cond, isLogical, later, lowerExpr, type Lowering, stepKey } from "./lower.ts"
 import { isNullish, ite, truthy } from "./ops.ts"
 import { symbolicOf } from "./symbolic.ts"
-import { type Env, type FunctionNode, type Ran, Unsupported, type Val, lazy, lazyRecord, locate } from "./value.ts"
+import { type Env, type FunctionNode, type Ran, Unsupported, type Val, jsString, lazy, lazyRecord, locate } from "./value.ts"
 
 const K = ts.SyntaxKind
 
-const str = (L: Lowering, s: string): Val => ({ kind: "str", term: L.u.z3.String.val(s) })
+const str = (L: Lowering, s: string): Val => ({ kind: "str", term: jsString(L.u.z3, s) })
 
 export const success = (L: Lowering, value: Val): Val =>
   lazyRecord((n) => (n === "_tag" ? str(L, "Success") : n === "value" ? value : undefined))
@@ -78,7 +78,7 @@ export const operation = (
       L.u.calls.add(base[0]!)
       const tag = L.u.leaf([...base, "._tag", "$"], "str", []) as never as ReturnType<typeof z3.String.val>
       const canFail = types.failure !== undefined && !(types.failure.flags & ts.TypeFlags.Never)
-      L.u.assume(canFail ? z3.Or(tag.eq(z3.String.val("Success")), tag.eq(z3.String.val("Failure"))) : tag.eq(z3.String.val("Success")))
+      L.u.assume(canFail ? z3.Or(tag.eq(jsString(z3, "Success")), tag.eq(jsString(z3, "Failure"))) : tag.eq(jsString(z3, "Success")))
       const outcome = lazyRecord((n) => {
         if (n === "_tag") return { kind: "str", term: tag }
         if (n === "value") return symbolicOf(L, types.success, [...base, ".value"], [], at)
@@ -269,14 +269,14 @@ export const onFailure = (L: Lowering, r: Ran, at: ts.Node, handle: (error: Val,
   if (outcome.kind !== "record") throw new Error("an outcome is a record")
   const tag = outcome.field("_tag")!
   if (tag.kind !== "str") throw new Error("an outcome's _tag is a string")
-  if (tag.term.eqIdentity(L.u.z3.String.val("Success"))) return r
+  if (tag.term.eqIdentity(jsString(L.u.z3, "Success"))) return r
   const error = outcome.field("error")
   if (error === undefined) return r
-  if (tag.term.eqIdentity(L.u.z3.String.val("Failure"))) return handle(error, r.trace)
+  if (tag.term.eqIdentity(jsString(L.u.z3, "Failure"))) return handle(error, r.trace)
   return unran(
     ite(
       L.u,
-      tag.term.eq(L.u.z3.String.val("Failure")),
+      tag.term.eq(jsString(L.u.z3, "Failure")),
       ran(handle(error, r.trace)),
       ran({ outcome: asSuccess(outcome), trace: r.trace }),
       at,
@@ -298,9 +298,9 @@ const after = (L: Lowering, r: Ran, at: ts.Node, next: (value: Val, trace: Val) 
   const tag = outcome.field("_tag")!
   if (tag.kind !== "str") throw new Error("an outcome's _tag is a string")
   const value = outcome.field("value")
-  if (tag.term.eqIdentity(L.u.z3.String.val("Failure"))) return ran(r)
-  if (tag.term.eqIdentity(L.u.z3.String.val("Success")) && value !== undefined) return next(value, r.trace)
-  const failed = tag.term.eq(L.u.z3.String.val("Failure"))
+  if (tag.term.eqIdentity(jsString(L.u.z3, "Failure"))) return ran(r)
+  if (tag.term.eqIdentity(jsString(L.u.z3, "Success")) && value !== undefined) return next(value, r.trace)
+  const failed = tag.term.eq(jsString(L.u.z3, "Failure"))
   return ite(L.u, failed, ran({ outcome: asFailure(outcome), trace: r.trace }), value === undefined ? ran(r) : next(value, r.trace), at)
 }
 
@@ -385,7 +385,7 @@ const whenThrough = (L: Lowering, v: Val, at: ts.Node, next: (trace: Val) => Val
   if (r.outcome.kind !== "record") throw new Error("an outcome is a record")
   const tag = r.outcome.field("_tag")!
   if (tag.kind !== "str") throw new Error("an outcome's _tag is a string")
-  const mark = L.u.z3.String.val(THROUGH)
+  const mark = jsString(L.u.z3, THROUGH)
   if (tag.term.eqIdentity(mark)) return next(r.trace)
   return ite(L.u, tag.term.eq(mark), next(r.trace), v, at)
 }

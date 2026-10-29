@@ -69,7 +69,6 @@ describe("a refused construct leaves its contract unverified", () => {
     ],
     ["elementAccess", /`xs\[0\]` on an array is not read: write `xs\.at\(0\)`/],
     ["global", /`Math` is a binding the verifier cannot see/],
-    ["stringLength", /UTF-16 code units.*: compare with `""`/],
   ]
   it("recursion: the recursive call is refused, saying what to declare instead", async () => {
     const v = await verify(z3, project, fixture("refused"), "recursion")

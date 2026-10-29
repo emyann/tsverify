@@ -6,7 +6,7 @@
 import ts from "typescript"
 import { type Adapter, packageExport } from "../adapter.ts"
 import { emptyEnv, later, lowerExpr } from "../lower.ts"
-import { Unsupported, type Val, lazyRecord } from "../value.ts"
+import { Unsupported, type Val, jsString, lazyRecord } from "../value.ts"
 
 const isLib = (checker: ts.TypeChecker, node: ts.Node, name: string): boolean => {
   const x = packageExport(checker, node)
@@ -85,5 +85,5 @@ const errorOf = (
   }
   const args = (e.arguments ?? []).map((a) => lowerExpr(L, a, env))
   if (args.length > 1) throw new Unsupported("an `Error` subclass is modeled with a message and nothing else", e)
-  return lazyRecord((n) => (n === "message" ? (args[0] ?? { kind: "str", term: L.u.z3.String.val("") }) : fields.get(n)?.()))
+  return lazyRecord((n) => (n === "message" ? (args[0] ?? { kind: "str", term: jsString(L.u.z3, "") }) : fields.get(n)?.()))
 }

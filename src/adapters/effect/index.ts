@@ -27,7 +27,7 @@ import type { Lowering } from "../../lower.ts"
 import { applyValue, lowerExpr } from "../../lower.ts"
 import { ite, strictEq } from "../../ops.ts"
 import { symbolicOf } from "../../symbolic.ts"
-import { type Env, Unsupported, type Val, lazyRecord } from "../../value.ts"
+import { type Env, Unsupported, type Val, jsString, lazyRecord } from "../../value.ts"
 
 /**
  * `Effect.fail` for what `node` names in the effect package. A name JavaScript reserves is declared with an underscore
@@ -105,7 +105,7 @@ const tried = (L: Lowering, name: string, args: ReadonlyArray<Val>, at: ts.Node)
     const base = [L.u.given(name)]
     const tag = L.u.leaf([...base, "._tag", "$"], "str", []) as never as ReturnType<typeof z3.String.val>
     const canFail = !(types.failure!.flags & ts.TypeFlags.Never)
-    L.u.assume(canFail ? z3.Or(tag.eq(z3.String.val("Success")), tag.eq(z3.String.val("Failure"))) : tag.eq(z3.String.val("Success")))
+    L.u.assume(canFail ? z3.Or(tag.eq(jsString(z3, "Success")), tag.eq(jsString(z3, "Failure"))) : tag.eq(jsString(z3, "Success")))
     const anyError = () => symbolicOf(L, types.failure!, [...base, ".error"], [], at)
     const outcome = lazyRecord((n) => {
       if (n === "_tag") return { kind: "str", term: tag }
@@ -196,7 +196,7 @@ export const effectAdapter: Adapter = {
       const fields = args[0]
       if (args.length > 1 || (fields !== undefined && fields.kind !== "record"))
         throw new Unsupported("a tagged error is built from one object of its fields", e)
-      const tagValue: Val = { kind: "str", term: L.u.z3.String.val(tagType.value) }
+      const tagValue: Val = { kind: "str", term: jsString(L.u.z3, tagType.value) }
       return lazyRecord((n) => (n === "_tag" ? tagValue : fields?.kind === "record" ? fields.field(n) : undefined))
     }
     if (!ts.isIdentifier(e) && !ts.isPropertyAccessExpression(e)) return undefined

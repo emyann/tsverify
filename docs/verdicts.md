@@ -37,7 +37,7 @@ import { spec } from "tsverify"
 export const LabelSpec = spec<(name: string) => string>({
   ensures: {
     neverEmpty: (_name, label) => label !== "",
-    short: (_name, label) => label.length <= 20,
+    unnamedWhenEmpty: (name, label) => name !== "" || label == "(unnamed)",
   },
 })
 ```
@@ -104,8 +104,8 @@ src/cap.ts
 src/label.ts
   label
     proved          neverEmpty  (10 ms)
-    unsupported     short  (1 ms)
-                    src/label.contract.ts:6:30: a string's length counts UTF-16 code units, which is not modeled: compare with `""` to ask whether it is empty, or move it into a function the spec declares with `assume`
+    unsupported     unnamedWhenEmpty  (0 ms)
+                    src/label.contract.ts:6:61: operator == is not modeled: write `===` (and `x === null || x === undefined` for a nullish check)
 src/largest.ts
   largest
     proved          noneLarger  (22 ms)
@@ -168,8 +168,8 @@ stands in the way:
 ### `unsupported`
 
 The law uses something the verifier does not read, at the place given, and the reason says what to write instead.
-`label.length` counts UTF-16 code units, which the model of strings does not; `label !== ""` asks what `neverEmpty`
-already asks. [What it reads](reads.md) lists every refusal and its fix.
+`==` converts its operands before it compares them, which is not modeled; `label === "(unnamed)"` asks what
+`unnamedWhenEmpty` means. [What it reads](reads.md) lists every refusal and its fix.
 
 ### `not verified`
 

@@ -35,7 +35,7 @@ import { type ContractSource, type Project, readContract, unwrap } from "./proje
 import { symbolicOf } from "./symbolic.ts"
 import { PURITY_TRUSTS, readAssumptions, type Trusted } from "./trust.ts"
 import { Universe } from "./universe.ts"
-import { type Ctx, type FunctionNode, Unsupported, type Val, locate } from "./value.ts"
+import { type Ctx, type FunctionNode, Unsupported, type Val, fromZ3String, jsString, locate } from "./value.ts"
 
 /** The adapters every verification reads with, in the order they are asked. */
 export const ADAPTERS: ReadonlyArray<Adapter> = [effectAdapter, asyncAdapter, tsAdapter]
@@ -527,7 +527,7 @@ export const judge = async (
   if (source.kind === "function" && proof.result.kind === "str" && literals.length > 0)
     for (const t of literals) {
       const value = t.value
-      const is = (side: Lowered) => strictEq(side.u, side.result, { kind: "str", term: z3.String.val(value) }, side.fn)
+      const is = (side: Lowered) => strictEq(side.u, side.result, { kind: "str", term: jsString(z3, value) }, side.fn)
       const found = await solve(search, [search.pre, is(search)], opts)
       let c: CoverResult
       if (found.status === "sat") c = { value, status: "reachable", ...found.witness }
@@ -691,7 +691,7 @@ const trustedOf = (trust: Trust): Array<Trusted> =>
  */
 const outcomesOf = (project: Project, side: Lowered): Array<readonly [string, (s: Lowered) => Bool]> => {
   const field = (v: Val, n: string): Val | undefined => (v.kind === "record" ? v.field(n) : undefined)
-  const tagIs = (v: Val | undefined, t: string, z3: Ctx): Bool => (v?.kind === "str" ? v.term.eq(z3.String.val(t)) : z3.Bool.val(false))
+  const tagIs = (v: Val | undefined, t: string, z3: Ctx): Bool => (v?.kind === "str" ? v.term.eq(jsString(z3, t)) : z3.Bool.val(false))
   const sig = project.checker.getTypeAtLocation(side.source.target).getCallSignatures()[0]
   const returns = sig?.getReturnType()
   const op = returns === undefined ? undefined : side.L.adapters.map((a) => a.operation?.(side.L, returns)).find((x) => x !== undefined)
@@ -783,7 +783,7 @@ const madeCalls = (side: Lowered, model: Model): ReadonlySet<string> | undefined
     const root = call.kind === "record" ? call.field("~root") : undefined
     if (root?.kind !== "str") continue
     const name = model.eval(root.term, true)
-    if (u.z3.isString(name)) made.add(name.asString())
+    if (u.z3.isString(name)) made.add(fromZ3String(name.asString()))
   }
   return made
 }
@@ -849,6 +849,8 @@ const valueOf = (u: Universe, want: unknown): Val => {
 /** A Z3 context to verify many contracts with, and how to let it go: a test opens one before its cases and closes it after. */
 export const openZ3 = async (): Promise<{ readonly z3: Ctx; readonly close: () => Promise<void> }> => {
   const api = await init()
+  // A character of Z3's strings is 16 bits, a UTF-16 code unit, so a string is JavaScript's (`jsString`).
+  api.setParam("encoding", "bmp")
   return { z3: api.Context("main"), close: async () => await killThreads(api.em) }
 }
 

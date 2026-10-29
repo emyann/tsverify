@@ -21,4 +21,3 @@ export const bigintDivision = contract((x: bigint) => x / 2n, { ensures: { holds
 
 export const elementAccess = contract((xs: ReadonlyArray<string>) => xs[0] === "a", { ensures: { holds } })
 export const global = contract((x: number) => Math.max(x, 0) > 0, { ensures: { holds } })
-export const stringLength = contract((s: string) => s.length > 0, { ensures: { holds } })

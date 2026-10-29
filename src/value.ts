@@ -9,6 +9,26 @@ import ts from "typescript"
 import type { Arith, Bool, Context, Seq } from "z3-solver"
 
 export type Ctx = Context
+
+/**
+ * A JavaScript string as Z3 holds it. Z3 runs with the `bmp` encoding (`openZ3`), so a character is 16 bits, and a
+ * string is the sequence of UTF-16 code units JavaScript's is: one character per code unit, a lone surrogate included,
+ * and `.length` is Z3's length. Each code unit outside printable ASCII, and the backslash, is written in Z3's own escape,
+ * `\u{…}`; a string handed to Z3 otherwise is read as its UTF-8 bytes.
+ */
+export const jsString = (z3: Ctx, s: string): Seq => {
+  let text = ""
+  for (let i = 0; i < s.length; i++) {
+    const unit = s.charCodeAt(i)
+    text += unit >= 0x20 && unit <= 0x7e && unit !== 0x5c ? s.charAt(i) : `\\u{${unit.toString(16)}}`
+  }
+  return z3.String.val(text)
+}
+
+/** A string Z3 gives back (`asString()`), as JavaScript's: each `\u{…}` escape the code unit it names. */
+export const fromZ3String = (text: string): string =>
+  text.replace(/\\u\{([0-9a-fA-F]+)\}/g, (_, unit: string) => String.fromCharCode(Number.parseInt(unit, 16)))
+
 export type FunctionNode = ts.ArrowFunction | ts.FunctionExpression | ts.FunctionDeclaration
 
 /** A binding: evaluated the first time it is read, then kept. */

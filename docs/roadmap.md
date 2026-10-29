@@ -2,8 +2,8 @@
 
 In rough order:
 
-- Integer division (`/` and `%` on bigints, which truncate toward zero) and a string's `length` (its UTF-16 code units):
-  the first two refusals a new project's first spec met.
+- Integer division (`/` and `%` on bigints, which truncate toward zero): the first refusal a new project's first spec
+  met, with a string's `length`, which is read now.
 - A value read after a check of its tag, where it differs by path: a law that reads `calls.at(-1)` once it has checked
   `op === "put"`, when the last call is a `get` on one path and a `put` on another. Today a law reads a call at a place
   that holds the same operation on every path (`calls.at(1)`), and not `c.args[1]` inside

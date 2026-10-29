@@ -12,7 +12,7 @@ import type { Arith } from "z3-solver"
 import { operation } from "./computation.ts"
 import type { Lowering } from "./lower.ts"
 import { MAX_LENGTH, type Universe } from "./universe.ts"
-import { NUM, Unsupported, type Val, exactRational, lazyRecord, termId } from "./value.ts"
+import { NUM, Unsupported, type Val, exactRational, jsString, lazyRecord, termId } from "./value.ts"
 
 export interface Typing {
   readonly u: Universe
@@ -88,7 +88,7 @@ const present = (
   }
   if (all(F.StringLike)) {
     const term = u.leaf(leaf, "str", indices) as never as ReturnType<typeof z3.String.val>
-    if (members.every((m) => m.isStringLiteral())) u.assume(z3.Or(...members.map((m) => term.eq(z3.String.val(m.value)))), indices)
+    if (members.every((m) => m.isStringLiteral())) u.assume(z3.Or(...members.map((m) => term.eq(jsString(z3, m.value)))), indices)
     return { kind: "str", term }
   }
   if (all(F.NumberLike)) {

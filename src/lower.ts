@@ -25,8 +25,8 @@
 // modeled) and bigint `/` `%` (they truncate; Z3's do not), `==`, assignments
 // inside an expression, casts and non-null assertions (each is a claim the verifier would
 // have to trust), `any`, recursion, a binding it cannot see (a global,
-// an import from a package no adapter models), string length (code units), a
-// closure kept for later over a variable that changes.
+// an import from a package no adapter models), a closure kept for later over a
+// variable that changes.
 //
 // Reading a binding only when it is used means a binding the result does not
 // need is never checked. The code under verification is taken to throw nothing:
@@ -55,6 +55,7 @@ import {
   lazyRecord,
   memoElems,
   termId,
+  jsString,
 } from "./value.ts"
 
 /** What a verification trusts, shared by its two sides: the declarations in force, and what came of using them. */
@@ -287,7 +288,7 @@ export const lowerExpr = (L: Lowering, e: ts.Expression, env: Env): Val => {
   // Literals.
   if (ts.isBigIntLiteral(e)) return { kind: "int", origin: "bigint", term: z3.Int.val(BigInt(e.text.slice(0, -1).replaceAll("_", ""))) }
   if (ts.isNumericLiteral(e)) return num(z3, Number(e.text.replaceAll("_", "")))
-  if (ts.isStringLiteral(e) || ts.isNoSubstitutionTemplateLiteral(e)) return { kind: "str", term: z3.String.val(e.text) }
+  if (ts.isStringLiteral(e) || ts.isNoSubstitutionTemplateLiteral(e)) return { kind: "str", term: jsString(z3, e.text) }
   if (e.kind === K.TrueKeyword) return bool(z3.Bool.val(true))
   if (e.kind === K.FalseKeyword) return bool(z3.Bool.val(false))
   if (e.kind === K.NullKeyword) return { kind: "nullish", which: "null" }
@@ -358,7 +359,7 @@ const template = (L: Lowering, e: ts.TemplateExpression, env: Env): Val => {
   const known = key === undefined ? undefined : L.opaque.get(key)
   if (known !== undefined) return known
   const term = L.u.leaf([L.u.fresh("template"), "$"], "str", indices) as never as ReturnType<typeof z3.String.val>
-  if (text.length > 0) L.u.assume(z3.Not(term.eq(z3.String.val(""))), indices)
+  if (text.length > 0) L.u.assume(z3.Not(term.eq(jsString(z3, ""))), indices)
   const v: Val = { kind: "str", term }
   if (key !== undefined) L.opaque.set(key, v)
   L.u.notes.add("A template string is an unknown string of its parts: equal parts, equal strings; non-empty when its literal text is.")
@@ -512,11 +513,8 @@ export const member = (L: Lowering, obj: Val, name: string, at: ts.Node, objType
     throw new Unsupported(`no field \`${name}\` the verifier can read`, at)
   }
   if (obj.kind === "array" && name === "length") return { kind: "int", origin: "count", term: obj.length }
-  if (obj.kind === "str" && name === "length")
-    throw new Unsupported(
-      'a string\'s length counts UTF-16 code units, which is not modeled: compare with `""` to ask whether it is empty, or move it into a function the spec declares with `assume`',
-      at,
-    )
+  // UTF-16 code units, as JavaScript counts them: Z3's characters are code units (`jsString`).
+  if (obj.kind === "str" && name === "length") return { kind: "int", origin: "count", term: obj.term.length() }
   throw new Unsupported(`member \`${name}\` of a ${obj.kind} is not modeled`, at)
 }
 

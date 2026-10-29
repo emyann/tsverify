@@ -5,7 +5,7 @@
 // string's truthiness is its being non-empty.
 import type { Arith, Bool } from "z3-solver"
 import type { Universe } from "./universe.ts"
-import { NUM, Unsupported, type Val, lazyRecord, memoElems, termId } from "./value.ts"
+import { NUM, Unsupported, type Val, jsString, lazyRecord, memoElems, termId } from "./value.ts"
 import type ts from "typescript"
 
 /** A read of a value of type `unknown`, refused: it may be anything. */
@@ -42,7 +42,7 @@ export const truthy = (u: Universe, v: Val): Bool => {
     case "bool":
       return v.term
     case "str":
-      return z3.Not(v.term.eq(z3.String.val("")))
+      return z3.Not(v.term.eq(jsString(z3, "")))
     case "num":
       return z3.Or(z3.And(v.cls.eq(NUM.finite), z3.Not(v.real.eq(0))), v.cls.eq(NUM.posInf), v.cls.eq(NUM.negInf))
     case "int":

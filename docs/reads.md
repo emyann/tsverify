@@ -7,7 +7,8 @@ part as a harmless one.
 ## What it reads
 
 **Values and types.**
-- `boolean`, `string`, `bigint` (exact), `number` (see *Numbers*), `null` and `undefined`;
+- `boolean`, `string` (its UTF-16 code units, as JavaScript's: an emoji is two), `bigint` (exact), `number` (see
+  *Numbers*), `null` and `undefined`;
 - unions of literals (`"open" | "closed"`), optional fields, and values that may be missing (`T | undefined`);
 - records and arrays of any length, read lazily: a field becomes an unknown only when something reads it; a tuple the
   code builds, though not one it is given;
@@ -18,6 +19,7 @@ part as a harmless one.
 - `===`, `!==`, `<`, `<=`, `>`, `>=`, `!`, `&&`, `||`, `??`, `?:`, as JavaScript defines them, `NaN` and `-0` included;
 - `+`, `-` and `*` on bigints, `+` on strings, and template strings (an unknown string of their parts);
 - property access and optional chains, object and array literals, spreads;
+- a string's `.length`, in UTF-16 code units, as JavaScript counts them;
 - on arrays: `.length`, `.at(k)`, `.some`, `.every`, `.includes` (of a string, a boolean, a bigint or a count), `.find`,
   `.slice`, `.filter(p).length`, and a literal index on a tuple;
 - calls of the program's functions, read from source and inlined, by name or through a namespace import
@@ -51,7 +53,6 @@ Each refusal names the place, `file:line:column`, and the reason.
 | a `let` of the module, a global (`Math`) | a binding the verifier cannot see | a `const` or an argument, or a function declared with `assume` |
 | `xs[k]` on an array | its type says the element is there, which may be false | `xs.at(k)`, with a literal `k`, whose type says it may be missing |
 | an element at a computed index, `xs[i]` or `xs.at(i)` | not modeled | `.find`, `.some`, `.every`, or a `for…of` over the elements |
-| `s.length` on a string | it counts UTF-16 code units, which are not modeled | `s !== ""` for emptiness, or a function declared with `assume` |
 | `.includes(x)` of a `number` | it finds `NaN`, which `===` does not | `.some((y) => y === x)` |
 | a member of a value the type checker has not shown present | it may be missing | a check first, or `?.` |
 | recursion | not modeled | `assume(f, { pure: true, ensures })` |
