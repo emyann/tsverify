@@ -81,6 +81,26 @@ proof is modular: the program's orchestration is proved whatever the fold comput
 separate proof. Read here, the fold's loop would be one unknown in the program and another in the law, and the law could
 not be proved.
 
+## An HTTP API: Hono, with async and Effect handlers
+
+`examples/hono` is a users API in Hono: `GET /users/:id` and `PATCH /users/:id` with `{ "name": ... }`. A route only reads
+the request and writes the reply. What to answer is its handler's, a function of the store and the request's values that
+returns a status and a body, and the handlers are verified. The routes are not: they are Hono's API, `c.req` and
+`c.json`, which the verifier does not read, so they are kept to reading and writing and checked by running them.
+
+The handlers are written twice. `handlers.ts` holds async functions given the store as an interface; `handlers.effect.ts`
+holds Effect programs that require it as a service, and `app.effect.ts` runs them, turning the store's failure into a 503.
+Each takes its type from a spec in `handlers.spec.ts`, and the four specs hold the same laws, written once over the reply
+and the store's calls in `laws.ts`: an empty name is a 400 that touches nothing; the user asked for is read first; a user
+not found is a 404 and nothing is written; a 200 is the user read, renamed, written once and sent back as written; a store
+that fails ends the handler with that failure. `test/hono.test.ts` shows:
+- **All 16 laws are proved on both**, and a reply and the store's failure are both reachable.
+- **Three bugs planted in each are caught**: a name check against the wrong value, a rename that keeps the old name, a 404
+  for a user found.
+- **The two apps answer eight requests alike**, run through Hono against a store that keeps every call: a user found and
+  missing, a rename, an empty name, a body that is no name, and a store down on the read or on the write. The laws hold of
+  every run a handler made, read from the store's calls and the response.
+
 ## The other ways Effect is written
 
 `examples/account/effects.ts` holds four more programs over the same ledger, each written another way: `balanceOf`, a
