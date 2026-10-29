@@ -8,12 +8,19 @@ import type { Universe } from "./universe.ts"
 import { NUM, Unsupported, type Val, lazyRecord, memoElems, termId } from "./value.ts"
 import type ts from "typescript"
 
+/** A read of a value of type `unknown`, refused: it may be anything. */
+const refuseOpaque = (what: string, at?: ts.Node): never => {
+  throw new Unsupported(`${what} of a value of type \`unknown\` is not modeled; narrow its type first`, at)
+}
+
 const T = (u: Universe) => u.z3.Bool.val(true)
 const F = (u: Universe) => u.z3.Bool.val(false)
 
 /** The parts of a value that may be null or undefined: both flags, and the value present otherwise. */
 const parts = (u: Universe, v: Val): { isNull: Bool<"main">; isUndefined: Bool<"main">; value: Val | undefined } =>
-  v.kind === "maybe"
+  v.kind === "opaque"
+    ? refuseOpaque("whether it is null or undefined")
+    : v.kind === "maybe"
     ? v
     : v.kind === "nullish"
       ? { isNull: v.which === "null" ? T(u) : F(u), isUndefined: v.which === "undefined" ? T(u) : F(u), value: undefined }
@@ -47,6 +54,8 @@ export const truthy = (u: Universe, v: Val): Bool<"main"> => {
     case "builtin":
     case "comp":
       return T(u)
+    case "opaque":
+      return refuseOpaque("the truth")
   }
 }
 
@@ -93,6 +102,7 @@ const numCmp = (u: Universe, a: Num, b: Num, op: Order): Bool<"main"> =>
 /** `a === b`. Objects compare by identity, which the verifier does not model. */
 export const strictEq = (u: Universe, a: Val, b: Val, at: ts.Node): Bool<"main"> => {
   const z3 = u.z3
+  if (a.kind === "opaque" || b.kind === "opaque") return refuseOpaque("`===`", at)
   if (a.kind === "maybe" || b.kind === "maybe" || a.kind === "nullish" || b.kind === "nullish") {
     const pa = parts(u, a)
     const pb = parts(u, b)
@@ -127,6 +137,7 @@ const describe = (v: Val): string => (v.kind === "int" ? v.origin : v.kind)
 
 /** `a ?? b`. */
 export const nullishOr = (u: Universe, a: Val, b: () => Val, at: ts.Node): Val => {
+  if (a.kind === "opaque") return refuseOpaque("`??`", at)
   if (a.kind === "nullish") return b()
   if (a.kind !== "maybe") return a
   const rest = b()
@@ -138,6 +149,8 @@ export const ite = (u: Universe, c: Bool<"main">, a: Val, b: Val, at: ts.Node): 
   const z3 = u.z3
   if (a === b || z3.isTrue(c)) return a
   if (z3.isFalse(c)) return b
+  // What is known of one side is lost in the merge: nothing reads the merged value but to pass it along.
+  if (a.kind === "opaque" || b.kind === "opaque") return { kind: "opaque" }
   if (a.kind === "maybe" || b.kind === "maybe" || a.kind === "nullish" || b.kind === "nullish") {
     if (a.kind === "nullish" && b.kind === "nullish" && a.which === b.which) return a
     const pa = parts(u, a)

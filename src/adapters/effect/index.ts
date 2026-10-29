@@ -11,11 +11,13 @@
 // - `Effect.map`, `flatMap` (continue on success), `catch`, `catchTag` (handle
 //   a failure), each with its effect first or last; `x.pipe(f, g)` and
 //   `pipe(x, f, g)`, which apply each function to what the last one gave.
+// - `Effect.try` and `Effect.tryPromise`: code that may throw, not read; any
+//   value of its type, or what its `catch` makes of what was thrown.
 // - `Effect.fnUntraced`, read as `Effect.fn`.
 // - `new E(fields)` for a class built by `Schema.TaggedError` or
 //   `Data.TaggedError`: the record of its fields and its `_tag`.
 //
-// Pinned to effect 4.0.6. What it does not name (`Effect.try`, `forEach`,
+// Pinned to effect 4.0.6. What it does not name (`forEach`,
 // concurrency, resources, defects) is refused by the core where the code uses
 // it, naming the function.
 import ts from "typescript"
@@ -82,6 +84,43 @@ const caughtTag = (L: Lowering, self: Val, tag: Val, f: Val, at: ts.Node): Val =
 }
 const ranOf = (r: { readonly outcome: Val; readonly trace: Val }): Val =>
   lazyRecord((n) => (n === "outcome" ? r.outcome : n === "trace" ? r.trace : undefined))
+
+/**
+ * `Effect.try` and `Effect.tryPromise`: code the verifier does not read (it is there because it may throw), run anew each
+ * time the Effect runs. It succeeds with any value of its success type, or fails with what its `catch` makes of what
+ * was thrown, a value of type `unknown`; with no `catch`, with any value of its error type. Where `catch` reads what
+ * was thrown, its error is any value of its type too. It calls no operation: the trace does not record it.
+ */
+const tried = (L: Lowering, name: string, args: ReadonlyArray<Val>, at: ts.Node): Val => {
+  const [arg] = args
+  if (args.length !== 1 || arg === undefined) throw new Unsupported(`\`${name}\` of one argument, a function or \`{ try, catch }\``, at)
+  const types = effectAdapter.operation?.(L, L.checker.getTypeAtLocation(at))
+  if (types?.failure === undefined) throw new Unsupported(`\`${name}\` whose type is no Effect of a success and a failure`, at)
+  const handler = arg.kind === "record" ? arg.field("catch") : undefined
+  L.u.notes.add(`\`${name}\` is not read: it succeeds with any value of its type, or fails with what its \`catch\` makes of what was thrown.`)
+  return comp((trace) => {
+    const z3 = L.u.z3
+    const base = [L.u.fresh(name)]
+    const tag = L.u.leaf([...base, "._tag", "$"], "str", []) as never as ReturnType<typeof z3.String.val>
+    const canFail = !(types.failure!.flags & ts.TypeFlags.Never)
+    L.u.assume(canFail ? z3.Or(tag.eq(z3.String.val("Success")), tag.eq(z3.String.val("Failure"))) : tag.eq(z3.String.val("Success")))
+    const anyError = () => symbolicOf(L, types.failure!, [...base, ".error"], [], at)
+    const outcome = lazyRecord((n) => {
+      if (n === "_tag") return { kind: "str", term: tag }
+      if (n === "value") return symbolicOf(L, types.success, [...base, ".value"], [], at)
+      if (n !== "error") return undefined
+      if (handler === undefined) return anyError()
+      try {
+        return applyValue(L, handler, [{ kind: "opaque" }], at)
+      } catch (e) {
+        if (!(e instanceof Unsupported)) throw e
+        L.u.notes.add(`Where a \`catch\` reads what was thrown, its error is any value of its type.`)
+        return anyError()
+      }
+    })
+    return { outcome, trace }
+  })
+}
 
 /** A class whose `extends` is `Schema.TaggedError<...>()(tag, fields)` or `Data.TaggedError(tag)<...>`. */
 const isTaggedErrorClass = (checker: ts.TypeChecker, decl: ts.ClassDeclaration): boolean => {
@@ -184,6 +223,11 @@ export const effectAdapter: Adapter = {
           const [tag, f] = rest as [Val, Val]
           return self !== undefined ? caughtTag(L, self, tag, f, at) : builtin("Effect.catchTag(tag, f)", ([s], at2) => caughtTag(L, s!, tag, f, at2))
         })
+      case "Effect.try":
+      case "Effect.tryPromise": {
+        const name = effectName(L.checker, e)!
+        return builtin(name, (args, at) => tried(L, name, args, at))
+      }
       case "Effect.succeed":
         return { kind: "builtin", name: "Effect.succeed", call: ([v]) => comp((trace) => ({ outcome: success(L, v ?? { kind: "nullish", which: "undefined" }), trace })) }
       case "Effect.fail":

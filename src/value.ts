@@ -67,6 +67,11 @@ export type Val =
    * trace gives its outcome and the trace with its calls added; each run is a run of its own.
    */
   | { readonly kind: "comp"; readonly run: (trace: Val) => Ran }
+  /**
+   * A value of type `unknown`: passed along, stored, returned, never read. What would read it (a field, a comparison,
+   * its truth, `??`) is refused, since it may be anything, `undefined` included.
+   */
+  | { readonly kind: "opaque" }
 
 /** A computation's end: its outcome (`{ _tag: "Success", value } | { _tag: "Failure", error }`) and the trace after it. */
 export interface Ran {
@@ -180,6 +185,7 @@ export const identity = (v: Val): string | undefined => {
     case "fn":
     case "builtin":
     case "comp":
+    case "opaque":
       return undefined
   }
 }

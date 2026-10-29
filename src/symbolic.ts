@@ -37,6 +37,8 @@ export const symbolicOf = (
   const { u } = t
   const z3 = u.z3
   const members = membersOf(type)
+  // `unknown` (or a union it absorbed, or a field marked optional on it): a value passed along, never read.
+  if (members.some((m) => m.flags & F.Unknown)) return { kind: "opaque" }
   const canNull = members.some((m) => m.flags & F.Null)
   const canUndefined = optional || members.some((m) => m.flags & (F.Undefined | F.Void))
   const rest = members.filter((m) => !(m.flags & (F.Null | F.Undefined | F.Void)))
@@ -144,7 +146,7 @@ const present = (
       return present(t, [primitive], segments, indices, at, path)
     }
   }
-  if (type.flags & (F.Any | F.Unknown | F.Never)) throw new Unsupported(`${path}: type ${checker.typeToString(type)} is not modeled`, at)
+  if (type.flags & (F.Any | F.Never)) throw new Unsupported(`${path}: type ${checker.typeToString(type)} is not modeled`, at)
   if (checker.isTupleType(type)) throw new Unsupported(`${path}: tuples are not modeled`, at)
   if (checker.isArrayType(type)) {
     const element = checker.getTypeArguments(type as ts.TypeReference)[0]
