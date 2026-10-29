@@ -16,14 +16,12 @@ You write a spec in plain TypeScript: a function's type, and the laws it must ke
 as they are, and asks the [Z3](https://github.com/Z3Prover/z3) solver, for each law, whether any input breaks it. The
 answer is a proof, or that input.
 
-```mermaid
-flowchart LR
-  spec["<b>Spec</b><br/>a type and its laws"] --> tsverify
-  code["<b>Your code</b><br/>typed by the spec"] --> tsverify
-  tsverify["<b>tsverify</b><br/>reads both, and asks Z3:<br/>does any input break a law?"]
-  tsverify -->|no| proved["<b>proved</b><br/>for every input"]
-  tsverify -->|yes| counterexample["<b>counterexample</b><br/>an input your real code breaks on"]
-```
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="media/flow-dark.svg">
+    <img src="media/flow-light.svg" width="100%" alt="Your spec and your code go into tsverify, which asks Z3 whether any input breaks a law: if none does, the law is proved for every input; if one does, you get that input, a counterexample your real code fails on.">
+  </picture>
+</p>
 
 <!-- file: src/shipping.contract.ts -->
 ```ts
