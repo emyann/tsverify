@@ -1,0 +1,108 @@
+# tsverify's check, on clean runners: the suite on each Node it claims, the lint and the types once, and one job, `ci`, that says
+# whether all of them passed.
+name: ci
+
+# A pull request is tested by pull_request, which runs a fork's code against a token that can only read.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# Nothing here writes to the repository: the token reads the code and no more.
+permissions:
+  contents: read
+
+# A superseded run of a branch is cancelled, but every push to main keeps its run to its end: the gate reads a cancelled job as a
+# failure, so cancelling main's run would leave a commit red without having been tested.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+# Every job, and every step that reaches the network, carries a timeout of its own: without one GitHub waits 360 minutes. A step's
+# bound stays under its job's, or the job's fires first and names no step.
+jobs:
+  test:
+    name: test on node ${{ matrix.node }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      # Every leg runs: a failure on one Node says nothing about the other.
+      fail-fast: false
+      matrix:
+        # Quoted, both: YAML reads 24.16 as a number. 24.16.0 is the floor engines.node claims; 24 is its line's latest.
+        node: ['24.16.0', '24']
+    steps:
+      - uses: actions/checkout@v7
+        timeout-minutes: 5
+      - uses: actions/setup-node@v7
+        timeout-minutes: 5
+        # No npm cache: the lockfile's own install is part of what is under test.
+        with:
+          node-version: ${{ matrix.node }}
+      - run: npm ci
+        timeout-minutes: 10
+      # The suite builds the package too: test/install.test.ts packs it (`npm pack`, whose prepack builds dist/) and installs the
+      # tarball into a project of its own, from the registry, so a broken build fails here.
+      - run: npm test
+        timeout-minutes: 15
+
+  lint:
+    # Once, on the floor: the linter's verdict does not differ by Node.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        timeout-minutes: 5
+      - uses: actions/setup-node@v7
+        timeout-minutes: 5
+        with:
+          node-version: '24.16.0'
+      - run: npm ci
+        timeout-minutes: 10
+      - run: npm run lint
+
+  typecheck:
+    # Once, on the floor: tsc reads the repository's TypeScript, not the runtime's.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        timeout-minutes: 5
+      - uses: actions/setup-node@v7
+        timeout-minutes: 5
+        with:
+          node-version: '24.16.0'
+      - run: npm ci
+        timeout-minutes: 10
+      - run: npm run typecheck
+
+  # The one context a branch protection would require. It needs every other job, so the protection never changes as jobs are added,
+  # and always() makes it run even when one of them fails, is skipped or is cancelled, each of which it reads as a failure.
+  ci:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: always()
+    needs: [test, lint, typecheck]
+    steps:
+      - name: Every job succeeded
+        # toJSON(needs) goes through env, never into the shell's text: on a pull request from a fork, what the branch controls must not
+        # reach a command line.
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        # A whitelist: every result must read success. A state nobody foresaw, and a RESULTS that arrives empty, are failures too.
+        run: |
+          echo "$RESULTS"
+          results=$(printf '%s' "$RESULTS" | grep -o '"result": *"[^"]*"' | sed 's/^"result": *"//; s/"$//')
+          if [ -z "$results" ]; then
+            echo "ci: read no job result out of needs, so nothing was checked: list every job in the ci job's needs." >&2
+            exit 1
+          fi
+          for result in $results; do
+            if [ "$result" != success ]; then
+              echo "ci: a job above ended $result, not success. Open this run's summary, read that job's log, and fix what it names;" >&2
+              echo "ci: a cancelled or skipped job is a failure too: re-run the workflow once its cause is gone." >&2
+              exit 1
+            fi
+          done
+          echo "ci: every job above succeeded."
