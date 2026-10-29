@@ -91,6 +91,18 @@ src/shipping.ts
 found on an exact model of JavaScript, so your real code breaks on it. The command exits 1, so a CI step, or a coding
 agent, knows the work is not done.
 
+## A spec, part by part
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="media/anatomy-dark.svg">
+    <img src="media/anatomy-light.svg" width="100%" alt="A spec, part by part: spec of the function type (total: number) =&gt; number; requires, what every caller promises; ensures, the laws by name, each given the arguments and then the result, true for every input; and its type, which the code takes as Implementation of ShippingSpec.">
+  </picture>
+</p>
+
+That is all there is to it: a law is a function that returns `true`, typed from the function, so its parameters need no
+annotation. A law about async code also gets how the call ended and the calls it made ([below](#laws-about-what-code-did)).
+
 ## Why tsverify
 
 - **Every input, not a sample.** A unit test checks the inputs you wrote down, and a property test checks a few

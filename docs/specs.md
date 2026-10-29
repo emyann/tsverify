@@ -7,11 +7,19 @@ code takes the spec as its type, so a spec is also where the code's signature co
 
 `spec<F>({ requires?, ensures })`, from `tsverify`, takes the function's type as `F`.
 
-- **`ensures`** holds the laws, each named for what it says: the report gives each its own line. A law of a pure function
-  is `(...args, result) => boolean`, typed from `F`, so its parameters need no annotation.
-- **`requires`** is what a caller promises, `(...args) => boolean`. The laws are checked only on the inputs that meet it.
-- **Its type**, `export type StatusSpec = typeof statusSpec`, goes beside it, and is all the code imports: it is typed
-  `Implementation<StatusSpec>`. `Implementation<typeof statusSpec>` is the same without the line, the spec exported.
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="../media/anatomy-dark.svg">
+    <img src="../media/anatomy-light.svg" width="100%" alt="A spec, part by part: spec of the function type (total: number) =&gt; number; requires, what every caller promises; ensures, the laws by name, each given the arguments and then the result, true for every input; and its type, which the code takes as Implementation of ShippingSpec.">
+  </picture>
+</p>
+
+| Part | What it is |
+| --- | --- |
+| `F`, in `spec<F>` | The function's type: what it takes, and what it returns. The code gets it as its type. |
+| `requires` | What every caller promises, `(...args) => boolean`. The laws are checked only on the inputs that meet it. It may be left out. |
+| `ensures` | The laws, each named for what it says: the report gives each its own line. A law of a pure function is `(...args, result) => boolean`, typed from `F`, so its parameters need no annotation. A law of async code is `(...args, outcome, calls) => boolean` (*Async code*, below). |
+| `export type StatusSpec = typeof statusSpec` | The spec's type, and all the code imports: it is typed `Implementation<StatusSpec>`, which is `F`. `Implementation<typeof statusSpec>` is the same without the line, the spec exported. |
 
 A parcel's status, from a record with two dates that may be missing:
 
