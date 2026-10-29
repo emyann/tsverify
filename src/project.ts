@@ -276,9 +276,11 @@ const targetOf = (checker: ts.TypeChecker, e: ts.Expression): ts.Node => {
 export const functionOf = (checker: ts.TypeChecker, e: ts.Expression): FunctionNode => {
   const x = unwrap(e)
   if (ts.isArrowFunction(x) || ts.isFunctionExpression(x)) return x
-  if (ts.isIdentifier(x)) {
+  // A name, or a member of a namespace import (`laws.readsFirst`, from `import * as laws`).
+  const name = ts.isIdentifier(x) ? x : ts.isPropertyAccessExpression(x) && ts.isIdentifier(x.expression) ? x.name : undefined
+  if (name !== undefined) {
     // In `{ requires }` the name is the property's; the binding it reads is the shorthand's value symbol.
-    let sym = ts.isShorthandPropertyAssignment(x.parent) ? checker.getShorthandAssignmentValueSymbol(x.parent) : checker.getSymbolAtLocation(x)
+    let sym = ts.isShorthandPropertyAssignment(name.parent) ? checker.getShorthandAssignmentValueSymbol(name.parent) : checker.getSymbolAtLocation(name)
     if (sym !== undefined && sym.flags & ts.SymbolFlags.Alias) sym = checker.getAliasedSymbol(sym)
     const decl = sym?.valueDeclaration
     if (decl !== undefined && ts.isFunctionDeclaration(decl) && decl.body !== undefined) return decl

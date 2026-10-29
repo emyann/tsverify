@@ -236,6 +236,9 @@ const readPlace = (L: Lowering, st: State, p: Place): Val => {
     if (s.kind === "field") {
       if (v.kind !== "record") throw new Unsupported(`\`${p.text}\`: a field of a ${v.kind}`)
       v = v.field(s.name) ?? UNDEFINED
+    } else if (v.kind === "record" && L.u.z3.isIntVal(s.index)) {
+      // A tuple's element at a literal index (a call's `args[0]`): its field.
+      v = v.field(String(s.index.value())) ?? UNDEFINED
     } else {
       if (v.kind !== "array") throw new Unsupported(`\`${p.text}\`: an element of a ${v.kind}`)
       v = v.elem(s.index)

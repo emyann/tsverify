@@ -355,6 +355,27 @@ export const num = (z3: Lowering["u"]["z3"], n: number): Val => ({
 const identifier = (L: Lowering, e: ts.Identifier, env: Env): Val => {
   const bound = env.get(e.text)
   if (bound !== undefined) return bound()
+  return named(L, e)
+}
+
+/**
+ * `ns.f` where `ns` is a namespace import of one of the program's modules (`import * as laws from "./laws.ts"`): the
+ * member `f`, read as its name would be. `undefined` for anything else, a package's namespace among them.
+ */
+const namespaceMember = (L: Lowering, e: ts.PropertyAccessExpression, env: Env): Val | undefined => {
+  const ns = e.expression
+  if (!ts.isIdentifier(ns) || env.has(ns.text)) return undefined
+  const sym = L.checker.getSymbolAtLocation(ns)
+  if (sym === undefined || (sym.flags & ts.SymbolFlags.Alias) === 0) return undefined
+  const target = L.checker.getAliasedSymbol(sym)
+  const module = target.valueDeclaration ?? target.declarations?.[0]
+  if ((target.flags & ts.SymbolFlags.ValueModule) === 0 || module === undefined || !ts.isSourceFile(module) || module.isDeclarationFile) return undefined
+  if (module.fileName.includes("/node_modules/")) return undefined
+  return ts.isIdentifier(e.name) ? named(L, e.name) : undefined
+}
+
+/** What a name the code does not bind refers to, by its declaration: a module's function or constant, or a declaration's. */
+const named = (L: Lowering, e: ts.Identifier): Val => {
   let sym = L.checker.getSymbolAtLocation(e)
   const imported = sym !== undefined && (sym.flags & ts.SymbolFlags.Alias) !== 0
   if (sym !== undefined && sym.flags & ts.SymbolFlags.Alias) sym = L.checker.getAliasedSymbol(sym)
@@ -394,6 +415,8 @@ const isModuleConst = (d: ts.VariableDeclaration): boolean =>
 const inChain = (e: ts.Node): boolean => (e.flags & ts.NodeFlags.OptionalChain) !== 0
 
 const propertyAccess = (L: Lowering, e: ts.PropertyAccessExpression, env: Env): Val => {
+  const fromNamespace = namespaceMember(L, e, env)
+  if (fromNamespace !== undefined) return fromNamespace
   const t = L.checker.getTypeAtLocation(e.expression)
   if (t.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) throw new Unsupported("a property of an `any` or `unknown`", e)
   const obj = lowerExpr(L, e.expression, env)
@@ -453,6 +476,8 @@ const call = (L: Lowering, e: ts.CallExpression, env: Env): Val => {
     }
     const declared = L.trust.assumptions.of(callee)
     if (declared !== undefined) return callValue(L, assumedFn(L, declared), e, env)
+    const fromNamespace = namespaceMember(L, callee, env)
+    if (fromNamespace !== undefined) return callValue(L, fromNamespace, e, env)
     const receiver = lowerExpr(L, callee.expression, env)
     return optionally(L, receiver, callee, callee.expression, (r) => {
       if (r.kind === "array") return arrayMethod(L, r, callee.name.text, e, env)

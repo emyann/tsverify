@@ -20,7 +20,9 @@ part as a harmless one.
 - property access and optional chains, object and array literals, spreads;
 - on arrays: `.length`, `.at(k)`, `.some`, `.every`, `.includes` (of a string, a boolean, a bigint or a count), `.find`,
   `.slice`, `.filter(p).length`, and a literal index on a tuple;
-- calls of the program's functions, read from source and inlined, and of functions a declaration covers.
+- calls of the program's functions, read from source and inlined, by name or through a namespace import
+  (`laws.readsFirst`, from `import * as laws`), and of functions a declaration covers;
+- a tuple's element at a literal index, a call's `args[0]` among them.
 
 **Statements.** `const` and `let`, assignment and compound assignment, `if` with early returns, `switch` with
 fallthrough, `for…of`, `for` and `while`, `delete`, `push`, and changes to what the function allocated, read as Rust's
