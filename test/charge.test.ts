@@ -1,0 +1,72 @@
+// A spec written before the code (examples/charge): the implementation takes the
+// spec as its type, `Implementation<typeof ChargeSpec>`, through a type-only
+// import, so nothing of the spec runs. The verifier finds the spec from that
+// type and proves its laws; a wrong body is refuted with an input the real code
+// breaks on; a wrong signature does not type-check; and a type that names no
+// spec is refused.
+import assert from "node:assert/strict"
+import { readFileSync, rmSync, writeFileSync } from "node:fs"
+import path from "node:path"
+import { after, before, describe, it } from "node:test"
+import { pathToFileURL } from "node:url"
+import ts from "typescript"
+import { ChargeSpec } from "../examples/charge/charge.spec.ts"
+import { diagnostics, loadProject } from "../src/project.ts"
+import type { Ctx } from "../src/value.ts"
+import { openZ3, type Verification, verify } from "../src/verify.ts"
+
+const root = path.resolve(import.meta.dirname, "..")
+const source = path.join(root, "examples/charge/charge.ts")
+const tsconfig = path.join(root, "tsconfig.json")
+const statuses = (v: Verification) => Object.fromEntries(v.laws.map((l) => [l.name, l.status]))
+const withBody = (body: string) => readFileSync(source, "utf8").replace("(amount > balance ? 0n : balance - amount)", body)
+
+let z3: Ctx
+let close: () => Promise<void>
+before(async () => {
+  ;({ z3, close } = await openZ3())
+})
+after(() => close())
+
+describe("charge, written against its spec", () => {
+  it("type-checks, and nothing of the spec is left in what runs", () => {
+    assert.deepEqual(diagnostics(loadProject([source], tsconfig), source), [])
+    const js = ts.transpileModule(readFileSync(source, "utf8"), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText
+    assert.doesNotMatch(js, /import|charge\.spec|tsverify/)
+  })
+
+  it("is proved: the verifier finds the spec from the implementation's type", async () => {
+    const v = await verify(z3, loadProject([source], tsconfig), source, "charge")
+    assert.equal(v.unsupported, undefined)
+    assert.deepEqual(statuses(v), { neverNegative: "proved", takesWhatItCan: "proved" })
+  })
+
+  it("a body that type-checks and is wrong is refuted, on an input the real code breaks on", async () => {
+    const text = withBody("0n")
+    const project = loadProject([source], tsconfig, new Map([[source, text]]))
+    assert.deepEqual(diagnostics(project, source), [])
+    const v = await verify(z3, project, source, "charge")
+    const law = v.laws.find((l) => l.name === "takesWhatItCan")!
+    assert.equal(law.status, "counterexample", JSON.stringify(statuses(v)))
+    const planted = source.replace(/\.ts$/, ".planted.ts")
+    writeFileSync(planted, text)
+    try {
+      const { charge } = (await import(pathToFileURL(planted).href)) as { charge: (b: bigint, a: bigint) => bigint }
+      const [balance, amount] = law.args as [bigint, bigint]
+      assert.equal(ChargeSpec.ensures.takesWhatItCan!(balance, amount, charge(balance, amount)), false)
+    } finally {
+      rmSync(planted)
+    }
+  })
+
+  it("a body of the wrong type does not type-check: the spec's type is the implementation's", () => {
+    const project = loadProject([source], tsconfig, new Map([[source, withBody('"none"')]]))
+    assert.ok(diagnostics(project, source).length > 0)
+  })
+
+  it("a type that names no spec is refused, saying what it takes", async () => {
+    const text = `import type { Implementation } from "tsverify"\nconst notASpec = { "~fn": (x: bigint) => x }\nexport const f: Implementation<typeof notASpec> = (x) => x\n`
+    const v = await verify(z3, loadProject([source], tsconfig, new Map([[source, text]])), source, "f")
+    assert.match(v.unsupported ?? "", /`notASpec` is no spec: write `export const notASpec = spec<F>\(\{ \.\.\. \}\)`/)
+  })
+})

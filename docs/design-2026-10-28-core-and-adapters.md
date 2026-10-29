@@ -4,8 +4,9 @@
 withdrawal example needs, and the proof below holds (`test/withdraw.test.ts`). Spec, proof and exec modes and
 declarations of unread functions are built, after Verus (*Modes and trust*, *Proof mode*), and the Effect forms
 `Effect.gen`, `pipe`, `map`, `flatMap`, `catch`, `catchTag`, `sync`, `try` and `tryPromise`. In the core, a computation's
-body runs loops of steps and steps inside expressions, whether a generator or an async function marks them. Operation
-contracts, a loop of steps read through invariants, and concurrency are not.
+body runs loops of steps and steps inside expressions, whether a generator or an async function marks them. A spec is
+written before the code and is its type (*Spec first*). Operation contracts, a loop of steps read through invariants,
+and concurrency are not.
 
 ## The answer in one paragraph
 
@@ -148,12 +149,35 @@ Taken as is:
 
 A construct here is refused, never read as true.
 
-## The proof of the design: a withdrawal and its async twin
+## Spec first
 
-`examples/account/withdraw.ts`, an Effect program:
+A spec is written before the code, and the code takes it as its type:
 
 ```ts
-export const withdraw = Effect.fn("withdraw")(function* (accountId: string, id: string, amount: bigint) {
+// charge.spec.ts
+export const ChargeSpec = spec<(balance: bigint, amount: bigint) => bigint>({ requires, ensures: { ... } })
+
+// charge.ts: a type-only import, erased, so nothing of the spec runs
+import type { ChargeSpec } from "./charge.spec.ts"
+export const charge: Implementation<typeof ChargeSpec> = (balance, amount) => ...
+```
+
+- **The link is the type.** The verifier reads `Implementation<typeof S>` on a declaration, resolves `S` to its
+  `spec<F>({ ... })` and reads the laws written there. `tsc` checks that the code has type `F`: for an Effect program,
+  that it fails with no error and requires no service the spec does not declare.
+- **The laws are typed from `F`.** `(args..., result)` for a pure function; `(args..., outcome, calls)` for an async
+  one, the calls those of its arguments' methods that return a promise; for an Effect program (`spec` from
+  `tsverify/effect`), those of the services in the Effect's requirements, read from each service's `Service` shape.
+- **Code that exists keeps the other link.** A `function` declaration takes no type, and some code is not yours: for
+  those, `contract(fn, …)` and `computation<Ops>()(fn, …)` name the function from the spec, as Verus's
+  `assume_specification` names code it does not own.
+
+## The proof of the design: a withdrawal and its async twin
+
+`examples/account/withdraw.ts`, an Effect program, typed by `WithdrawSpec` (`withdraw.spec.ts`):
+
+```ts
+export const withdraw: Implementation<typeof WithdrawSpec> = Effect.fn("withdraw")(function* (accountId: string, id: string, amount: bigint) {
   const ledger = yield* Ledger
   const entries = yield* ledger.read(accountId)
   const refused = withdrawalRefusalOf(accountOf(entries), amount)
@@ -162,10 +186,10 @@ export const withdraw = Effect.fn("withdraw")(function* (accountId: string, id: 
 })
 ```
 
-Its twin in plain TypeScript, `examples/account/withdraw.async.ts`:
+Its twin in plain TypeScript, `examples/account/withdraw.async.ts`, typed by `AsyncWithdrawSpec`:
 
 ```ts
-export const withdraw = async (ledger: LedgerPort, accountId: string, id: string, amount: bigint): Promise<void> => {
+export const withdraw: Implementation<typeof AsyncWithdrawSpec> = async (ledger, accountId, id, amount) => {
   const entries = await ledger.read(accountId)
   const refused = withdrawalRefusalOf(accountOf(entries), amount)
   if (refused) throw new WithdrawalRefused(refused)
@@ -255,8 +279,8 @@ solver. Verus has `&mut` from the language; here the lowering refuses what Rust'
 ## Open questions for the owner
 
 1. **Proof hints in the code.** Settled: typed no-op calls, checked by `tsc`.
-2. **Laws over the trace.** As shown, laws filter `calls` by `op` name. A typed helper per operation set (`calls.of(journal)`)
-   would make a misspelt op a type error.
+2. **Laws over the trace.** As shown, laws filter `calls` by `op` name. Typed from the spec, a misspelt op is already a
+   type error (`c.op === "reed"` compares a union of the real names with a string none of them is).
 3. **The name.** Settled: `tsverify`.
 4. **Where a loop's invariants live.** Mostly nowhere: a `for…of` loop with none written gets each law, restated for
    the elements gone through, as a guess, and keeps those proved on entry and kept (Houdini's way). The account fold and

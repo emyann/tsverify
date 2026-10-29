@@ -1,12 +1,13 @@
 #!/usr/bin/env node
 // tsverify [<file or folder>...] [--project tsconfig.json] [--bound 4] [--timeout 10000] [--verbose]
-//   Verifies every contract each file exports, and every `*.spec.ts` under each folder (the current one by default),
-//   a line per law, then a total. Exits 1 unless every law is proved and says something of its function, and every
+//   Verifies every contract each file exports: every implementation of a spec (`const f: Implementation<typeof S>`),
+//   and every `contract`, computation and lemma of a `*.spec.ts`, in each folder (the current one by default), a line
+//   per law, then a total. Exits 1 unless every law is proved and says something of its function, and every
 //   obligation of the proof code is proved.
 // tsverify <spec.ts> <export>
 //   Verifies one contract, with everything the verification knows: the states its result reaches, what it trusted
 //   and what it assumed.
-import { existsSync, readdirSync, statSync } from "node:fs"
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs"
 import path from "node:path"
 import ts from "typescript"
 import { contractsIn, loadProject } from "./project.ts"
@@ -38,12 +39,16 @@ const tsconfigOf = (file: string): string => {
   return found
 }
 
-/** Every `*.spec.ts` under `dir`, outside `node_modules` and dot folders. */
-const specsUnder = (dir: string): Array<string> =>
+/**
+ * Every file under `dir` that may hold a contract, outside `node_modules` and dot folders: a `*.spec.ts`, and a
+ * TypeScript file that names `Implementation<`, whose program is then read to know.
+ */
+const contractFilesUnder = (dir: string): Array<string> =>
   readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
     const p = path.join(dir, e.name)
-    if (e.isDirectory()) return e.name === "node_modules" || e.name.startsWith(".") ? [] : specsUnder(p)
-    return e.isFile() && e.name.endsWith(".spec.ts") ? [p] : []
+    if (e.isDirectory()) return e.name === "node_modules" || e.name.startsWith(".") ? [] : contractFilesUnder(p)
+    if (!e.isFile() || !/\.tsx?$/.test(e.name) || e.name.endsWith(".d.ts")) return []
+    return e.name.endsWith(".spec.ts") || readFileSync(p, "utf8").includes("Implementation<") ? [p] : []
   })
 
 const show = (x: unknown) => JSON.stringify(x, (_, v) => (typeof v === "bigint" ? `${v}n` : typeof v === "number" && !Number.isFinite(v) ? String(v) : v))
@@ -107,19 +112,21 @@ const files = (positional.length === 0 ? ["."] : positional).flatMap((p) => {
     console.error(`${p}: no such file or folder\n${USAGE}`)
     process.exit(2)
   }
-  return statSync(p).isDirectory() ? specsUnder(path.resolve(p)) : [path.resolve(p)]
+  return statSync(p).isDirectory() ? contractFilesUnder(path.resolve(p)) : [path.resolve(p)]
 })
 if (files.length === 0) {
-  console.error(`no *.spec.ts found under ${positional.join(", ") || "."}: name a file, or a folder that holds one\n${USAGE}`)
+  console.error(`no spec or implementation found under ${positional.join(", ") || "."}: name a file, or a folder that holds one\n${USAGE}`)
   process.exit(2)
 }
 
 const verdicts: Array<Verification> = []
+let filesRead = 0
 await withZ3(async (z3) => {
   for (const file of files.sort()) {
-    // Each file is its own program: the declarations one spec imports are in force for it alone.
+    // Each file is its own program: the declarations it imports (an implementation, through its spec) are in force for it alone.
     const names = contractsIn(loadProject([file], tsconfigOf(file)), file)
     if (names.length === 0) continue
+    filesRead++
     console.log(rel(file))
     for (const name of names) verdicts.push(await one(z3, file, name, "  ", verbose))
   }
@@ -134,7 +141,7 @@ const laws = verdicts.flatMap((v) => v.laws)
 const obligations = verdicts.flatMap((v) => v.obligations)
 const unread = verdicts.filter((v) => v.unsupported !== undefined).length
 console.log(
-  `\n${plural(verdicts.length, "contract")} in ${plural(new Set(files).size, "file")}: laws ${count(laws, (l) => l.status) || "none"}` +
+  `\n${plural(verdicts.length, "contract")} in ${plural(filesRead, "file")}: laws ${count(laws, (l) => l.status) || "none"}` +
     (obligations.length > 0 ? `; obligations ${count(obligations, (o) => o.status)}` : "") +
     (unread > 0 ? `; ${unread} not verified` : ""),
 )

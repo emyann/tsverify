@@ -93,15 +93,53 @@ const contractKind = (checker: ts.TypeChecker, init: ts.Expression): ContractSou
   return undefined
 }
 
-/** The names of every contract `file` exports (`export const x = contract(...)`, a computation's, a lemma), in order. */
+/**
+ * The names of every contract `file` exports, in order: a spec's implementation (`export const f: Implementation<typeof
+ * S> = ...`), a `contract(...)`, a computation's, a lemma.
+ */
 export const contractsIn = (project: Project, file: string): Array<string> =>
   sourceFile(project, file).statements.flatMap((stmt) =>
     ts.isVariableStatement(stmt) && stmt.modifiers?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword)
       ? stmt.declarationList.declarations.flatMap((d) =>
-          ts.isIdentifier(d.name) && d.initializer !== undefined && contractKind(project.checker, unwrap(d.initializer)) !== undefined ? [d.name.text] : [],
+          ts.isIdentifier(d.name) &&
+          d.initializer !== undefined &&
+          (isImplementation(project.checker, d) || contractKind(project.checker, unwrap(d.initializer)) !== undefined)
+            ? [d.name.text]
+            : [],
         )
       : [],
   )
+
+/** Whether `d` is typed `Implementation<...>`, this package's. */
+const isImplementation = (checker: ts.TypeChecker, d: ts.VariableDeclaration): boolean =>
+  d.type !== undefined && ts.isTypeReferenceNode(d.type) && ts.isIdentifier(d.type.typeName) && declared(checker, d.type.typeName, CONTRACT_MODULE, "Implementation")
+
+/**
+ * The spec an implementation is typed by: `const f: Implementation<typeof S>` where `S` is `spec<F>({ ... })` of this
+ * package or its Effect adapter; the call, and whether its function is a computation (an Effect program, or a function
+ * that returns a promise).
+ */
+const specOf = (checker: ts.TypeChecker, d: ts.VariableDeclaration): { readonly call: ts.CallExpression; readonly computation: boolean } => {
+  const t = d.type as ts.TypeReferenceNode
+  const arg = t.typeArguments?.[0]
+  if (arg === undefined || !ts.isTypeQueryNode(arg) || !ts.isIdentifier(arg.exprName))
+    throw new Unsupported("an implementation names its spec: `Implementation<typeof ChargeSpec>`", t)
+  let sym = checker.getSymbolAtLocation(arg.exprName)
+  if (sym !== undefined && sym.flags & ts.SymbolFlags.Alias) sym = checker.getAliasedSymbol(sym)
+  const decl = sym?.valueDeclaration
+  const call = decl !== undefined && ts.isVariableDeclaration(decl) && decl.initializer !== undefined ? unwrap(decl.initializer) : undefined
+  const named = arg.exprName.text
+  const notASpec = () =>
+    new Unsupported(`\`${named}\` is no spec: write \`export const ${named} = spec<F>({ ... })\`, with \`spec\` from "tsverify" (or "tsverify/effect" for an Effect program)`, arg)
+  if (call === undefined || !ts.isCallExpression(call)) throw notASpec()
+  const effect = declared(checker, call.expression, EFFECT_CONTRACT_MODULE, "spec")
+  if (!effect && !declared(checker, call.expression, CONTRACT_MODULE, "spec")) throw notASpec()
+  const fnType = call.typeArguments?.[0]
+  if (fnType === undefined) throw new Unsupported("a spec names the function's type: `spec<(x: X) => Y>({ ... })`", call)
+  const returns = checker.getTypeFromTypeNode(fnType).getCallSignatures()[0]?.getReturnType()
+  const promised = returns !== undefined && checker.getPropertyOfType(returns, "then") !== undefined
+  return { call, computation: effect || promised }
+}
 
 /**
  * Reads, from source, `export const <name> = contract(fn, { requires?, ensures: { law: pred, ... } })` or
@@ -125,13 +163,33 @@ export const readContract = (project: Project, file: string, name: string): Cont
     }
     return { name, kind: "lemma", target: statement, requires, ensures: [{ name: "holds", law: statement }] }
   }
+  const implemented = implementationNamed(project, file, name)
+  if (implemented !== undefined) {
+    const { call, computation } = specOf(checker, implemented)
+    const lawsArg = call.arguments[0]
+    if (lawsArg === undefined || !ts.isObjectLiteralExpression(unwrap(lawsArg)))
+      throw new Unsupported("a spec is `spec<F>({ requires?, ensures: { ... } })`, written in place", call)
+    return { name, kind: computation ? "computation" : "function", target: init, ...lawsOf(checker, lawsArg) }
+  }
   const helper = contractKind(checker, init)
   if (helper === undefined || helper === "lemma" || !ts.isCallExpression(init))
-    throw new Unsupported(`\`${name}\` is not a \`contract(...)\`, a \`computation<...>()(...)\` or a \`lemma(...)\` of this package`, init)
+    throw new Unsupported(`\`${name}\` is not a \`contract(...)\`, a \`computation<...>()(...)\`, a \`lemma(...)\` or an \`Implementation<typeof S>\` of this package`, init)
   const [fnArg, lawsArg] = init.arguments
   if (fnArg === undefined || lawsArg === undefined || !ts.isObjectLiteralExpression(unwrap(lawsArg)))
     throw new Unsupported("a contract is `contract(fn, { requires?, ensures: { ... } })`, written in place", init)
-  const target = targetOf(checker, fnArg)
+  return { name, kind: helper, target: targetOf(checker, fnArg), ...lawsOf(checker, lawsArg) }
+}
+
+/** `export const <name>: Implementation<...> = ...` in `file`, when it is one. */
+const implementationNamed = (project: Project, file: string, name: string): ts.VariableDeclaration | undefined => {
+  for (const stmt of sourceFile(project, file).statements)
+    if (ts.isVariableStatement(stmt))
+      for (const d of stmt.declarationList.declarations) if (ts.isIdentifier(d.name) && d.name.text === name && isImplementation(project.checker, d)) return d
+  return undefined
+}
+
+/** A contract's or a spec's `{ requires?, ensures: { law: pred, ... } }`, written in place. */
+const lawsOf = (checker: ts.TypeChecker, lawsArg: ts.Expression): Pick<ContractSource, "requires" | "ensures"> => {
   let requires: FunctionNode | undefined
   const ensures: Array<{ name: string; law: FunctionNode }> = []
   for (const p of (unwrap(lawsArg) as ts.ObjectLiteralExpression).properties) {
@@ -149,7 +207,7 @@ export const readContract = (project: Project, file: string, name: string): Cont
       }
     } else throw new Unsupported(`a contract has no part \`${p.name.text}\``, p)
   }
-  return { name, kind: helper, target, requires, ensures }
+  return { requires, ensures }
 }
 
 export const unwrap = (e: ts.Expression): ts.Expression =>

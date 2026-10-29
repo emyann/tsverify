@@ -12,22 +12,24 @@ Pinned: Node ≥ 24.16, `z3-solver` 5.3.2, `typescript` 6.0.3. Optional: `effect
 types) and `lodash-es` 4.18.1 (the lodash pack).
 
 ```sh
-npm run verify      # every contract of every *.spec.ts below here, a line per law, then a total (~12 s)
+npm run verify      # every contract below here, a line per law, then a total
 npm run verify -- examples/account                                   # one folder, or one file
-npm test            # 181 tests, ~45 s
+npm test            # 188 tests, ~45 s
+npm run verify -- examples/charge/charge.ts charge                   # code written against its spec
 npm run verify -- examples/order/order.spec.ts status                # a state machine, its doc comment as laws
-npm run verify -- examples/account/account.spec.ts folded            # a loop, through its invariants
-npm run verify -- examples/account/withdraw.spec.ts effectWithdraw   # an Effect program
-npm run verify -- examples/account/withdraw.spec.ts asyncWithdraw    # the same program, async
+npm run verify -- examples/account/account.spec.ts folded            # a loop, its invariants written or found
+npm run verify -- examples/account/withdraw.ts withdraw              # an Effect program, against its spec
+npm run verify -- examples/account/withdraw.async.ts withdraw        # the same program, async
 npm run bench       # planted bugs: the solver beside property testing (~15 s)
 npm run coverage -- <tsconfig.json> [--modular]                      # how much of a code base it reads
-npm run verify -- <spec.ts> <export>                                 # one contract, with all it knows
+npm run verify -- <file.ts> <export>                                 # one contract, with all it knows
 npm run typecheck
 ```
 
-The command (`tsverify` where the package is installed) exits 0 only when every law is proved and every obligation of the proof code is. Each spec file is verified as
-a program of its own, read through the nearest `tsconfig.json` (or `--project`), so the declarations one spec imports are
-in force for it alone. On this repository it exits 1, on purpose: two examples keep a law the solver refutes, and
+The command (`tsverify` where the package is installed) exits 0 only when every law is proved and every obligation of the
+proof code is. It verifies every implementation of a spec it finds (a file naming `Implementation<`), and every contract
+of a `*.spec.ts`. Each file is verified as a program of its own, read through the nearest `tsconfig.json` (or
+`--project`), so the declarations it imports are in force for it alone. On this repository it exits 1, on purpose: two examples keep a law the solver refutes, and
 `fixtures/vacuous` holds three vacuous laws.
 
 **A law that says nothing is not proved.** A law no result could break, whatever the function returned, is reported
@@ -35,14 +37,61 @@ in force for it alone. On this repository it exits 1, on purpose: two examples k
 it proves, by giving the law any value of its result's type in place of the function's.
 
 What a program imports:
-- `tsverify`: what a spec author writes. `contract`, `computation`, `assume`, and the proof code `invariant`, `assert`,
-  `lemma`. It has no dependencies, and runs as a test oracle too.
-- `tsverify/effect`: `computation` for an Effect program, typed from the Effect.
+- `tsverify`: what a spec author writes. `spec` and `Implementation`; `contract` and `computation` for code that already
+  exists; `assume`; and the proof code `invariant`, `assert`, `lemma`. It has no dependencies, and runs as a test oracle
+  too.
+- `tsverify/effect`: `spec` and `computation` for an Effect program, typed from the Effect.
 - `tsverify/api`: the verifier as a program calls it (`loadProject`, `verify`, `openZ3`, `purityOf`).
 - `tsverify/mutants`: laws against planted bugs, the solver beside property testing.
 - `tsverify/packs/lodash`: what the verifier may assume of the lodash functions it covers.
 
-## A spec
+## A spec, then the code
+
+The spec comes first. It is the function's type and its laws:
+
+```ts
+// charge.spec.ts
+import { spec } from "tsverify"
+
+export const ChargeSpec = spec<(balance: bigint, amount: bigint) => bigint>({
+  requires: (balance, amount) => balance >= 0n && amount >= 0n,
+  ensures: {
+    neverNegative: (_balance, _amount, left) => left >= 0n,
+    takesWhatItCan: (balance, amount, left) => (amount > balance ? left === 0n : left === balance - amount),
+  },
+})
+```
+
+The code takes it as its type, through a type-only import, so nothing of the spec runs, and is verified against it:
+
+```ts
+// charge.ts
+import type { Implementation } from "tsverify"
+import type { ChargeSpec } from "./charge.spec.ts"
+
+export const charge: Implementation<typeof ChargeSpec> = (balance, amount) => (amount > balance ? 0n : balance - amount)
+```
+
+```sh
+$ npx tsverify charge.ts
+charge.ts
+  charge
+    proved          neverNegative
+    proved          takesWhatItCan
+```
+
+- **The spec's type is the code's.** `tsc` refuses a body of another type, and for an Effect program, a failure or a
+  service its spec does not declare (`test/withdraw.test.ts`). The verifier finds the spec from that type.
+- **A wrong body that type-checks is refuted**, with an input the real code breaks on (`test/charge.test.ts`).
+- **Each law is `(args..., result) => boolean`,** typed from the spec's function type. For an async function it is
+  `(args..., outcome, calls) => boolean`, the calls those of the operations of its arguments; for an Effect program
+  (`spec` from `tsverify/effect`), those of the services the Effect requires, typed from them.
+- **At run time a spec is a plain object,** so the same laws work as a test oracle.
+
+### Code that already exists
+
+A `function` declaration takes no type of its own, and some code is not yours to change. For those, the spec names
+the function instead, as Verus's `assume_specification` names code it does not own:
 
 ```ts
 import { contract } from "tsverify"
@@ -59,10 +108,9 @@ export const status = contract(statusOf, {
 })
 ```
 
-- `contract(fn, { requires?, ensures })` names the function. The type checker resolves that name to its declaration, which
-  is the link from spec to code.
-- Each law is `(args..., result) => boolean`, and is type-checked against the function's real signature.
-- At run time the contract is a plain object, so the same laws work as a test oracle.
+- `contract(fn, { requires?, ensures })` names the function; the type checker resolves the name to its declaration.
+  `computation<Ops>()(fn, { ... })` does the same for an async function or an Effect program.
+- Each law is type-checked against the function's real signature.
 - The code under verification imports nothing from this package, but for proof code (see *Proof mode*).
 
 ## The examples
@@ -115,7 +163,8 @@ equivalence (is this change behaviour-preserving?), reachability with witnesses,
 
 `examples/account/withdraw.ts` is an `Effect.fn` program: it reads the ledger through the `Ledger` service, asks a guard,
 fails with `WithdrawalRefused`, or appends one withdrawal. `withdraw.async.ts` is the same program in plain TypeScript:
-async, its ledger an interface, its refusal thrown. `laws.ts` states five laws once, over the outcome and the calls made:
+async, its ledger an interface, its refusal thrown. Each is typed by its spec in `withdraw.spec.ts`, written before it,
+and the two specs hold the same five laws, stated once in `laws.ts` over the outcome and the calls made:
 - **readsFirst.** The ledger is read first, this account's.
 - **readFailurePassesThrough.** A failed read ends the withdrawal with that failure, and nothing else is called.
 - **refusedWritesNothing.** A refused withdrawal writes nothing.
@@ -185,7 +234,7 @@ ones accepted; `test/account.test.ts` accepts the account fold.
 
 ```
   trusted (declared, not proved):
-    - accountOf: pure, checked from source (read accountOf, openInto) — examples/account/withdraw.spec.ts:14:32
+    - accountOf: pure, checked from source (read accountOf, openInto) — examples/account/withdraw.spec.ts:16:32
 ```
 
 A counterexample that leans on a declared function is marked as such: it holds of the function as declared, and may not

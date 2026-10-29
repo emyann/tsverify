@@ -1,8 +1,15 @@
 // What a spec author writes. No dependencies: it runs as a test oracle and as a
 // runtime guard, and the verifier reads it from source without running it.
 //
+// - `spec<F>({ requires?, ensures })`: a spec written before the code, over a
+//   function of type `F`, pure or async. The code takes it as its type,
+//   `const f: Implementation<typeof S> = ...`, through a type-only import: the
+//   spec is never part of what runs. The Effect adapter's `spec` is the same
+//   for an Effect program.
 // - `contract(fn, { requires?, ensures })`: laws over a pure function's
-//   arguments and result.
+//   arguments and result, the spec pointing at code that already exists (a
+//   function declaration, which takes no type of its own, or code you do not
+//   own).
 // - `computation<Ops, E>()(fn, { requires?, ensures })`: laws over an async
 //   function's arguments, its outcome and the calls it made to the operations
 //   of `Ops` (an object of the interfaces it is given). `E` is what it may fail
@@ -32,6 +39,46 @@ export const contract = <A extends ReadonlyArray<unknown>, R>(
   fn: (...args: A) => R,
   laws: Omit<Contract<A, R>, "fn">,
 ): Contract<A, R> => ({ fn, ...laws })
+
+/** A function's type, as a spec records it for `Implementation`. */
+// `any`: any function; a spec constrains it through its laws, not its type.
+type AnyFn = (...args: any) => any
+
+/**
+ * The laws of a spec over a function of type `F`: over its arguments and result; for an async function, over its
+ * arguments, how it ended and the calls it made to the operations of what it is given (each argument's methods that
+ * return a promise, failing with what `Rejects<A, E>` declares).
+ */
+export type LawOf<F> = F extends (...args: infer A) => infer R
+  ? R extends PromiseLike<infer V>
+    ? (...args: [...A, Outcome<V, RejectionOf<R>>, ReadonlyArray<ParameterCallsOf<A>>]) => boolean
+    : (...args: [...A, R]) => boolean
+  : never
+
+/** Every call an async function can make to the operations of its arguments. */
+type ParameterCallsOf<A extends ReadonlyArray<unknown>> = {
+  [K in keyof A]: A[K] extends object
+    ? { [M in keyof A[K] & string]: A[K][M] extends (...args: infer P) => infer R ? (R extends PromiseLike<unknown> ? Call<M, P, Awaited<R>, RejectionOf<R>> : never) : never }[keyof A[K] & string]
+    : never
+}[number]
+
+/** A spec: what a function of type `F` must do. `Implementation<typeof S>` is `F`, for the code to take as its type. */
+export interface Spec<F extends AnyFn> {
+  readonly requires?: (...args: Parameters<F>) => boolean
+  readonly ensures: Readonly<Record<string, LawOf<F>>>
+  /** The function's type: only for `Implementation`, never a value. */
+  readonly "~fn"?: F
+}
+
+/**
+ * A spec of a function of type `F`, written before the code: `spec<(balance: bigint, amount: bigint) => bigint>({
+ * requires, ensures: { law: (balance, amount, result) => ... } })`. The code is `const charge:
+ * Implementation<typeof ChargeSpec> = ...`, and `tsverify` verifies it against the laws.
+ */
+export const spec = <F extends AnyFn>(laws: Omit<Spec<F>, "~fn">): Spec<F> => laws
+
+/** The type of the function a spec is about: the type its implementation takes, `const f: Implementation<typeof S>`. */
+export type Implementation<S extends { readonly "~fn"?: unknown }> = NonNullable<S["~fn"]>
 
 /** How a computation ended. */
 export type Outcome<A, E> = { readonly _tag: "Success"; readonly value: A } | { readonly _tag: "Failure"; readonly error: E }

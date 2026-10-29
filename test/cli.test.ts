@@ -20,9 +20,16 @@ it("verifies every contract under a folder, and exits 1 on a vacuous law", () =>
 })
 
 it("exits 0 when every law and every obligation is proved", () => {
-  const r = cli(...["account", "withdraw", "effects"].map((f) => `examples/account/${f}.spec.ts`))
+  const r = cli(...["account.spec", "withdraw", "withdraw.async", "effects.spec"].map((f) => `examples/account/${f}.ts`))
   assert.equal(r.code, 0, r.out + r.err)
-  assert.match(r.out, /\n7 contracts in 3 files: laws 28 proved; obligations 10 proved\n$/)
+  assert.match(r.out, /\n7 contracts in 4 files: laws 28 proved; obligations 10 proved\n$/)
+})
+
+it("finds a spec's implementation in a folder, the spec file holding none", () => {
+  const r = cli("examples/charge")
+  assert.equal(r.code, 0, r.out + r.err)
+  assert.match(r.out, /^examples\/charge\/charge\.ts\n {2}charge\n/)
+  assert.match(r.out, /\n1 contract in 1 file: laws 2 proved\n$/)
 })
 
 it("exits 1 when a law is only bounded: a loop of steps over an array of unknown length", () => {
@@ -32,9 +39,9 @@ it("exits 1 when a law is only bounded: a loop of steps over an array of unknown
 })
 
 it("verifies one contract by name, with what it reaches, trusted and assumed", () => {
-  const r = cli("examples/account/withdraw.spec.ts", "effectWithdraw")
+  const r = cli("examples/account/withdraw.ts", "withdraw")
   assert.equal(r.code, 0, r.out + r.err)
-  assert.match(r.out, /^effectWithdraw\n/)
+  assert.match(r.out, /^withdraw\n/)
   assert.match(r.out, /\n {2}reaches: /)
   assert.match(r.out, /\n {2}trusted \(declared, not proved\):\n {4}- accountOf: pure, checked from source/)
   assert.match(r.out, /\n {2}assumed:\n/)

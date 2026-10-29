@@ -252,7 +252,13 @@ const lawOnAnyResult = (side: Lowered, law: ContractSource["ensures"][number]): 
 }
 
 export const verify = async (z3: Ctx, project: Project, file: string, name: string, opts: Options = {}): Promise<Verification> => {
-  const source = readContract(project, file, name)
+  let source: ContractSource
+  try {
+    source = readContract(project, file, name)
+  } catch (e) {
+    if (!(e instanceof Unsupported)) throw e
+    return { contract: name, laws: [], cover: [], notes: ALWAYS, trusted: [], obligations: [], unsupported: e.message }
+  }
   const bound = opts.bound ?? 4
   let proof: Lowered
   let search: Lowered

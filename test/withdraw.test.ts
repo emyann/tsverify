@@ -1,5 +1,6 @@
 // One withdrawal written twice, as an Effect program and as async TypeScript
-// (examples/account), held to the same five laws. Proved on both; every end
+// (examples/account), each typed by its spec (withdraw.spec.ts), the specs
+// holding the same five laws. Proved on both; every end
 // each can come to reached; the laws hold when the programs run against a
 // stand-in ledger; and eight bugs planted in each are caught by the solver,
 // each confirmed by running the planted program.
@@ -23,7 +24,7 @@ const spec = path.join(root, "examples/account/withdraw.spec.ts")
 const tsconfig = path.join(root, "tsconfig.json")
 const effectFile = path.join(root, "examples/account/withdraw.ts")
 const asyncFile = path.join(root, "examples/account/withdraw.async.ts")
-const project = loadProject([spec], tsconfig)
+const project = loadProject([spec, effectFile, asyncFile], tsconfig)
 
 let z3: Ctx
 let close: () => Promise<void>
@@ -40,18 +41,26 @@ describe("a withdrawal, as an Effect program and as async TypeScript, under the 
     assert.deepEqual(diagnostics(project, spec), [])
   })
 
-  for (const [name, ends] of [
-    ["effectWithdraw", ["Success", "Failure LedgerError", "Failure WithdrawalRefused"]],
-    ["asyncWithdraw", ["Success", "Failure"]],
+  for (const [kind, file, ends] of [
+    ["the Effect program", effectFile, ["Success", "Failure LedgerError", "Failure WithdrawalRefused"]],
+    ["the async program", asyncFile, ["Success", "Failure"]],
   ] as const)
-    it(`${name}: all five laws proved, every end it can come to reached`, async () => {
-      const v = await verify(z3, project, spec, name)
+    it(`${kind}, typed by its spec: all five laws proved, every end it can come to reached`, async () => {
+      const v = await verify(z3, project, file, "withdraw")
       assert.equal(v.unsupported, undefined)
       assert.deepEqual(statuses(v), Object.fromEntries(LAWS.map((l) => [l, "proved"])))
       assert.deepEqual(v.cover.map((c) => [c.value, c.status]).sort(), ends.map((e) => [e, "reachable"]).sort())
       // The fold is declared, not read here; the report names the declaration and says its purity was checked.
       assert.deepEqual(v.trusted.map((t) => [t.name, t.purity, t.laws]), [["accountOf", "checked", []]])
     })
+})
+
+describe("the spec's type constrains the code", () => {
+  it("an Effect implementation failing with an error its spec does not declare does not type-check", () => {
+    const text = readFileSync(effectFile, "utf8").replace("new WithdrawalRefused({ message: refused })", "new Error(refused)")
+    const errors = diagnostics(loadProject([effectFile], tsconfig, new Map([[effectFile, text]])), effectFile)
+    assert.ok(errors.some((e) => /Implementation|not assignable/.test(e)), errors.join("\n"))
+  })
 })
 
 // The runs: ledgers a stand-in serves, read and append each able to fail.
@@ -179,13 +188,13 @@ const loaded = async <M>(file: string, id: string, text: string): Promise<M> => 
 
 describe("planted bugs", () => {
   for (const p of PLANTS)
-    for (const [kind, file, change, contract] of [
-      ["the Effect program", effectFile, p.effect, "effectWithdraw"],
-      ["the async program", asyncFile, p.async, "asyncWithdraw"],
+    for (const [kind, file, change] of [
+      ["the Effect program", effectFile, p.effect],
+      ["the async program", asyncFile, p.async],
     ] as const)
       it(`${p.id}, ${p.what}: caught in ${kind}, and the planted program breaks a law it refutes when run`, async () => {
         const text = plant(readFileSync(file, "utf8"), change, p.id)
-        const v = await verify(z3, loadProject([spec], tsconfig, new Map([[file, text]])), spec, contract)
+        const v = await verify(z3, loadProject([file], tsconfig, new Map([[file, text]])), file, "withdraw")
         assert.equal(v.unsupported, undefined)
         const refuted = v.laws.filter((l) => l.status === "counterexample").map((l) => l.name)
         assert.ok(refuted.length > 0, JSON.stringify(statuses(v)))

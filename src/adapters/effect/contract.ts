@@ -1,5 +1,7 @@
-// What a spec author writes for an Effect program: the core's `computation`,
-// typed from the Effect itself. It imports only Effect's types.
+// What a spec author writes for an Effect program: `spec<F>(laws)`, written
+// before the code, the calls its laws read typed from the services `F`
+// requires; or `computation<Ops>()(fn, laws)`, pointing at code that exists.
+// It imports only Effect's types.
 //
 //   computation<{ ledger: LedgerShape }>()(withdraw, { ensures: { … } })
 //
@@ -20,6 +22,35 @@ export interface EffectContract<Args extends ReadonlyArray<unknown>, A, E, Ops> 
   readonly requires?: (...args: Args) => boolean
   readonly ensures: Readonly<Record<string, (...args: [...Args, Outcome<A, E>, ReadonlyArray<EffectCallsOf<Ops>>]) => boolean>>
 }
+
+/** Every call an Effect can make to the services it requires, each method of a service that returns an Effect. */
+type ServiceCallsOf<R> = R extends { readonly Service: infer S }
+  ? { [M in keyof S & string]: S[M] extends (...args: infer P) => Effect.Effect<infer A, infer E, infer _R> ? Call<M, P, A, E> : never }[keyof S & string]
+  : never
+
+/** The laws of a spec over an Effect program of type `F`: over its arguments, how it ended and the calls it made. */
+export type EffectLawOf<F> = F extends (...args: infer A) => Effect.Effect<infer V, infer E, infer R>
+  ? (...args: [...A, Outcome<V, E>, ReadonlyArray<ServiceCallsOf<R>>]) => boolean
+  : never
+
+// `any`: any Effect program; a spec constrains it through its laws.
+type AnyProgram = (...args: any) => Effect.Effect<any, any, any>
+
+/** A spec of an Effect program: what it must do. `Implementation<typeof S>` (from `tsverify`) is its type. */
+export interface EffectSpec<F extends AnyProgram> {
+  readonly requires?: (...args: Parameters<F>) => boolean
+  readonly ensures: Readonly<Record<string, EffectLawOf<F>>>
+  /** The program's type: only for `Implementation`, never a value. */
+  readonly "~fn"?: F
+}
+
+/**
+ * A spec of an Effect program of type `F`, written before the code: `spec<(accountId: string) =>
+ * Effect.Effect<bigint, LedgerError, Ledger>>({ ensures: { law: (accountId, out, calls) => ... } })`. The calls a law
+ * reads are those of the services `F` requires (`Ledger`'s methods), typed from them. The code is `const balanceOf:
+ * Implementation<typeof BalanceSpec> = ...`.
+ */
+export const spec = <F extends AnyProgram>(laws: Omit<EffectSpec<F>, "~fn">): EffectSpec<F> => laws
 
 export const computation =
   <Ops>() =>
