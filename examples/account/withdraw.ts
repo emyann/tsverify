@@ -3,7 +3,7 @@
 import { Context, Effect, Schema } from "effect"
 import type { Implementation } from "tsverify"
 import { accountOf, type Entry, withdrawalRefusalOf } from "./account.ts"
-import type { WithdrawSpec } from "./withdraw.spec.ts"
+import type { WithdrawSpec } from "./withdraw.contract.ts"
 
 export class LedgerError extends Schema.TaggedError<LedgerError>()("LedgerError", {
   accountId: Schema.String,

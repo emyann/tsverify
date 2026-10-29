@@ -6,7 +6,7 @@ import { accountOf } from "./account.ts"
 import { balanceOf, balanceOrZero, deposit, depositRefusalOf, doubledBalance } from "./effects.ts"
 import type { LedgerShape } from "./withdraw.ts"
 
-/** The ledger's fold, pure (checked from its source); its own laws are proved apart (`account.spec.ts`). */
+/** The ledger's fold, pure (checked from its source); its own laws are proved apart (`account.contract.ts`). */
 export const accountOfIsPure = assume(accountOf, { pure: true })
 
 type Ops = { ledger: LedgerShape }

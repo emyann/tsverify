@@ -1,6 +1,6 @@
 // The account's programs that take text written elsewhere: code that may throw,
 // run under `Effect.try`; a step inside an expression; a loop of steps.
-// `imports.spec.ts` states their laws.
+// `imports.contract.ts` states their laws.
 import { Effect, Schema } from "effect"
 import type { Entry } from "./account.ts"
 import { DepositRefused, deposit } from "./effects.ts"

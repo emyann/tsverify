@@ -12,7 +12,7 @@ built, and the translator is checked against the real function on 300 random inp
 ## A state machine: an order's status
 
 `examples/order/order.ts` maps an order's record to one of 10 statuses. It calls `awaitsReorder` and `roundOf`, and its
-doc comment states six ordered rules, which `order.spec.ts` turns into 10 laws. `test/order.test.ts` shows:
+doc comment states six ordered rules, which `order.contract.ts` turns into 10 laws. `test/order.test.ts` shows:
 - **9 laws proved** for every order, with arrays of any length.
 - **1 law refuted:** `onItsWay`. The doc comment says "in transit once picked up", but the code tests `pickedUpAt` by
   truthiness, so a shipment picked up at `""` reads `awaiting-pickup`. The type (`string | null`) allows `""`. The
@@ -42,7 +42,7 @@ equivalence (is this change behaviour-preserving?), reachability with witnesses,
 
 `examples/account/account.ts` folds a ledger into an account: a `for…of` loop over seven kinds of entry, a `switch`, a
 `push`, changes through what `.find` found, bigint arithmetic, and `??=`. Its loop carries five invariants, and
-`account.spec.ts` five laws. `test/account.test.ts` shows:
+`account.contract.ts` five laws. `test/account.test.ts` shows:
 - **The five laws and the ten invariant obligations are proved** for ledgers of every length, in about a second.
 - **`requires` matters.** The balance law holds because deposits are positive; without that requirement, the solver
   finds a deposit-only ledger that ends in debt, and running the fold on it agrees.
@@ -58,7 +58,7 @@ equivalence (is this change behaviour-preserving?), reachability with witnesses,
 
 `examples/account/withdraw.ts` is an `Effect.fn` program: it reads the ledger through the `Ledger` service, asks a guard,
 fails with `WithdrawalRefused`, or appends one withdrawal. `withdraw.async.ts` is the same program in plain TypeScript:
-async, its ledger an interface, its refusal thrown. Each is typed by its spec in `withdraw.spec.ts`, written before it,
+async, its ledger an interface, its refusal thrown. Each is typed by its spec in `withdraw.contract.ts`, written before it,
 and the two specs hold the same five laws, stated once in `laws.ts` over the outcome and the calls made:
 - **readsFirst.** The ledger is read first, this account's.
 - **readFailurePassesThrough.** A failed read ends the withdrawal with that failure, and nothing else is called.
@@ -93,7 +93,7 @@ and `with-effect/` as Effect programs that require it as a service, its app turn
 laws are written once, in `laws.ts`, over the reply and the store's calls: an empty name is a 400 that touches nothing;
 the user asked for is read first; a user not found is a 404 and nothing is written; a 200 is the user read, renamed,
 written once and sent back as written; a store that fails ends the handler with that failure. Each build's
-`handlers.spec.ts` gives those laws its own signature, and its handlers take their types from there; nothing shared
+`handlers.contract.ts` gives those laws its own signature, and its handlers take their types from there; nothing shared
 imports either build (`examples/hono/README.md`). `test/hono.test.ts` shows:
 - **All 16 laws are proved in both builds**, and a reply and the store's failure are both reachable.
 - **Three bugs planted in each are caught**: a name check against the wrong value, a rename that keeps the old name, a 404
@@ -107,7 +107,7 @@ imports either build (`examples/hono/README.md`). `test/hono.test.ts` shows:
 `examples/account/effects.ts` holds four more programs over the same ledger, each written another way: `balanceOf`, a
 function returning `Effect.gen`; `balanceOrZero`, `.pipe` with `Effect.catch`; `doubledBalance`, `pipe(...)` with
 `Effect.map`; and `deposit`, an `Effect.fn` whose read is a pipeline of `map` and `catchTag` and whose write is a `flatMap`
-of `Effect.sync`. `effects.spec.ts` gives them 13 laws. `test/effects.test.ts` shows:
+of `Effect.sync`. `effects.contract.ts` gives them 13 laws. `test/effects.test.ts` shows:
 - **All 13 are proved**, and each program's ends are what its types and handlers allow: `balanceOrZero` can never fail,
   which the verifier proves rather than assumes.
 - **The laws hold on 32 runs of each** against a stand-in ledger.

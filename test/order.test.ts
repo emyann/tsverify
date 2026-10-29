@@ -5,12 +5,12 @@ import assert from "node:assert/strict"
 import { after, before, describe, it } from "node:test"
 import { orders } from "../examples/order/generate.ts"
 import type { Order } from "../examples/order/order.ts"
-import { status } from "../examples/order/order.spec.ts"
+import { status } from "../examples/order/order.contract.ts"
 import { diagnostics, loadProject, readContract } from "../src/project.ts"
 import type { Ctx } from "../src/value.ts"
 import { type Verification, disagreements, lowerSide, openZ3, verify } from "../src/verify.ts"
 
-const spec = new URL("../examples/order/order.spec.ts", import.meta.url).pathname
+const spec = new URL("../examples/order/order.contract.ts", import.meta.url).pathname
 const project = loadProject([spec], new URL("../tsconfig.json", import.meta.url).pathname)
 
 let z3: Ctx

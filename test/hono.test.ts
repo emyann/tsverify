@@ -41,7 +41,7 @@ describe("the handlers, verified", () => {
     const files = [
       "users.ts",
       "laws.ts",
-      ...BUILDS.flatMap((b) => ["store.ts", "handlers.spec.ts", "handlers.ts", "app.ts"].map((f) => `${b}/${f}`)),
+      ...BUILDS.flatMap((b) => ["store.ts", "handlers.contract.ts", "handlers.ts", "app.ts"].map((f) => `${b}/${f}`)),
     ].map((f) => path.join(dir, f))
     const project = loadProject(files, tsconfig)
     for (const f of files) assert.deepEqual(diagnostics(project, f), [], f)

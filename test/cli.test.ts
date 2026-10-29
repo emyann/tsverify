@@ -1,8 +1,10 @@
-// The command: every contract of a folder, a total and the exit code; one
+// The command: every contract of a folder, found by its file's import of
+// tsverify, a total and the exit code; one
 // contract by name, with everything known of it; the same as one JSON
 // document; a path that is not there.
 import assert from "node:assert/strict"
 import { spawnSync } from "node:child_process"
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import path from "node:path"
 import { it } from "node:test"
 
@@ -15,13 +17,13 @@ const cli = (...args: Array<string>) => {
 it("verifies every contract under a folder, and exits 1 on a vacuous law", () => {
   const r = cli("fixtures/vacuous")
   assert.equal(r.code, 1, r.err)
-  assert.match(r.out, /^fixtures\/vacuous\/sign\.spec\.ts\n  signed\n/)
+  assert.match(r.out, /^fixtures\/vacuous\/sign\.contract\.ts\n  signed\n/)
   assert.match(r.out, /\n {4}vacuous +squareNotNegative /)
   assert.match(r.out, /\n2 contracts in 1 file: laws 2 proved, 3 vacuous\n$/)
 })
 
 it("exits 0 when every law and every obligation is proved", () => {
-  const r = cli(...["account.spec", "withdraw", "withdraw.async", "effects.spec"].map((f) => `examples/account/${f}.ts`))
+  const r = cli(...["account.contract", "withdraw", "withdraw.async", "effects.contract"].map((f) => `examples/account/${f}.ts`))
   assert.equal(r.code, 0, r.out + r.err)
   assert.match(r.out, /\n7 contracts in 4 files: laws 28 proved; obligations 10 proved\n$/)
 })
@@ -33,8 +35,36 @@ it("finds a spec's implementation in a folder, the spec file holding none", () =
   assert.match(r.out, /\n1 contract in 1 file: laws 2 proved\n$/)
 })
 
+it("finds a contract by its file's import of tsverify, whatever the file's name", () => {
+  // A project of its own under `.docs/`, a dot folder no command scans, which imports `tsverify` through this package's condition.
+  mkdirSync(path.join(root, ".docs"), { recursive: true })
+  const dir = mkdtempSync(path.join(root, ".docs", "cli-"))
+  try {
+    const compilerOptions = {
+      module: "nodenext",
+      strict: true,
+      noEmit: true,
+      allowImportingTsExtensions: true,
+      customConditions: ["tsverify-source"],
+    }
+    writeFileSync(path.join(dir, "tsconfig.json"), JSON.stringify({ compilerOptions }))
+    mkdirSync(path.join(dir, "src"))
+    writeFileSync(
+      path.join(dir, "src/clamp.ts"),
+      `import { contract } from "tsverify"\n\nexport const clamp = (n: bigint): bigint => (n < 0n ? 0n : n)\n\n` +
+        `export const clampNeverNegative = contract(clamp, { ensures: { notNegative: (_n, out) => out >= 0n } })\n`,
+    )
+    const r = spawnSync(process.execPath, [path.join(root, "src/cli.ts")], { cwd: dir, encoding: "utf8", timeout: 300_000 })
+    assert.equal(r.status, 0, r.stdout + r.stderr)
+    assert.match(r.stdout, /^src\/clamp\.ts\n {2}clampNeverNegative\n/)
+    assert.match(r.stdout, /\n1 contract in 1 file: laws 1 proved\n$/)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 it("exits 1 when a law is only bounded: a loop of steps over an array of unknown length", () => {
-  const r = cli("examples/account/imports.spec.ts")
+  const r = cli("examples/account/imports.contract.ts")
   assert.equal(r.code, 1, r.out + r.err)
   assert.match(r.out, /\n5 contracts in 1 file: laws 11 proved, 8 bounded\n$/)
 })
@@ -55,9 +85,9 @@ it("refuses a path that is not there, with code 2", () => {
 })
 
 it("refuses files that hold no contract, with code 2: a spec is verified through its implementation", () => {
-  const r = cli("examples/charge/charge.spec.ts")
+  const r = cli("examples/charge/charge.contract.ts")
   assert.equal(r.code, 2)
-  assert.match(r.err, /no contract in examples\/charge\/charge\.spec\.ts: a spec is verified through its implementation/)
+  assert.match(r.err, /no contract in examples\/charge\/charge\.contract\.ts: a spec is verified through its implementation/)
 })
 
 it("refuses a --project that is not there, with code 2", () => {
@@ -90,7 +120,7 @@ it("--json: one document and nothing else, its passed what the exit code says", 
 })
 
 it("--json: a counterexample's world is what the world gave the code, none of the verifier's own names", () => {
-  const r = cli("examples/lodash/labels.spec.ts", "--json")
+  const r = cli("examples/lodash/labels.contract.ts", "--json")
   assert.equal(r.code, 1, r.err)
   const report = JSON.parse(r.out) as Report
   assert.equal(report.passed, false)

@@ -1,9 +1,9 @@
 // The handlers as async functions over the store: what to answer, and what to
 // read and write to answer it. The routes (app.ts) call them; each takes its
-// type from its spec (handlers.spec.ts).
+// type from its spec (handlers.contract.ts).
 import type { Implementation } from "tsverify"
 import { emptyName, notFound, ok } from "../users.ts"
-import type { GetUserSpec, RenameUserSpec } from "./handlers.spec.ts"
+import type { GetUserSpec, RenameUserSpec } from "./handlers.contract.ts"
 
 export const getUser: Implementation<typeof GetUserSpec> = async (users, id) => {
   const user = await users.get(id)

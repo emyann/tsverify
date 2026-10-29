@@ -24,27 +24,27 @@ const dev = (name: string) => `${name}@${manifest.devDependencies[name]}`
 // bench's planted copies left out. Named one by one: a test planting bugs
 // beside them writes files the folders would hold for a while.
 const FILES = [
-  "account/account.spec.ts",
+  "account/account.contract.ts",
   "account/account.ts",
-  "account/withdraw.spec.ts",
+  "account/withdraw.contract.ts",
   "account/withdraw.ts",
   "account/withdraw.async.ts",
   "account/laws.ts",
-  "charge/charge.spec.ts",
+  "charge/charge.contract.ts",
   "charge/charge.ts",
-  "lodash/labels.spec.ts",
+  "lodash/labels.contract.ts",
   "lodash/labels.ts",
 ].map((f) => `examples/${f}`)
-const VERIFIED = FILES.filter((f) => /\.spec\.ts$|withdraw(\.async)?\.ts$|charge\.ts$/.test(f))
+const VERIFIED = FILES.filter((f) => /\.contract\.ts$|withdraw(\.async)?\.ts$|charge\.ts$/.test(f))
 
 const PLANTED = `import type { Implementation } from "tsverify"
-import type { ChargeSpec } from "./charge.spec.ts"
+import type { ChargeSpec } from "./charge.contract.ts"
 
 /** A bug planted: takes the amount whatever the balance. */
 export const overdraw: Implementation<typeof ChargeSpec> = (balance, amount) => balance - amount
 `
 // Runs the law on the counterexample, through what the project installed: no condition, the built JavaScript.
-const REPLAY = `import { ChargeSpec } from "./examples/charge/charge.spec.ts"
+const REPLAY = `import { ChargeSpec } from "./examples/charge/charge.contract.ts"
 import { overdraw } from "./examples/charge/overdraw.ts"
 
 const [balance, amount] = (JSON.parse(process.argv[2]!) as Array<string>).map((x) => BigInt(x.slice(0, -1))) as [bigint, bigint]
@@ -163,7 +163,7 @@ describe("tsverify, installed from its tarball", () => {
     const i = JSON.parse(installed.out) as Report
     assert.deepEqual(verdicts(i), verdicts(s))
     // And what each reads differently once installed, decided as it should be.
-    const folded = contract(i, "examples/account/account.spec.ts folded")
+    const folded = contract(i, "examples/account/account.contract.ts folded")
     assert.ok(folded.obligations.length > 0 && folded.obligations.every((o) => o.status === "proved"), JSON.stringify(folded.obligations))
     for (const at of [
       "examples/account/withdraw.ts withdraw",
@@ -177,7 +177,7 @@ describe("tsverify, installed from its tarball", () => {
       contract(i, "examples/account/withdraw.ts withdraw").trusted.map((t) => `${t.name}: ${t.purity}`),
       ["accountOf: checked"],
     )
-    const labels = contract(i, "examples/lodash/labels.spec.ts labels")
+    const labels = contract(i, "examples/lodash/labels.contract.ts labels")
     assert.deepEqual(
       labels.trusted.map((t) => [t.purity, t.laws.length]),
       [["unchecked", 4]],

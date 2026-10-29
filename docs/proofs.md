@@ -8,7 +8,7 @@ that does nothing when it runs. This page is about both, and about the other pro
 
 The largest element of an array, and a spec of it:
 
-<!-- file: src/largest.spec.ts -->
+<!-- file: src/largest.contract.ts -->
 ```ts
 import { spec } from "tsverify"
 
@@ -23,7 +23,7 @@ export const LargestSpec = spec<(xs: ReadonlyArray<bigint>) => bigint>({
 <!-- file: src/largest.ts -->
 ```ts
 import type { Implementation } from "tsverify"
-import type { LargestSpec } from "./largest.spec.ts"
+import type { LargestSpec } from "./largest.contract.ts"
 
 export const largest: Implementation<typeof LargestSpec> = (xs) => {
   let best = xs.at(0) ?? 0n
@@ -72,7 +72,7 @@ invariants taken out (`test/account.test.ts`), its five laws are still proved.
 ```ts
 import { invariant } from "tsverify"
 import type { Implementation } from "tsverify"
-import type { LargestSpec } from "./largest.spec.ts"
+import type { LargestSpec } from "./largest.contract.ts"
 
 export const largest: Implementation<typeof LargestSpec> = (xs) => {
   let best = xs.at(0) ?? 0n
@@ -151,7 +151,7 @@ export function total(each: bigint, count: bigint, discount: bigint): bigint {
 }
 ```
 
-<!-- file: src/total.spec.ts -->
+<!-- file: src/total.contract.ts -->
 ```ts
 import { contract } from "tsverify"
 import { total } from "./total.ts"
@@ -164,8 +164,8 @@ export const totalNotNegative = contract(total, {
 
 <!-- run -->
 ```text
-$ npx tsverify src/total.spec.ts
-src/total.spec.ts
+$ npx tsverify src/total.contract.ts
+src/total.contract.ts
   totalNotNegative
     proved          notNegative  (24 ms)
     proof code:
@@ -181,7 +181,7 @@ Each obligation is proved with only the proof code written before it, so no `ass
 A lemma is a fact proved once, for every argument its `requires` admits, then known wherever it is called.
 `lemma(statement, { requires? })` declares it; the command verifies it as it verifies a contract, its one law `holds`:
 
-<!-- file: src/area.spec.ts -->
+<!-- file: src/area.contract.ts -->
 ```ts
 import { lemma, spec } from "tsverify"
 
@@ -197,7 +197,7 @@ export const AreaSpec = spec<(width: bigint, height: bigint) => bigint>({
 <!-- file: src/area.ts -->
 ```ts
 import type { Implementation } from "tsverify"
-import { type AreaSpec, productNotNegative } from "./area.spec.ts"
+import { type AreaSpec, productNotNegative } from "./area.contract.ts"
 
 export const area: Implementation<typeof AreaSpec> = (width, height) => {
   productNotNegative(width, height)
@@ -207,8 +207,8 @@ export const area: Implementation<typeof AreaSpec> = (width, height) => {
 
 <!-- run -->
 ```text
-$ npx tsverify src/area.ts src/area.spec.ts
-src/area.spec.ts
+$ npx tsverify src/area.ts src/area.contract.ts
+src/area.contract.ts
   productNotNegative
     proved          holds  (87 ms)
 src/area.ts
@@ -216,7 +216,7 @@ src/area.ts
     proved          notNegative  (23 ms)
     proof code:
       proved          lemma's requires: productNotNegative: (a, b) => a >= 0n && b >= 0n  (src/area.ts:5:3)
-      proved          lemma: productNotNegative  (src/area.spec.ts#productNotNegative)
+      proved          lemma: productNotNegative  (src/area.contract.ts#productNotNegative)
 
 2 contracts in 2 files: laws 2 proved; obligations 2 proved
 ```

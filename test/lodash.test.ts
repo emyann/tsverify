@@ -13,7 +13,7 @@ import type { Ctx } from "../src/value.ts"
 import { verify } from "../src/verify.ts"
 
 const root = path.resolve(import.meta.dirname, "..")
-const spec = path.join(root, "examples/lodash/labels.spec.ts")
+const spec = path.join(root, "examples/lodash/labels.contract.ts")
 const project = loadProject([spec], path.join(root, "tsconfig.json"))
 
 let api: Awaited<ReturnType<typeof init>>

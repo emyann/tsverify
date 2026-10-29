@@ -16,7 +16,7 @@ import type * as Async from "./withdraw.async.ts"
 
 /**
  * The ledger's fold, pure, which the verifier checks from its source, and nothing else: the laws hold whatever account it
- * folds to. Its own laws are proved apart (`account.spec.ts`); read here, each of its loops would be a different unknown
+ * folds to. Its own laws are proved apart (`account.contract.ts`); read here, each of its loops would be a different unknown
  * in the program and in the law, and the law would not be provable.
  */
 export const accountOfIsPure = assume(accountOf, { pure: true })

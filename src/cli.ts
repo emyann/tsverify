@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 // tsverify [<file or folder>...] [--project tsconfig.json] [--bound 4] [--timeout 10000] [--verbose] [--json]
 //   Verifies every contract each file exports: every implementation of a spec (`const f: Implementation<typeof S>`),
-//   and every `contract`, computation and lemma of a `*.spec.ts`, in each folder (the current one by default), a line
-//   per law, then a total. Exits 1 unless every law is proved and says something of its function, and every
+//   and every `contract`, computation and lemma, in each file that imports tsverify under each folder (the current one
+//   by default), a line per law, then a total. Exits 1 unless every law is proved and says something of its function, and every
 //   obligation of the proof code is proved.
-// tsverify <spec.ts> <export>
+// tsverify <file.ts> <export>
 //   Verifies one contract, with everything the verification knows: the states its result reaches, what it trusted
 //   and what it assumed.
 // --json prints one JSON document instead, of every verdict in full (`Report`), and the same exit code.
@@ -23,7 +23,7 @@ process.on("uncaughtException", (e) => {
 })
 
 const USAGE =
-  "usage: tsverify [<file or folder>...] [--project tsconfig.json] [--bound N] [--timeout MS] [--verbose] [--json]\n       tsverify <spec.ts> <export> [--json]"
+  "usage: tsverify [<file or folder>...] [--project tsconfig.json] [--bound N] [--timeout MS] [--verbose] [--json]\n       tsverify <file.ts> <export> [--json]"
 const argv = process.argv.slice(2)
 const VALUED = new Set(["--project", "--bound", "--timeout"])
 const positional = argv.filter((a, i) => !a.startsWith("--") && !VALUED.has(argv[i - 1] ?? ""))
@@ -55,16 +55,20 @@ const tsconfigOf = (file: string): string => {
   return found
 }
 
+/** An import of this package or one of its entries, in any form: `from "tsverify"`, `"tsverify/effect"`, `import "tsverify/packs/lodash"`. */
+const IMPORTS_TSVERIFY = /["']tsverify(?:\/[^"'\n]*)?["']/
+
 /**
- * Every file under `dir` that may hold a contract, outside `node_modules` and dot folders: a `*.spec.ts`, and a
- * TypeScript file that names `Implementation<`, whose program is then read to know.
+ * Every file under `dir` that may hold a contract, outside `node_modules` and dot folders: a TypeScript file that
+ * imports tsverify, whatever its name, whose program is then read to know. A test named `*.spec.ts` that does not import
+ * it is never read.
  */
 const contractFilesUnder = (dir: string): Array<string> =>
   readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
     const p = path.join(dir, e.name)
     if (e.isDirectory()) return e.name === "node_modules" || e.name.startsWith(".") ? [] : contractFilesUnder(p)
     if (!e.isFile() || !/\.tsx?$/.test(e.name) || e.name.endsWith(".d.ts")) return []
-    return e.name.endsWith(".spec.ts") || readFileSync(p, "utf8").includes("Implementation<") ? [p] : []
+    return IMPORTS_TSVERIFY.test(readFileSync(p, "utf8")) ? [p] : []
   })
 
 /** A value as JavaScript writes it, so a counterexample can be pasted into a call: `0n`, `"a"`, `[1, NaN]`, `{ id: "a" }`. */
@@ -270,7 +274,7 @@ const files = (positional.length === 0 ? ["."] : positional).flatMap((p) => {
   return statSync(p).isDirectory() ? contractFilesUnder(path.resolve(p)) : [path.resolve(p)]
 })
 if (files.length === 0) {
-  console.error(`no spec or implementation found under ${positional.join(", ") || "."}: name a file, or a folder that holds one\n${USAGE}`)
+  console.error(`no file that imports tsverify under ${positional.join(", ") || "."}: name a file, or a folder that holds one\n${USAGE}`)
   process.exit(2)
 }
 

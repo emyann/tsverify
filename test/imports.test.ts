@@ -15,7 +15,7 @@ import { Effect, Layer } from "effect"
 import type { Entry } from "../examples/account/account.ts"
 import * as asyncPrograms from "../examples/account/imports.async.ts"
 import * as programs from "../examples/account/imports.ts"
-import * as spec from "../examples/account/imports.spec.ts"
+import * as spec from "../examples/account/imports.contract.ts"
 import { Ledger, LedgerError } from "../examples/account/withdraw.ts"
 import * as port from "../examples/account/withdraw.async.ts"
 import { diagnostics, loadProject } from "../src/project.ts"
@@ -23,7 +23,7 @@ import type { Ctx } from "../src/value.ts"
 import { openZ3, type Verification, verify } from "../src/verify.ts"
 
 const root = path.resolve(import.meta.dirname, "..")
-const specFile = path.join(root, "examples/account/imports.spec.ts")
+const specFile = path.join(root, "examples/account/imports.contract.ts")
 const source = path.join(root, "examples/account/imports.ts")
 const asyncSource = path.join(root, "examples/account/imports.async.ts")
 const tsconfig = path.join(root, "tsconfig.json")

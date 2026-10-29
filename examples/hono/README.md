@@ -3,18 +3,18 @@
 `GET /users/:id` answers a user; `PATCH /users/:id` with `{ "name": ... }` renames one.
 
 ```text
-users.ts              shared: a user, the replies, the check of a request's body
-laws.ts               shared: what each handler must do, written once
-basic/                the handlers as async functions, handed the store
-  store.ts              the store, an interface of async methods
-  handlers.spec.ts      the laws, given an async handler's signature
-  handlers.ts           the handlers, typed by their specs
-  app.ts                the Hono app that calls them
-with-effect/          the handlers as Effect programs, requiring the store
-  store.ts              the store, an Effect service
-  handlers.spec.ts      the laws, given an Effect program's signature
-  handlers.ts           the handlers, typed by their specs
-  app.ts                the Hono app that runs them
+users.ts                shared: a user, the replies, the check of a request's body
+laws.ts                 shared: what each handler must do, written once
+basic/                  the handlers as async functions, handed the store
+  store.ts                the store, an interface of async methods
+  handlers.contract.ts    the laws, given an async handler's signature
+  handlers.ts             the handlers, typed by their specs
+  app.ts                  the Hono app that calls them
+with-effect/            the handlers as Effect programs, requiring the store
+  store.ts                the store, an Effect service
+  handlers.contract.ts    the laws, given an Effect program's signature
+  handlers.ts             the handlers, typed by their specs
+  app.ts                  the Hono app that runs them
 ```
 
 ## The laws, and the specs
@@ -27,7 +27,7 @@ written; a store that fails ends the handler with that failure.
 
 The signature is each build's own. An async handler is handed the store as an argument, `(users, id) =>
 Promise<Reply>`; an Effect program requires it as a service, `(id) => Effect<Reply, StoreDown, Users>`. So each folder's
-`handlers.spec.ts` gives the shared laws its signature, and its `handlers.ts` takes its types from there
+`handlers.contract.ts` gives the shared laws its signature, and its `handlers.ts` takes its types from there
 (`Implementation<typeof GetUserSpec>`). Nothing at the top imports either folder, nor `effect`, nor `hono`: a third
 build, over another store or another library, would be a folder beside these two.
 

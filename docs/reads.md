@@ -94,7 +94,7 @@ export function rest(cents: bigint): bigint {
 }
 ```
 
-<!-- file: src/split.spec.ts -->
+<!-- file: src/split.contract.ts -->
 ```ts
 import { assume, contract } from "tsverify"
 import { half, rest } from "./split.ts"
@@ -109,11 +109,11 @@ export const restIsAPart = contract(rest, {
 
 <!-- run -->
 ```text
-$ npx tsverify src/split.spec.ts restIsAPart
+$ npx tsverify src/split.contract.ts restIsAPart
 restIsAPart
   proved          aPart  (141 ms)
   trusted (declared, not proved):
-    - half: pure, checked from source (read half); laws aPart — src/split.spec.ts:4:28
+    - half: pure, checked from source (read half); laws aPart — src/split.contract.ts:4:28
   assumed:
     - The code throws only where it says so (a `throw`, a failure): an exception from anywhere else, a call or a binding never read, is not seen.
     - Each argument has its TypeScript type; the code's own casts, `any` and `!` are refused.
@@ -142,7 +142,7 @@ export function cleaned(tags: Array<string>): Array<string> {
 export const firstTag = (tags: Array<string>): string => cleaned(tags).at(0) ?? "none"
 ```
 
-<!-- file: src/tags.spec.ts -->
+<!-- file: src/tags.contract.ts -->
 ```ts
 import { assume, contract } from "tsverify"
 import { cleaned, firstTag } from "./tags.ts"
@@ -154,8 +154,8 @@ export const firstOrNone = contract(firstTag, { ensures: { neverEmpty: (_tags, t
 
 <!-- run, exits 1 -->
 ```text
-$ npx tsverify src/tags.spec.ts
-src/tags.spec.ts
+$ npx tsverify src/tags.contract.ts
+src/tags.contract.ts
   firstOrNone: not verified — src/tags.ts:7:58: `cleaned` is declared pure and is not: src/tags.ts:3:3: changes its argument `tags`. Declare it `pure: false`, or change it so it changes only what it allocates
 
 1 contract in 1 file: laws none; 1 not verified

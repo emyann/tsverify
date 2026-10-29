@@ -1,5 +1,5 @@
 // An order's status, derived from its record: what a shop shows its customer.
-// Plain TypeScript with no dependencies. `order.spec.ts` states its laws, and
+// Plain TypeScript with no dependencies. `order.contract.ts` states its laws, and
 // `bench/mutants.ts` plants bugs in these three functions.
 
 /** How a shipment ended. */

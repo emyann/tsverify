@@ -7,7 +7,7 @@
 import { writeFileSync } from "node:fs"
 import path from "node:path"
 import { orders } from "../examples/order/generate.ts"
-import { status } from "../examples/order/order.spec.ts"
+import { status } from "../examples/order/order.contract.ts"
 import { header, type Mutant, runMutants, tableRow } from "../src/mutants.ts"
 import { withZ3 } from "../src/verify.ts"
 
@@ -125,7 +125,7 @@ const arg = (flag: string): string | undefined => {
 
 const suite = {
   tsconfig: path.join(root, "tsconfig.json"),
-  spec: path.join(root, "examples/order/order.spec.ts"),
+  spec: path.join(root, "examples/order/order.contract.ts"),
   contract: "status",
   laws: status.ensures,
   source: path.join(root, "examples/order/order.ts"),

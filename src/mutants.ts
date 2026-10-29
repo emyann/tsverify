@@ -191,7 +191,7 @@ export const runMutants = async (z3: Ctx, suite: MutantSuite, progress: MutantPr
     let gap = ""
     if (refuted.length === 0) {
       const planted = path.join(path.dirname(suite.source), `${path.basename(suite.source, ".ts")}.planted.ts`)
-      const sameSpec = path.join(path.dirname(suite.spec), "same.spec.ts")
+      const sameSpec = path.join(path.dirname(suite.spec), "same.contract.ts")
       const params = Array.from(
         { length: arityOf(ts.createSourceFile("source.ts", original, ts.ScriptTarget.Latest, true), main) },
         (_, i) => `a${i}`,

@@ -1,5 +1,5 @@
 // One withdrawal written twice, as an Effect program and as async TypeScript
-// (examples/account), each typed by its spec (withdraw.spec.ts), the specs
+// (examples/account), each typed by its spec (withdraw.contract.ts), the specs
 // holding the same five laws. Proved on both; every end
 // each can come to reached; the laws hold when the programs run against a
 // stand-in ledger; and eight bugs planted in each are caught by the solver,
@@ -20,7 +20,7 @@ import type { Ctx } from "../src/value.ts"
 import { openZ3, type Verification, verify } from "../src/verify.ts"
 
 const root = path.resolve(import.meta.dirname, "..")
-const spec = path.join(root, "examples/account/withdraw.spec.ts")
+const spec = path.join(root, "examples/account/withdraw.contract.ts")
 const tsconfig = path.join(root, "tsconfig.json")
 const effectFile = path.join(root, "examples/account/withdraw.ts")
 const asyncFile = path.join(root, "examples/account/withdraw.async.ts")

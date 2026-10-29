@@ -1,6 +1,6 @@
 // The account's other programs, in the other ways Effect is written: a function
 // that returns `Effect.gen`, pipelines with `.pipe` and `pipe`, `map`,
-// `flatMap`, `catch`, `catchTag` and `sync`. `effects.spec.ts` states their laws.
+// `flatMap`, `catch`, `catchTag` and `sync`. `effects.contract.ts` states their laws.
 import { Effect, pipe, Schema } from "effect"
 import { type Account, accountOf } from "./account.ts"
 import { Ledger } from "./withdraw.ts"

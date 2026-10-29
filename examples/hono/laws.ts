@@ -3,7 +3,7 @@
 // store's failure) and the calls the handler made to the store, as the
 // verifier records them; it says nothing of how the handler is written, async
 // or Effect, nor of HTTP. A spec is a signature and the laws it holds: each
-// build's handlers.spec.ts (basic/, with-effect/) gives these laws its own
+// build's handlers.contract.ts (basic/, with-effect/) gives these laws its own
 // signature, and each build is proved against them.
 import type { Outcome } from "tsverify"
 import type { Reply, User } from "./users.ts"

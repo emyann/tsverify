@@ -11,14 +11,14 @@ import { pathToFileURL } from "node:url"
 import { Effect, Layer } from "effect"
 import type { Entry } from "../examples/account/account.ts"
 import * as programs from "../examples/account/effects.ts"
-import * as spec from "../examples/account/effects.spec.ts"
+import * as spec from "../examples/account/effects.contract.ts"
 import { Ledger, LedgerError } from "../examples/account/withdraw.ts"
 import { diagnostics, loadProject } from "../src/project.ts"
 import type { Ctx } from "../src/value.ts"
 import { openZ3, type Verification, verify } from "../src/verify.ts"
 
 const root = path.resolve(import.meta.dirname, "..")
-const specFile = path.join(root, "examples/account/effects.spec.ts")
+const specFile = path.join(root, "examples/account/effects.contract.ts")
 const source = path.join(root, "examples/account/effects.ts")
 const tsconfig = path.join(root, "tsconfig.json")
 const project = loadProject([specFile], tsconfig)

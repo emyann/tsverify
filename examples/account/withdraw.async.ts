@@ -2,7 +2,7 @@
 // an interface, its refusal thrown. No Effect anywhere; the same pure helpers.
 import type { Implementation, Rejects } from "tsverify"
 import { accountOf, type Entry, withdrawalRefusalOf } from "./account.ts"
-import type { AsyncWithdrawSpec } from "./withdraw.spec.ts"
+import type { AsyncWithdrawSpec } from "./withdraw.contract.ts"
 
 export class WithdrawalRefused extends Error {
   readonly _tag = "WithdrawalRefused" as const

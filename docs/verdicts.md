@@ -8,7 +8,7 @@ the nearest `tsconfig.json` above it (or `--project`).
 
 Four small specs, one law of each kind:
 
-<!-- file: src/cap.spec.ts -->
+<!-- file: src/cap.contract.ts -->
 ```ts
 import { spec } from "tsverify"
 
@@ -25,12 +25,12 @@ export const CapSpec = spec<(value: bigint, limit: bigint) => bigint>({
 <!-- file: src/cap.ts -->
 ```ts
 import type { Implementation } from "tsverify"
-import type { CapSpec } from "./cap.spec.ts"
+import type { CapSpec } from "./cap.contract.ts"
 
 export const cap: Implementation<typeof CapSpec> = (value, limit) => (value > limit ? limit : value)
 ```
 
-<!-- file: src/label.spec.ts -->
+<!-- file: src/label.contract.ts -->
 ```ts
 import { spec } from "tsverify"
 
@@ -45,12 +45,12 @@ export const LabelSpec = spec<(name: string) => string>({
 <!-- file: src/label.ts -->
 ```ts
 import type { Implementation } from "tsverify"
-import type { LabelSpec } from "./label.spec.ts"
+import type { LabelSpec } from "./label.contract.ts"
 
 export const label: Implementation<typeof LabelSpec> = (name) => (name === "" ? "(unnamed)" : name)
 ```
 
-<!-- file: src/largest.spec.ts -->
+<!-- file: src/largest.contract.ts -->
 ```ts
 import { spec } from "tsverify"
 
@@ -65,7 +65,7 @@ export const LargestSpec = spec<(xs: ReadonlyArray<bigint>) => bigint>({
 <!-- file: src/largest.ts -->
 ```ts
 import type { Implementation } from "tsverify"
-import type { LargestSpec } from "./largest.spec.ts"
+import type { LargestSpec } from "./largest.contract.ts"
 
 export const largest: Implementation<typeof LargestSpec> = (xs) => {
   let best = xs.at(0) ?? 0n
@@ -74,7 +74,7 @@ export const largest: Implementation<typeof LargestSpec> = (xs) => {
 }
 ```
 
-<!-- file: src/score.spec.ts -->
+<!-- file: src/score.contract.ts -->
 ```ts
 import { spec } from "tsverify"
 
@@ -86,7 +86,7 @@ export const ScoreSpec = spec<(points: number) => number>({
 <!-- file: src/score.ts -->
 ```ts
 import type { Implementation } from "tsverify"
-import type { ScoreSpec } from "./score.spec.ts"
+import type { ScoreSpec } from "./score.contract.ts"
 
 export const score: Implementation<typeof ScoreSpec> = (points) => Math.max(points, 0)
 ```
@@ -105,7 +105,7 @@ src/label.ts
   label
     proved          neverEmpty  (10 ms)
     unsupported     short  (1 ms)
-                    src/label.spec.ts:6:30: a string's length counts UTF-16 code units, which is not modeled: compare with `""` to ask whether it is empty, or move it into a function the spec declares with `assume`
+                    src/label.contract.ts:6:30: a string's length counts UTF-16 code units, which is not modeled: compare with `""` to ask whether it is empty, or move it into a function the spec declares with `assume`
 src/largest.ts
   largest
     proved          noneLarger  (22 ms)

@@ -13,7 +13,7 @@ code takes the spec as its type, so a spec is also where the code's signature co
 
 A parcel's status, from a record with two dates that may be missing:
 
-<!-- file: src/parcel.spec.ts -->
+<!-- file: src/parcel.contract.ts -->
 ```ts
 import { spec } from "tsverify"
 import type { Parcel, Status } from "./parcel.ts"
@@ -34,7 +34,7 @@ type. Both files import only the other's types, so nothing of the spec is in wha
 <!-- file: src/parcel.ts -->
 ```ts
 import type { Implementation } from "tsverify"
-import type { StatusSpec } from "./parcel.spec.ts"
+import type { StatusSpec } from "./parcel.contract.ts"
 
 export interface Parcel {
   readonly shippedAt: bigint | null
@@ -63,8 +63,9 @@ src/parcel.ts
 ```
 
 Given files, the command verifies every contract they export: each `const` typed `Implementation<typeof S>`, and each
-`contract`, `computation` or lemma. Given a folder, or nothing (the current folder), it reads every `*.spec.ts` and every
-file that names `Implementation<` under it, outside `node_modules` and dot folders.
+`contract`, `computation` or lemma. Given a folder, or nothing (the current folder), it reads every file under it that
+imports `tsverify`, whatever its name, outside `node_modules` and dot folders. The names are the project's: these pages
+write a spec in `*.contract.ts`, which no test runner claims, where Jest and Vitest run every `*.spec.ts` as a test.
 
 **A law says what holds, not how.** `waitingUntilShipped` does not restate the code's `if`s; it says when the parcel waits,
 in the record's words. A law that copies the code proves only that the code is the code.
@@ -110,7 +111,7 @@ export interface Users {
 
 Renaming a user reads it, fails if it is missing, and writes it back renamed. A first spec:
 
-<!-- file: src/rename.spec.ts -->
+<!-- file: src/rename.contract.ts -->
 ```ts
 import { type Rejects, spec } from "tsverify"
 import type { NotFound, StoreDown, Users } from "./users.ts"
@@ -138,7 +139,7 @@ export const RenameSpec = spec<(users: Users, id: string, name: string) => Rejec
 <!-- file: src/rename.ts -->
 ```ts
 import type { Implementation } from "tsverify"
-import type { RenameSpec } from "./rename.spec.ts"
+import type { RenameSpec } from "./rename.contract.ts"
 import { NotFound } from "./users.ts"
 
 export const rename: Implementation<typeof RenameSpec> = async (users, id, name) => {
@@ -166,7 +167,7 @@ The code is what was meant; the law is not. Asked for `"A"`, the store gave back
 wrote that user renamed. Nothing says a store returns the user asked for, and the law took it for granted. Here the law
 should say what the code means, that it writes the user it read:
 
-<!-- file: src/rename.spec.ts -->
+<!-- file: src/rename.contract.ts -->
 ```ts
 import { type Rejects, spec } from "tsverify"
 import type { NotFound, StoreDown, Users } from "./users.ts"
@@ -230,7 +231,7 @@ export function isOverdue(due: bigint | null, now: bigint): boolean {
 }
 ```
 
-<!-- file: src/overdue.spec.ts -->
+<!-- file: src/overdue.contract.ts -->
 ```ts
 import { contract } from "tsverify"
 import { isOverdue } from "./overdue.ts"
@@ -245,8 +246,8 @@ export const overdue = contract(isOverdue, {
 
 <!-- run -->
 ```text
-$ npx tsverify src/overdue.spec.ts
-src/overdue.spec.ts
+$ npx tsverify src/overdue.contract.ts
+src/overdue.contract.ts
   overdue
     proved          neverWithoutADate  (117 ms)
     proved          lateOnlyAfter  (21 ms)

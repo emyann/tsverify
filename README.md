@@ -47,9 +47,10 @@ resolution that reads a package's `exports` (`nodenext`, `node16` or `bundler`).
 ```
 
 The spec comes first: the function's type, what a caller promises (`requires`), and the laws (`ensures`), each a
-predicate over the arguments and the result.
+predicate over the arguments and the result. Its file may have any name, since the command reads every file that imports
+`tsverify`; these pages use `*.contract.ts`, which no test runner takes for a test.
 
-<!-- file: src/charge.spec.ts -->
+<!-- file: src/charge.contract.ts -->
 ```ts
 import { spec } from "tsverify"
 
@@ -68,7 +69,7 @@ spec's signature:
 <!-- file: src/charge.ts -->
 ```ts
 import type { Implementation } from "tsverify"
-import type { ChargeSpec } from "./charge.spec.ts"
+import type { ChargeSpec } from "./charge.contract.ts"
 
 export const charge: Implementation<typeof ChargeSpec> = (balance, amount) => (amount > balance ? 0n : balance - amount)
 ```
@@ -90,7 +91,7 @@ guard.
 <!-- file: src/charge.ts -->
 ```ts
 import type { Implementation } from "tsverify"
-import type { ChargeSpec } from "./charge.spec.ts"
+import type { ChargeSpec } from "./charge.contract.ts"
 
 export const charge: Implementation<typeof ChargeSpec> = (balance, amount) => balance - amount
 ```
@@ -157,7 +158,7 @@ The ones that matter most; [all of them](docs/reads.md#caveats).
 ## In this repository
 
 ```sh
-npm test            # 233 tests, ~50 s, the documentation's examples among them
+npm test            # 234 tests, ~50 s, the documentation's examples among them
 npm run verify      # every contract below here, a line per law, then a total
 npm run verify -- examples/account                                   # one folder, or one file
 npm run verify -- examples/account/withdraw.ts withdraw              # one contract, with all it knows
@@ -169,7 +170,7 @@ npm run lint        # oxlint, then oxfmt --check; npm run format writes the layo
 ```
 
 On this repository `npm run verify` exits 1, on purpose: two examples keep a law the solver refutes,
-`examples/account/imports.spec.ts` keeps 8 laws bounded by a loop of steps, and `fixtures/vacuous` holds three vacuous
+`examples/account/imports.contract.ts` keeps 8 laws bounded by a loop of steps, and `fixtures/vacuous` holds three vacuous
 laws. `test/docs.test.ts` runs every example of the documentation: it writes each
 page's files into a project of their own, in the page's order, runs each command the page shows, and compares what it
 prints.

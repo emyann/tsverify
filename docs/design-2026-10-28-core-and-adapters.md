@@ -157,11 +157,11 @@ A construct here is refused, never read as true.
 A spec is written before the code, and the code takes it as its type:
 
 ```ts
-// charge.spec.ts
+// charge.contract.ts
 export const ChargeSpec = spec<(balance: bigint, amount: bigint) => bigint>({ requires, ensures: { ... } })
 
 // charge.ts: a type-only import, erased, so nothing of the spec runs
-import type { ChargeSpec } from "./charge.spec.ts"
+import type { ChargeSpec } from "./charge.contract.ts"
 export const charge: Implementation<typeof ChargeSpec> = (balance, amount) => ...
 ```
 
@@ -177,7 +177,7 @@ export const charge: Implementation<typeof ChargeSpec> = (balance, amount) => ..
 
 ## The proof of the design: a withdrawal and its async twin
 
-`examples/account/withdraw.ts`, an Effect program, typed by `WithdrawSpec` (`withdraw.spec.ts`):
+`examples/account/withdraw.ts`, an Effect program, typed by `WithdrawSpec` (`withdraw.contract.ts`):
 
 ```ts
 export const withdraw: Implementation<typeof WithdrawSpec> = Effect.fn("withdraw")(function* (accountId: string, id: string, amount: bigint) {

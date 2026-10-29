@@ -35,7 +35,7 @@ The spec is `spec` from `tsverify/effect`, over the program's type, `(...args) =
 the arguments, the outcome (`Success` with a value of `A`, `Failure` with an error of `E`) and the calls the program made
 to the services of `R`, typed from each service's methods:
 
-<!-- file: src/rename.spec.ts -->
+<!-- file: src/rename.contract.ts -->
 ```ts
 import type { Effect } from "effect"
 import { spec } from "tsverify/effect"
@@ -70,7 +70,7 @@ and `tsc` refuses a failure or a service the spec does not declare:
 ```ts
 import { Effect } from "effect"
 import type { Implementation } from "tsverify"
-import type { RenameSpec } from "./rename.spec.ts"
+import type { RenameSpec } from "./rename.contract.ts"
 import { NotFound, Users } from "./users.ts"
 
 export const rename: Implementation<typeof RenameSpec> = Effect.fn("rename")(function* (id, name) {
@@ -110,7 +110,7 @@ build, and its fields. `out.error._tag === "NotFound" && out.error.id === id` re
 with any value of its type, or fails with what its `catch` makes of what was thrown. What was thrown is `unknown`, so a
 `catch` that passes it on gives the program an error no law can read:
 
-<!-- file: src/amount.spec.ts -->
+<!-- file: src/amount.contract.ts -->
 ```ts
 import type { Effect } from "effect"
 import { spec } from "tsverify/effect"
@@ -133,7 +133,7 @@ export const LooseAmountSpec = spec<(text: string) => Effect.Effect<bigint, unkn
 ```ts
 import { Data, Effect } from "effect"
 import type { Implementation } from "tsverify"
-import type { AmountSpec, LooseAmountSpec } from "./amount.spec.ts"
+import type { AmountSpec, LooseAmountSpec } from "./amount.contract.ts"
 
 export class BadAmount extends Data.TaggedError("BadAmount")<{ readonly text: string }> {}
 
@@ -152,7 +152,7 @@ src/amount.ts
     proved          namesTheText  (140 ms)
   looseAmountOf
     unsupported     failsWithSomething  (0 ms)
-                    src/amount.spec.ts:13:67: `===` of a value of type `unknown` is not modeled: such a value is carried and never read; give it a type where it is made (for an error, a `catch` that builds a typed one)
+                    src/amount.contract.ts:13:67: `===` of a value of type `unknown` is not modeled: such a value is carried and never read; give it a type where it is made (for an error, a `catch` that builds a typed one)
 
 2 contracts in 1 file: laws 1 proved, 1 unsupported
 ```
@@ -183,7 +183,7 @@ before it is present: write an `if`.
 
 An Effect function the adapter does not read is refused where the program calls it, with what to write instead:
 
-<!-- file: src/renameAll.spec.ts -->
+<!-- file: src/renameAll.contract.ts -->
 ```ts
 import type { Effect } from "effect"
 import { spec } from "tsverify/effect"
@@ -200,7 +200,7 @@ export const RenameAllSpec = spec<(ids: ReadonlyArray<string>, name: string) => 
 ```ts
 import { Effect } from "effect"
 import type { Implementation } from "tsverify"
-import type { RenameAllSpec } from "./renameAll.spec.ts"
+import type { RenameAllSpec } from "./renameAll.contract.ts"
 import { Users } from "./users.ts"
 
 export const renameAll: Implementation<typeof RenameAllSpec> = Effect.fn("renameAll")(function* (ids, name) {
@@ -230,7 +230,7 @@ The loop `forEach` names, written as steps:
 ```ts
 import { Effect } from "effect"
 import type { Implementation } from "tsverify"
-import type { RenameAllSpec } from "./renameAll.spec.ts"
+import type { RenameAllSpec } from "./renameAll.contract.ts"
 import { Users } from "./users.ts"
 
 export const renameAll: Implementation<typeof RenameAllSpec> = Effect.fn("renameAll")(function* (ids, name) {

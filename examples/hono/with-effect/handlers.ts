@@ -1,10 +1,10 @@
 // The handlers as Effect programs, the store a service they require. The
 // routes (app.ts) run them; each takes its type from its spec
-// (handlers.spec.ts).
+// (handlers.contract.ts).
 import { Effect } from "effect"
 import type { Implementation } from "tsverify"
 import { emptyName, notFound, ok } from "../users.ts"
-import type { GetUserSpec, RenameUserSpec } from "./handlers.spec.ts"
+import type { GetUserSpec, RenameUserSpec } from "./handlers.contract.ts"
 import { Users } from "./store.ts"
 
 export const getUser: Implementation<typeof GetUserSpec> = Effect.fn("getUser")(function* (id) {

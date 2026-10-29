@@ -1,5 +1,5 @@
 // A law no result could break is reported `vacuous`, not `proved`: it would hold
-// of any function with the same signature (fixtures/vacuous/sign.spec.ts).
+// of any function with the same signature (fixtures/vacuous/sign.contract.ts).
 import assert from "node:assert/strict"
 import path from "node:path"
 import { after, before, it } from "node:test"
@@ -8,7 +8,7 @@ import type { Ctx } from "../src/value.ts"
 import { openZ3, verify } from "../src/verify.ts"
 
 const root = path.resolve(import.meta.dirname, "..")
-const spec = path.join(root, "fixtures/vacuous/sign.spec.ts")
+const spec = path.join(root, "fixtures/vacuous/sign.contract.ts")
 const project = loadProject([spec], path.join(root, "tsconfig.json"))
 
 let z3: Ctx

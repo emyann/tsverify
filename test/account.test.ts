@@ -1,6 +1,6 @@
 // A loop read through its invariants: an account folded from its ledger
 // (examples/account/account.ts). The verifier proves the five laws of
-// `account.spec.ts` for ledgers of every length; each planted bug is caught
+// `account.contract.ts` for ledgers of every length; each planted bug is caught
 // with a ledger that breaks the planted code when it runs; and with no
 // invariant written, it finds the five itself, and still catches each bug.
 import assert from "node:assert/strict"
@@ -10,7 +10,7 @@ import { after, before, describe, it } from "node:test"
 import { pathToFileURL } from "node:url"
 import ts from "typescript"
 import { accountOf, type Entry } from "../examples/account/account.ts"
-import { folded } from "../examples/account/account.spec.ts"
+import { folded } from "../examples/account/account.contract.ts"
 import { random } from "../examples/order/generate.ts"
 import { diagnostics, loadProject, sourceFile } from "../src/project.ts"
 import { purityOf } from "../src/purity.ts"
@@ -18,7 +18,7 @@ import type { Ctx } from "../src/value.ts"
 import { openZ3, type Verification, verify } from "../src/verify.ts"
 
 const root = path.resolve(import.meta.dirname, "..")
-const spec = path.join(root, "examples/account/account.spec.ts")
+const spec = path.join(root, "examples/account/account.contract.ts")
 const source = path.join(root, "examples/account/account.ts")
 const tsconfig = path.join(root, "tsconfig.json")
 const LAWS = Object.keys(folded.ensures)

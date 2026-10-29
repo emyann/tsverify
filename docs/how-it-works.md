@@ -65,7 +65,7 @@ Verus sorts code into three modes. The same three are here, in TypeScript:
 
 | Verus | Here | Rule |
 |---|---|---|
-| `spec`: pure, deterministic, ghost | the laws and `requires` in `*.spec.ts`, and whatever they call | runs no computation, calls no operation, reads no clock, calls nothing declared `pure: false` |
+| `spec`: pure, deterministic, ghost | the laws and `requires` of a spec, and whatever they call | runs no computation, calls no operation, reads no clock, calls nothing declared `pure: false` |
 | `proof`: lemmas, invariants, asserts | typed no-op calls in the program: `invariant(i => ...)`, `assert(() => ...)`, a lemma's call | each proved where it is written, then known; spec code inside |
 | `exec`: the compiled code | the program | |
 | `assume_specification`, `external_body` | `assume(fn, { pure, ensures? })` | trusted without proof, listed in every report |

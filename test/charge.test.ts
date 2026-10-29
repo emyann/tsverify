@@ -11,7 +11,7 @@ import path from "node:path"
 import { after, before, describe, it } from "node:test"
 import { pathToFileURL } from "node:url"
 import ts from "typescript"
-import { ChargeSpec } from "../examples/charge/charge.spec.ts"
+import { ChargeSpec } from "../examples/charge/charge.contract.ts"
 import { diagnostics, loadProject } from "../src/project.ts"
 import type { Ctx } from "../src/value.ts"
 import { openZ3, type Verification, verify } from "../src/verify.ts"
@@ -35,7 +35,7 @@ describe("charge, written against its spec", () => {
     const js = ts.transpileModule(readFileSync(source, "utf8"), {
       compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext },
     }).outputText
-    assert.doesNotMatch(js, /import|charge\.spec|tsverify/)
+    assert.doesNotMatch(js, /import|charge\.contract|tsverify/)
   })
 
   it("is proved: the verifier finds the spec from the implementation's type", async () => {
@@ -70,7 +70,7 @@ describe("charge, written against its spec", () => {
   })
 
   it("a spec of a function whose result is a union types each law over the whole union", () => {
-    const spec = path.join(root, "examples/charge/light.spec.ts")
+    const spec = path.join(root, "examples/charge/light.contract.ts")
     const text = `import { spec } from "tsverify"\nexport const NextSpec = spec<(light: "red" | "green") => "red" | "green">({ ensures: { changes: (light, next) => next !== light } })\n`
     assert.deepEqual(diagnostics(loadProject([spec], tsconfig, new Map([[spec, text]])), spec), [])
   })
