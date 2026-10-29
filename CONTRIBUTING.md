@@ -26,6 +26,9 @@ file, and `<!-- run -->` (or `<!-- run, exits 1 -->`) before a block of `$ npx t
 Before you commit, run the typecheck, the lint and the tests. CI runs the same on every push and pull request
 (`.github/workflows/ci.yml`), the tests on the Node floor `engines.node` claims and on the latest 24.
 
+A commit that only changes the layout (a new rule of `oxfmt`, say) goes in `.git-blame-ignore-revs`, so `git blame` looks
+past it. GitHub reads the file by itself; locally, `git config blame.ignoreRevsFile .git-blame-ignore-revs` once.
+
 ## Building and packing
 
 The repository runs its TypeScript source, with no build: Node 24 runs `.ts` files directly. An installed package

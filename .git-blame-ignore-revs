@@ -1,0 +1,5 @@
+# Commits that change only the layout, which `git blame` skips: GitHub reads this file by itself, and a local blame does
+# once `git config blame.ignoreRevsFile .git-blame-ignore-revs` is set.
+
+# Format the code with oxfmt
+688055f8b647f5a33de6766dcad5021d6dc2eefb

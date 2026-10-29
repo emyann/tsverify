@@ -10,6 +10,9 @@ In rough order:
   `calls.every((c) => c.op !== "set" || …)`, where `c` may be a call with one argument.
 - The next Effect forms, by how often they stop real code: `Effect.exit`, `mapError`, `catchCause`, `suspend`;
   destructuring with rest or defaults; `let` in a computation's body.
+- A counterexample's `where` line for everything a run was given: it lists only the calls the run made, but a declared
+  function's result (`assume`) or a clock read on a branch the run did not take is still listed. It needs the branch a
+  run took followed through every expression, not only through statements.
 - A loop of steps read through invariants over the trace, as a fold's loop is read through its own, so a law of such a
   contract can be proved and not only bounded.
 - Contracts on operations, assumed by every caller and proved by each implementation (a layer, a class).
