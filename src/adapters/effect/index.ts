@@ -24,7 +24,7 @@ import ts from "typescript"
 import { type Adapter, packageExport } from "../../adapter.ts"
 import { computationCall, failure, onFailure, onSuccess, runComp, success } from "../../computation.ts"
 import type { Lowering } from "../../lower.ts"
-import { applyValue, lowerExpr } from "../../lower.ts"
+import { applyValue, lowerExpr, onBranch } from "../../lower.ts"
 import { ite, strictEq } from "../../ops.ts"
 import { symbolicOf } from "../../symbolic.ts"
 import { type Env, Unsupported, type Val, jsString, lazyRecord } from "../../value.ts"
@@ -71,11 +71,11 @@ const caughtTag = (L: Lowering, self: Val, tag: Val, f: Val, at: ts.Node): Val =
     onFailure(L, runComp(self, trace, at), at, (error, t) => {
       const own = error.kind === "record" ? error.field("_tag") : undefined
       if (own === undefined) throw new Unsupported("`Effect.catchTag` of an error with no `_tag`", at)
-      const handled = runComp(applyValue(L, f, [error], at), t, at)
       const passed = { outcome: failure(L, error), trace: t }
       const matched = strictEq(L.u, own, tag, at)
-      if (L.u.z3.isTrue(matched)) return handled
       if (L.u.z3.isFalse(matched)) return passed
+      const handled = onBranch(L, matched, () => runComp(applyValue(L, f, [error], at), t, at))
+      if (L.u.z3.isTrue(matched)) return handled
       const merged = ite(L.u, matched, ranOf(handled), ranOf(passed), at)
       if (merged.kind !== "record") throw new Error("a computation's end is a record")
       return { outcome: merged.field("outcome")!, trace: merged.field("trace")! }
@@ -102,7 +102,7 @@ const tried = (L: Lowering, name: string, args: ReadonlyArray<Val>, at: ts.Node)
   )
   return comp((trace) => {
     const z3 = L.u.z3
-    const base = [L.u.given(name)]
+    const base = [L.u.given(name, L.guard)]
     const tag = L.u.leaf([...base, "._tag", "$"], "str", []) as never as ReturnType<typeof z3.String.val>
     const canFail = !(types.failure!.flags & ts.TypeFlags.Never)
     L.u.assume(canFail ? z3.Or(tag.eq(jsString(z3, "Success")), tag.eq(jsString(z3, "Failure"))) : tag.eq(jsString(z3, "Success")))

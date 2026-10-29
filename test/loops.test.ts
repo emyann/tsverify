@@ -4,24 +4,22 @@
 import assert from "node:assert/strict"
 import path from "node:path"
 import { after, before, describe, it } from "node:test"
-import { init, killThreads } from "z3-solver"
 import * as loops from "../fixtures/loops.ts"
 import * as state from "../fixtures/state.ts"
 import { diagnostics, loadProject } from "../src/project.ts"
 import type { Ctx } from "../src/value.ts"
-import { type Verification, verify } from "../src/verify.ts"
+import { type Verification, verify, openZ3 } from "../src/verify.ts"
 
 const root = path.resolve(import.meta.dirname, "..")
 const files = { loops: path.join(root, "fixtures/loops.ts"), state: path.join(root, "fixtures/state.ts") }
 const project = loadProject(Object.values(files), path.join(root, "tsconfig.json"))
 
-let api: Awaited<ReturnType<typeof init>>
 let z3: Ctx
+let close: () => Promise<void>
 before(async () => {
-  api = await init()
-  z3 = api.Context("main")
+  ;({ z3, close } = await openZ3())
 })
-after(() => killThreads(api.em))
+after(() => close())
 
 const laws = (v: Verification) => v.laws.map((l) => l.status)
 const proofCode = (v: Verification) => v.obligations.map((o) => `${o.kind}${o.phase === "here" ? "" : ` ${o.phase}`}: ${o.status}`)

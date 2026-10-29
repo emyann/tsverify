@@ -158,17 +158,25 @@ const report = (v: Verification, pad: string, full: boolean): Array<string> => {
       out.push(`${under}leans on what is declared of ${l.abstract.join(", ")}: true of them as declared, maybe not as they are`)
     if (l.reason !== undefined) out.push(`${under}${l.reason}`)
   }
-  if (v.obligations.length > 0) {
-    out.push(`${pad}proof code:`)
-    for (const o of v.obligations) {
+  // What the proof code asked, then each division's divisor: proved where it runs, or the input that makes it 0n.
+  for (const [heading, os] of [
+    ["proof code", v.obligations.filter((o) => o.kind !== "division")],
+    ["divisions", v.obligations.filter((o) => o.kind === "division")],
+  ] as const) {
+    if (os.length === 0) continue
+    out.push(`${pad}${heading}:`)
+    for (const o of os) {
       const what =
         o.kind === "invariant"
           ? `invariant ${o.phase === "entry" ? "on entry" : "kept by each iteration"}`
           : o.kind === "requires"
             ? "lemma's requires"
-            : o.kind
+            : o.kind === "division"
+              ? "divisor not 0n"
+              : o.kind
       out.push(`${pad}  ${o.status.padEnd(15)} ${what}: ${o.text}  (${rel(o.at)})`)
       if (o.args !== undefined) out.push(`${pad}  ${"".padEnd(15)} e.g. ${show(o.args)}`)
+      if (o.world !== undefined && Object.keys(o.world).length > 0) out.push(`${pad}  ${"".padEnd(15)} where ${given(o.world)}`)
       if (o.reason !== undefined) out.push(`${pad}  ${"".padEnd(15)} ${o.reason}`)
     }
   }

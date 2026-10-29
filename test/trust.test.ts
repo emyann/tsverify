@@ -6,22 +6,20 @@
 import assert from "node:assert/strict"
 import path from "node:path"
 import { after, before, describe, it } from "node:test"
-import { init, killThreads } from "z3-solver"
 import { diagnostics, loadProject } from "../src/project.ts"
 import type { Ctx } from "../src/value.ts"
-import { verify } from "../src/verify.ts"
+import { verify, openZ3 } from "../src/verify.ts"
 
 const root = path.resolve(import.meta.dirname, "..")
 const file = path.join(root, "fixtures/trusted.ts")
 const project = loadProject([file], path.join(root, "tsconfig.json"))
 
-let api: Awaited<ReturnType<typeof init>>
 let z3: Ctx
+let close: () => Promise<void>
 before(async () => {
-  api = await init()
-  z3 = api.Context("main")
+  ;({ z3, close } = await openZ3())
 })
-after(() => killThreads(api.em))
+after(() => close())
 
 const run = (name: string) => verify(z3, project, file, name)
 

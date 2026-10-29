@@ -51,11 +51,12 @@ import {
   type Val,
   exactRational,
   identity,
+  jsString,
   lazy,
   lazyRecord,
+  locate,
   memoElems,
   termId,
-  jsString,
 } from "./value.ts"
 
 /** What a verification trusts, shared by its two sides: the declarations in force, and what came of using them. */
@@ -89,6 +90,16 @@ export interface Lowering extends Typing {
   readonly trust: Trust
   /** The mode of the code being lowered now. */
   mode: Mode
+  /**
+   * The condition the code being lowered now runs under: the branches taken to reach it from the contract's entry. A
+   * division holds its divisor non-zero there, and nowhere else (`under`, `onBranch`).
+   */
+  guard: Bool
+  /**
+   * While spec code is read (a law, a `requires`): what each division it runs needs, a divisor other than 0n where it
+   * runs. Spec code that throws does not hold, so these are part of what it says (`definedSpec`).
+   */
+  defined: Array<Bool> | undefined
   /** The declarations whose laws are being assumed now: a law that calls its own function is refused. */
   readonly assuming: Array<AssumedFn>
   /** What the proof code asks proved: invariants, asserts, lemmas' preconditions. */
@@ -131,11 +142,43 @@ export const lowering = (typing: Typing, adapters: ReadonlyArray<Adapter>, trust
   opaque: new Map(),
   trust,
   mode: "exec",
+  guard: typing.u.z3.Bool.val(true),
+  defined: undefined,
   assuming: [],
   obligations: [],
   hints: [],
   lemmas: new Map(),
 })
+
+/** Runs `f` with `guard` as the condition the code it lowers runs under. */
+export const under = <A>(L: Lowering, guard: Bool, f: () => A): A => {
+  const prev = L.guard
+  L.guard = guard
+  try {
+    return f()
+  } finally {
+    L.guard = prev
+  }
+}
+
+/** Runs `f` on the branch where `c` holds, from the one being lowered now. */
+export const onBranch = <A>(L: Lowering, c: Bool, f: () => A): A => (L.u.z3.isTrue(c) ? f() : under(L, L.u.z3.And(L.guard, c), f))
+
+/**
+ * Spec code's truth (a law, a `requires`): `f`'s, where every division it runs has a divisor other than 0n. Spec code
+ * that divides by 0n throws, so it does not hold there.
+ */
+export const definedSpec = (L: Lowering, f: () => Bool): Bool => {
+  const prev = L.defined
+  const gathered: Array<Bool> = []
+  L.defined = gathered
+  try {
+    const holds = f()
+    return gathered.length === 0 ? holds : L.u.z3.And(...gathered, holds)
+  } finally {
+    L.defined = prev
+  }
+}
 
 /** Runs `f` as spec code. */
 export const inSpec = <A>(L: Lowering, f: () => A): A => {
@@ -149,13 +192,13 @@ export const inSpec = <A>(L: Lowering, f: () => A): A => {
 }
 
 /** A binding evaluated when first read, in the mode of the code that wrote it. */
-export const later = (L: Lowering, f: () => Val): Thunk => {
+export const later = (L: Lowering, f: () => Val, guard: Bool = L.guard): Thunk => {
   const mode = L.mode
   return lazy(() => {
     const prev = L.mode
     L.mode = mode
     try {
-      return f()
+      return under(L, guard, f)
     } finally {
       L.mode = prev
     }
@@ -237,9 +280,20 @@ export const cond = (L: Lowering, e: ts.Expression, env: Env): Bool => {
   if (stepped !== undefined) return truthy(L.u, stepped())
   if (ts.isParenthesizedExpression(e)) return cond(L, e.expression, env)
   if (ts.isPrefixUnaryExpression(e) && e.operator === K.ExclamationToken) return z3.Not(cond(L, e.operand, env))
-  if (ts.isBinaryExpression(e) && e.operatorToken.kind === K.AmpersandAmpersandToken)
-    return z3.And(cond(L, e.left, env), cond(L, e.right, env))
-  if (ts.isBinaryExpression(e) && e.operatorToken.kind === K.BarBarToken) return z3.Or(cond(L, e.left, env), cond(L, e.right, env))
+  if (ts.isBinaryExpression(e) && e.operatorToken.kind === K.AmpersandAmpersandToken) {
+    const l = cond(L, e.left, env)
+    return z3.And(
+      l,
+      onBranch(L, l, () => cond(L, e.right, env)),
+    )
+  }
+  if (ts.isBinaryExpression(e) && e.operatorToken.kind === K.BarBarToken) {
+    const l = cond(L, e.left, env)
+    return z3.Or(
+      l,
+      onBranch(L, z3.Not(l), () => cond(L, e.right, env)),
+    )
+  }
   return truthy(L.u, lowerExpr(L, e, env))
 }
 
@@ -315,8 +369,17 @@ export const lowerExpr = (L: Lowering, e: ts.Expression, env: Env): Val => {
   if (ts.isObjectLiteralExpression(e)) return objectLiteral(L, e, env)
   if (ts.isArrayLiteralExpression(e)) return arrayLiteral(L, e, env)
 
-  if (ts.isConditionalExpression(e))
-    return ite(u, cond(L, e.condition, env), lowerExpr(L, e.whenTrue, env), lowerExpr(L, e.whenFalse, env), e)
+  if (ts.isConditionalExpression(e)) {
+    const c = cond(L, e.condition, env)
+    const yes = onBranch(L, c, () => lowerExpr(L, e.whenTrue, env))
+    return ite(
+      u,
+      c,
+      yes,
+      onBranch(L, z3.Not(c), () => lowerExpr(L, e.whenFalse, env)),
+      e,
+    )
+  }
 
   if (ts.isPrefixUnaryExpression(e)) {
     if (e.operator === K.ExclamationToken) return bool(z3.Not(cond(L, e.operand, env)))
@@ -498,7 +561,8 @@ const optionally = (L: Lowering, obj: Val, e: ts.Node, objExpr: ts.Expression, f
   if (!inChain(e) && !shownPresent())
     throw new Unsupported("a member of a value the type checker has not shown to be neither null nor undefined here", e)
   if (obj.value === undefined) return { kind: "nullish", which: "undefined" }
-  const inner = f(obj.value)
+  const present = obj.value
+  const inner = inChain(e) ? onBranch(L, L.u.z3.Not(isNullish(L.u, obj)), () => f(present)) : f(present)
   if (!inChain(e)) return inner
   return ite(L.u, isNullish(L.u, obj), { kind: "nullish", which: "undefined" }, inner, e)
 }
@@ -643,7 +707,13 @@ const assumedCall = (L: Lowering, a: AssumedFn, args: ReadonlyArray<Val>, at: ts
       : undefined
   const known = key === undefined ? undefined : L.opaque.get(key)
   if (known !== undefined) return known
-  const result = symbolicOf(L, checker.getTypeAtLocation(at), [u.given(a.name.replace(/\s.*/, ""))], indices, at)
+  const result = symbolicOf(
+    L,
+    checker.getTypeAtLocation(at),
+    [u.given(a.name.replace(/\s.*/, ""), u.openBounds().length === 0 ? L.guard : undefined)],
+    indices,
+    at,
+  )
   if (key !== undefined) L.opaque.set(key, result)
   L.trust.used.add(a)
   u.opaqueCalls.add(a.name)
@@ -791,12 +861,15 @@ const binary = (L: Lowering, e: ts.BinaryExpression, env: Env): Val => {
   const op = e.operatorToken.kind
   if (op === K.AmpersandAmpersandToken || op === K.BarBarToken) {
     const l = lowerExpr(L, e.left, env)
-    const r = lowerExpr(L, e.right, env)
+    const r = onBranch(L, op === K.AmpersandAmpersandToken ? truthy(u, l) : z3.Not(truthy(u, l)), () => lowerExpr(L, e.right, env))
     if (l.kind === "bool" && r.kind === "bool")
       return bool(op === K.AmpersandAmpersandToken ? z3.And(l.term, r.term) : z3.Or(l.term, r.term))
     return op === K.AmpersandAmpersandToken ? ite(u, truthy(u, l), r, l, e) : ite(u, truthy(u, l), l, r, e)
   }
-  if (op === K.QuestionQuestionToken) return nullishOr(u, lowerExpr(L, e.left, env), () => lowerExpr(L, e.right, env), e)
+  if (op === K.QuestionQuestionToken) {
+    const l = lowerExpr(L, e.left, env)
+    return nullishOr(u, l, () => onBranch(L, l.kind === "maybe" ? isNullish(u, l) : z3.Bool.val(true), () => lowerExpr(L, e.right, env)), e)
+  }
   const l = narrowed(L, e.left, lowerExpr(L, e.left, env), op)
   const r = narrowed(L, e.right, lowerExpr(L, e.right, env), op)
   switch (op) {
@@ -839,10 +912,8 @@ export const arithmetic = (L: Lowering, op: ts.SyntaxKind, l: Val, r: Val, e: ts
     if (op === K.PlusToken) return { ...l, term: l.term.add(r.term) }
     if (op === K.MinusToken) return { ...l, term: l.term.sub(r.term) }
     if (op === K.AsteriskToken) return { ...l, term: l.term.mul(r.term) }
-    throw new Unsupported(
-      `bigint \`${ts.tokenToString(op)}\` is not modeled (\`/\` and \`%\` truncate toward zero, which Z3's division does not): keep it out of the code a law reads, or move it into a function the spec declares with \`assume\``,
-      e.operatorToken,
-    )
+    if (op === K.SlashToken || op === K.PercentToken) return divided(L, op, l, r, e)
+    throw new Unsupported(`bigint \`${ts.tokenToString(op)}\` is not modeled`, e.operatorToken)
   }
   if (l.kind === "num" && r.kind === "num")
     throw new Unsupported(
@@ -851,6 +922,45 @@ export const arithmetic = (L: Lowering, op: ts.SyntaxKind, l: Val, r: Val, e: ts
     )
   if (op === K.PlusToken && l.kind === "str" && r.kind === "str") return { kind: "str", term: l.term.concat(r.term) }
   throw new Unsupported(`${ts.tokenToString(op)} between a ${l.kind} and a ${r.kind} is not modeled`, e)
+}
+
+/**
+ * A bigint `/` or `%`, as JavaScript computes it: the quotient truncated toward zero, the remainder with the dividend's
+ * sign. A divisor of 0n throws a RangeError, so wherever the division runs (`L.guard`) its divisor must be another: in
+ * the program, an obligation, proved, or broken by the input that throws; in a law or a `requires`, part of what it says.
+ */
+const divided = (L: Lowering, op: ts.SyntaxKind, l: Val & { kind: "int" }, r: Val & { kind: "int" }, e: ts.BinaryExpression): Val => {
+  const z3 = L.u.z3
+  // Inside a quantifier the element is any index's, read or not, so the obligation would ask more than the code needs.
+  if (L.u.openBounds().length > 0)
+    throw new Unsupported(
+      `a bigint \`${ts.tokenToString(op)}\` inside \`.some\`, \`.every\`, \`.find\` or \`.filter\` is not modeled: divide in a \`for…of\` over the elements, or outside the callback`,
+      e.operatorToken,
+    )
+  const nonZero = z3.Not(r.term.eq(0))
+  if (L.mode === "spec" && L.defined !== undefined) L.defined.push(z3.Implies(L.guard, nonZero))
+  else {
+    const at = locate(e.right)
+    L.obligations.push({
+      key: `division@${at}#here`,
+      kind: "division",
+      text: e.right.getText(),
+      at,
+      phase: "here",
+      cond: L.guard,
+      goal: nonZero,
+      hints: L.hints.length,
+    })
+  }
+  const abs = (t: Arith): Arith => z3.If(t.ge(0), t, t.neg())
+  const a = abs(l.term)
+  const b = abs(r.term)
+  if (op === K.SlashToken) {
+    const q = a.div(b)
+    return { ...l, term: z3.If(l.term.ge(0).eq(r.term.gt(0)), q, q.neg()) }
+  }
+  const m = a.mod(b)
+  return { ...l, term: z3.If(l.term.ge(0), m, m.neg()) }
 }
 
 export const emptyEnv = EMPTY

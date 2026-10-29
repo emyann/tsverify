@@ -22,6 +22,7 @@ import {
   type GuessedInvariant,
   inSpec,
   type Lowering,
+  definedSpec,
   lowerCall,
   lowerExpr,
   lowering,
@@ -95,6 +96,8 @@ export interface ObligationResult {
   readonly guessed?: string
   /** On a counterexample, or when the sides disagree: arguments on which it fails. */
   readonly args?: ReadonlyArray<unknown>
+  /** On a computation's counterexample: what the world gave the code on that run, as a law's `world`. */
+  readonly world?: Readonly<Record<string, unknown>>
   readonly reason?: string
 }
 
@@ -173,7 +176,7 @@ export const lowerSide = (
   const preOf = (args: ReadonlyArray<Val>) =>
     source.requires === undefined
       ? z3.Bool.val(true)
-      : inSpec(L, () => truthy(u, lowerCall(L, source.requires!, emptyEnv, args, source.requires!)))
+      : definedSpec(L, () => inSpec(L, () => truthy(u, lowerCall(L, source.requires!, emptyEnv, args, source.requires!))))
   if (source.kind === "lemma") {
     const t = source.target as FunctionNode
     const { params, args } = symbolicArgs(t)
@@ -263,15 +266,17 @@ const guesser =
 const lawOn = (side: Lowered, law: ContractSource["ensures"][number]): Bool =>
   side.source.kind === "lemma"
     ? truthy(side.u, side.result)
-    : inSpec(side.L, () =>
-        truthy(
-          side.u,
-          lowerCall(
-            side.L,
-            law.law,
-            emptyEnv,
-            side.trace === undefined ? [...side.args, side.result] : [...side.args, side.result, side.trace],
-            law.law,
+    : definedSpec(side.L, () =>
+        inSpec(side.L, () =>
+          truthy(
+            side.u,
+            lowerCall(
+              side.L,
+              law.law,
+              emptyEnv,
+              side.trace === undefined ? [...side.args, side.result] : [...side.args, side.result, side.trace],
+              law.law,
+            ),
           ),
         ),
       )
@@ -291,7 +296,9 @@ const lawOnAnyResult = (side: Lowered, law: ContractSource["ensures"][number]): 
       return symbolicOf(side.L, side.L.checker.getTypeAtLocation(p), [side.u.fresh("any-result")], side.u.openBounds(), p)
     }
     const replaced = side.trace === undefined ? [any(k)] : [any(k), any(k + 1)]
-    return inSpec(side.L, () => truthy(side.u, lowerCall(side.L, law.law, emptyEnv, [...side.args, ...replaced], law.law)))
+    return definedSpec(side.L, () =>
+      inSpec(side.L, () => truthy(side.u, lowerCall(side.L, law.law, emptyEnv, [...side.args, ...replaced], law.law))),
+    )
   } catch (e) {
     if (e instanceof Unsupported) return undefined
     throw e
@@ -412,6 +419,22 @@ const contradicted = async (
   return out
 }
 
+/** A counterexample's input, and what the world gave the code on that run. */
+const shown = (w: Witness): { readonly args?: ReadonlyArray<unknown>; readonly world?: Readonly<Record<string, unknown>> } => ({
+  ...(w.args === undefined ? {} : { args: w.args }),
+  ...(w.world === undefined ? {} : { world: w.world }),
+})
+
+/**
+ * The runs of a side on which no division throws: on each, every division it runs has a divisor other than 0n. A law
+ * speaks of what the code returns, so it is judged on these runs, and a division by 0n is reported as its own obligation.
+ */
+const returning = (side: Lowered): Bool => {
+  const z3 = side.u.z3
+  const each = side.L.obligations.filter((o) => o.kind === "division").map((o) => z3.Implies(o.cond, o.goal))
+  return each.length === 0 ? z3.Bool.val(true) : z3.And(...each)
+}
+
 /** What it says when the two sides disagree: what to do with the input. */
 const DISAGREE =
   "the proof side proved it, and the search side found this input breaking it: one side is wrong, a bug of tsverify. Run the code on the input: if it breaks the law, the proof is wrong; if not, the search side is. Report it with the input"
@@ -429,33 +452,43 @@ export const judge = async (
   const source = proof.source
   const name = source.name
   const bound = opts.bound ?? 4
-  // The proof code's obligations first: a law the proof side proves leans on them, and stands only if they do.
+  // Every law, and every end the result may reach, is read on both sides before the obligations are decided: reading
+  // them runs code (a division in a field a law reads) whose obligation exists only once it has run.
+  const read = source.ensures.map((law) => {
+    try {
+      return { law, onProof: lawOn(proof, law), onSearch: lawOn(search, law) }
+    } catch (e) {
+      if (!(e instanceof Unsupported)) throw e
+      return { law, unsupported: e.message }
+    }
+  })
+  const ends = endsOf(project, source, proof, search)
+  const proofRuns = returning(proof)
+  const searchRuns = returning(search)
+  // The obligations next: a law the proof side proves leans on them, and stands only if they do.
   const obligations = await obligationsOf(z3, project, proof, search, bound, {
     ...opts,
     within: [...(opts.within ?? []), `${file}#${name}`],
   })
-  const open = obligations.filter((o) => o.status !== "proved")
+  // A law leans on what the proof code proved; a division only says which runs return, and is reported on its own.
+  const open = obligations.filter((o) => o.status !== "proved" && o.kind !== "division")
   const leaning =
     open.length === 0
       ? undefined
-      : `proved only if the proof code's obligations hold, and ${open.length} of them ${open.length === 1 ? "is" : "are"} not proved (${open[0]!.kind} ${open[0]!.text} at ${open[0]!.at}: ${open[0]!.status}); no counterexample with arrays of at most ${bound} elements`
+      : `proved only if its obligations hold, and ${open.length} of them ${open.length === 1 ? "is" : "are"} not proved (${open[0]!.kind} ${open[0]!.text} at ${open[0]!.at}: ${open[0]!.status}); no counterexample with arrays of at most ${bound} elements`
 
   const laws: Array<LawResult> = []
   const searchable = new Map<string, Bool>()
-  for (const law of source.ensures) {
+  for (const r0 of read) {
+    const { law } = r0
     const started = performance.now()
-    let onProof: Bool
-    let onSearch: Bool
-    try {
-      onProof = lawOn(proof, law)
-      onSearch = lawOn(search, law)
-    } catch (e) {
-      if (!(e instanceof Unsupported)) throw e
-      laws.push({ name: law.name, status: "unsupported", reason: e.message, ms: performance.now() - started })
+    if (r0.unsupported !== undefined) {
+      laws.push({ name: law.name, status: "unsupported", reason: r0.unsupported, ms: 0 })
       opts.progress?.(`law ${law.name}: unsupported`)
       continue
     }
-    const proved = await solve(proof, [proof.pre, z3.Not(onProof)], opts)
+    const { onProof, onSearch } = r0
+    const proved = await solve(proof, [proof.pre, proofRuns, z3.Not(onProof)], opts)
     // A proof that holds only of the inputs a truncated loop keeps to is no proof; read after the law, which may run it.
     const untrusted =
       leaning ??
@@ -466,14 +499,14 @@ export const judge = async (
     if (proved.status === "unsat" && untrusted === undefined) {
       // A proof of a law no result could break is a proof of nothing about the function.
       const onAny = source.kind === "lemma" ? undefined : lawOnAnyResult(proof, law)
-      const breakable = onAny === undefined ? undefined : await solve(proof, [proof.pre, z3.Not(onAny)], opts)
+      const breakable = onAny === undefined ? undefined : await solve(proof, [proof.pre, proofRuns, z3.Not(onAny)], opts)
       r =
         breakable?.status === "unsat"
           ? { status: "vacuous", reason: "no result breaks it, whatever the function returns: it says nothing of the function" }
           : { status: "proved" }
     } else if (proved.status === "sat" && !proof.u.abstracted) r = { status: "counterexample", ...proved.witness }
     else {
-      const found = await solve(search, [search.pre, z3.Not(onSearch)], opts)
+      const found = await solve(search, [search.pre, searchRuns, z3.Not(onSearch)], opts)
       r =
         found.status === "sat"
           ? { status: "counterexample", ...found.witness }
@@ -497,7 +530,7 @@ export const judge = async (
   const provedLaws = laws.flatMap((l, k) => (l.status === "proved" || l.status === "vacuous" ? [k] : []))
   const failing = await contradicted(
     search,
-    provedLaws.map((k) => ({ key: String(k), broken: z3.Not(searchable.get(laws[k]!.name)!) })),
+    provedLaws.map((k) => ({ key: String(k), broken: z3.And(searchRuns, z3.Not(searchable.get(laws[k]!.name)!)) })),
     opts,
   )
   const shaken = obligations.some((o) => o.status === "inconsistent")
@@ -522,44 +555,22 @@ export const judge = async (
   }
 
   const cover: Array<CoverResult> = []
-  const returns = project.checker.getReturnTypeOfSignature(project.checker.getSignatureFromDeclaration(proof.fn)!)
-  const literals = (returns.isUnion() ? returns.types : [returns]).filter((t) => t.isStringLiteral())
-  if (source.kind === "function" && proof.result.kind === "str" && literals.length > 0)
-    for (const t of literals) {
-      const value = t.value
-      const is = (side: Lowered) => strictEq(side.u, side.result, { kind: "str", term: jsString(z3, value) }, side.fn)
-      const found = await solve(search, [search.pre, is(search)], opts)
-      let c: CoverResult
-      if (found.status === "sat") c = { value, status: "reachable", ...found.witness }
-      else {
-        const any = await solve(proof, [proof.pre, is(proof)], opts)
-        c =
-          any.status === "unsat"
-            ? { value, status: "unreachable" }
-            : any.status === "sat" && !proof.u.abstracted
-              ? { value, status: "reachable", ...any.witness }
-              : { value, status: found.status === "unsat" ? "bounded" : "unknown" }
-      }
-      cover.push(c)
-      opts.progress?.(`cover ${value}: ${c.status}`)
+  for (const { value, onProof, onSearch } of ends) {
+    const found = await solve(search, [search.pre, searchRuns, onSearch], opts)
+    let c: CoverResult
+    if (found.status === "sat") c = { value, status: "reachable", ...found.witness }
+    else {
+      const any = await solve(proof, [proof.pre, proofRuns, onProof], opts)
+      c =
+        any.status === "unsat"
+          ? { value, status: "unreachable" }
+          : any.status === "sat" && !proof.u.abstracted
+            ? { value, status: "reachable", ...any.witness }
+            : { value, status: found.status === "unsat" ? "bounded" : "unknown" }
     }
-  if (source.kind === "computation")
-    for (const [value, goal] of outcomesOf(project, proof)) {
-      const found = await solve(search, [search.pre, goal(search)], opts)
-      let c: CoverResult
-      if (found.status === "sat") c = { value, status: "reachable", ...found.witness }
-      else {
-        const any = await solve(proof, [proof.pre, goal(proof)], opts)
-        c =
-          any.status === "unsat"
-            ? { value, status: "unreachable" }
-            : any.status === "sat" && !proof.u.abstracted
-              ? { value, status: "reachable", ...any.witness }
-              : { value, status: found.status === "unsat" ? "bounded" : "unknown" }
-      }
-      cover.push(c)
-      opts.progress?.(`cover ${value}: ${c.status}`)
-    }
+    cover.push(c)
+    opts.progress?.(`cover ${value}: ${c.status}`)
+  }
   const coverOut =
     leaning === undefined && proof.u.truncated === undefined
       ? cover
@@ -571,7 +582,27 @@ export const judge = async (
 }
 
 /**
- * Decides the proof code's obligations: each proved on the proof side, or broken on the search side by a real input.
+ * The ends a contract's result may come to, each as a goal on both sides: every string of a result that is a union of
+ * them, and for a computation its success and each failure its type allows.
+ */
+const endsOf = (
+  project: Project,
+  source: ContractSource,
+  proof: Lowered,
+  search: Lowered,
+): Array<{ readonly value: string; readonly onProof: Bool; readonly onSearch: Bool }> => {
+  if (source.kind === "computation")
+    return outcomesOf(project, proof).map(([value, goal]) => ({ value, onProof: goal(proof), onSearch: goal(search) }))
+  const returns = project.checker.getReturnTypeOfSignature(project.checker.getSignatureFromDeclaration(proof.fn)!)
+  const literals = (returns.isUnion() ? returns.types : [returns]).filter((t) => t.isStringLiteral())
+  if (source.kind !== "function" || proof.result.kind !== "str") return []
+  const is = (side: Lowered, value: string) => strictEq(side.u, side.result, { kind: "str", term: jsString(side.u.z3, value) }, side.fn)
+  return literals.map((t) => ({ value: t.value, onProof: is(proof, t.value), onSearch: is(search, t.value) }))
+}
+
+/**
+ * Decides the obligations, the proof code's and each division's: each proved on the proof side, or broken on the search
+ * side by a real input.
  * The same obligation met twice (a loop inlined in two calls) is one: broken if either instance is. Every lemma called
  * is verified, and is an obligation too.
  */
@@ -611,13 +642,12 @@ const obligationsOf = async (
       continue
     }
     if (proved?.status === "sat" && !proof.u.abstracted) {
-      out.push({ ...head, status: "counterexample", ...(proved.witness.args === undefined ? {} : { args: proved.witness.args }) })
+      out.push({ ...head, status: "counterexample", ...shown(proved.witness) })
       continue
     }
     const onSearch = broken(search, key)
     const found = onSearch === undefined ? undefined : await solve(search, [search.pre, onSearch], opts, [])
-    if (found?.status === "sat")
-      out.push({ ...head, status: "counterexample", ...(found.witness.args === undefined ? {} : { args: found.witness.args }) })
+    if (found?.status === "sat") out.push({ ...head, status: "counterexample", ...shown(found.witness) })
     else if (found?.status === "unsat")
       out.push({
         ...head,
@@ -788,13 +818,19 @@ const madeCalls = (side: Lowered, model: Model): ReadonlySet<string> | undefined
   return made
 }
 
+/** Whether a run read root `r`: on the branch it was read on, when one was kept. */
+const reached = (side: Lowered, model: Model, r: string): boolean => {
+  const on = side.u.reached.get(r)
+  return on === undefined || side.u.z3.isTrue(model.eval(on, true))
+}
+
 const witness = (side: Lowered, model: Model): Witness => {
   try {
     const made = madeCalls(side, model)
     const roots = new Set(
       [...side.u.leaves.values()]
         .map((l) => l.segments[0]!)
-        .filter((r) => side.u.shown.has(r) && (made === undefined || !side.u.calls.has(r) || made.has(r))),
+        .filter((r) => side.u.shown.has(r) && (made === undefined || !side.u.calls.has(r) || made.has(r)) && reached(side, model, r)),
     )
     // A declared function's result inside a quantifier is one per element: a function of the index, not a value to show.
     for (const l of side.u.leaves.values()) if (l.arity > l.segments.filter((s) => s === "[]").length) roots.delete(l.segments[0]!)

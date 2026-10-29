@@ -200,6 +200,13 @@ wrong, which is a bug of tsverify, not a verdict on the code. The input is given
 A law proved through an obligation that is not proved is reported `bounded`, `counterexample` or `unknown`, never
 `proved`.
 
+## Divisions
+
+`divisions:` lists each bigint `/` and `%` the code runs, with the verdict on its divisor: `proved` other than `0n` on
+the branch where the division runs, or a `counterexample`, the input that makes it `0n`, on which the real code throws.
+A law is judged on the runs that return, so a division that can throw leaves the laws as they are, and fails the
+command on its own ([What it reads](reads.md), *Divisions*).
+
 ## One contract, in full
 
 Given a file and a name, the command prints everything it knows of that contract:
@@ -242,7 +249,7 @@ tsverify <file.ts> <export> [--json]
 
 | Exit | |
 | --- | --- |
-| 0 | every law and every obligation is `proved` |
+| 0 | every law and every obligation, each division's among them, is `proved` |
 | 1 | one is not: a counterexample, or a law bounded, vacuous, unsupported, unknown or inconsistent, or a contract not verified |
 | 2 | a usage error: a path that is not there, no file or no contract to verify, no `tsconfig.json` |
 | 3 | the verifier itself failed, which says nothing of the code |

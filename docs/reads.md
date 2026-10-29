@@ -18,6 +18,9 @@ part as a harmless one.
 **Expressions.**
 - `===`, `!==`, `<`, `<=`, `>`, `>=`, `!`, `&&`, `||`, `??`, `?:`, as JavaScript defines them, `NaN` and `-0` included;
 - `+`, `-` and `*` on bigints, `+` on strings, and template strings (an unknown string of their parts);
+- `/` and `%` on bigints, as JavaScript computes them: the quotient truncated toward zero, the remainder with the
+  dividend's sign. A division by `0n` throws, so each divisor is proved other than `0n` on the branch where its division
+  runs (*Divisions*, below);
 - property access and optional chains, object and array literals, spreads;
 - a string's `.length`, in UTF-16 code units, as JavaScript counts them;
 - on arrays: `.length`, `.at(k)`, `.some`, `.every`, `.includes` (of a string, a boolean, a bigint or a count), `.find`,
@@ -40,6 +43,15 @@ A `number` is a class (finite, `NaN`, `+∞` or `−∞`) and a real value. Comp
 exactly, and every double is such a value, so a proof covers every double. Arithmetic on `number` is refused: its rounding
 is not modeled. A bigint is an integer of any size, exact.
 
+### Divisions
+
+A bigint division by `0n` throws a RangeError. Each `/` and `%` in the code is an obligation: its divisor is not `0n`
+wherever the division runs, through the `if`, `?:`, `&&`, `||` or `??` that leads to it, and the steps of a computation
+that succeeded before it. A report lists each under `divisions:`, proved, or with the input that makes the divisor `0n`
+(and, in a computation, what each call returned on that run). A law is judged on the runs that return: one that throws
+is reported as its division, not as a law broken. In a law or a `requires`, a division by `0n` makes it throw, so it does
+not hold there: guard it, `b === 0n || …`.
+
 ## What it refuses, and what to write instead
 
 Each refusal names the place, `file:line:column`, and the reason.
@@ -48,7 +60,7 @@ Each refusal names the place, `file:line:column`, and the reason.
 | --- | --- | --- |
 | `x as T`, `x!`, `any` | each is a claim the verifier would have to trust | a check whose result the type follows: `===`, `x !== undefined`, a `_tag` |
 | `+ - * /` on `number` | its rounding is not modeled | `bigint` where the values are whole, or a function declared with `assume` |
-| `/` and `%` on bigints | they truncate toward zero, which the solver's division does not | a function declared with `assume` (below) |
+| a bigint `/` or `%` inside `.some`, `.every`, `.find` or `.filter` | the element is any index's, read or not | the division in a `for…of` over the elements, or outside the callback |
 | `==`, `!=` | not modeled | `===`, `!==`, and `x === null \|\| x === undefined` for a nullish check |
 | a `let` of the module, a global (`Math`) | a binding the verifier cannot see | a `const` or an argument, or a function declared with `assume` |
 | `xs[k]` on an array | its type says the element is there, which may be false | `xs.at(k)`, with a literal `k`, whose type says it may be missing |
@@ -71,7 +83,7 @@ Each refusal names the place, `file:line:column`, and the reason.
 ### `assume`
 
 `assume(fn, { pure, ensures? })` declares what the verifier may take of a function it does not read, or should not: a
-package's, a recursive one, one that divides. It replaces the function's body wherever the function is called.
+package's, or a recursive one. It replaces the function's body wherever the function is called.
 
 - **`pure: true`**: the same arguments give the same result, and a call changes nothing anyone sees. Where the program
   has the function's source, the verifier checks this (see *The purity check*); for a package's function it is trusted.
@@ -80,48 +92,44 @@ package's, a recursive one, one that divides. It replaces the function's body wh
 - **The type arguments are the view** the laws are written for: `assume<[xs: ReadonlyArray<string>], string[]>(uniq, …)`
   says what `uniq` does on strings, and `tsc` checks that `uniq` can be called so. A call no view covers is refused.
 
-Halving a bill divides a bigint, which the verifier does not read. Declared, with what the rest of the program needs of it:
+Counting a number's digits calls itself, which the verifier does not read. Declared, with what the rest of the program
+needs of it:
 
-<!-- file: src/split.ts -->
+<!-- file: src/digits.ts -->
 ```ts
-/** Half a bill, in cents, rounded down. */
-export function half(cents: bigint): bigint {
-  return cents / 2n
+/** How many digits `n` has, in base 10. */
+export function digits(n: bigint): bigint {
+  return n < 10n ? 1n : 1n + digits(n / 10n)
 }
 
-/** What the other person pays: the rest. */
-export function rest(cents: bigint): bigint {
-  return cents - half(cents)
-}
+/** The spaces before `n` in a column eight wide. */
+export const padding = (n: bigint): bigint => 8n - digits(n)
 ```
 
-<!-- file: src/split.contract.ts -->
+<!-- file: src/digits.contract.ts -->
 ```ts
 import { assume, contract } from "tsverify"
-import { half, rest } from "./split.ts"
+import { digits, padding } from "./digits.ts"
 
-export const halfIsAPart = assume(half, { pure: true, ensures: { aPart: (cents, part) => cents < 0n || (part >= 0n && part <= cents) } })
+export const digitsCount = assume(digits, { pure: true, ensures: { atLeastOne: (_n, count) => count >= 1n } })
 
-export const restIsAPart = contract(rest, {
-  requires: (cents) => cents >= 0n,
-  ensures: { aPart: (cents, part) => part >= 0n && part <= cents },
-})
+export const paddingFits = contract(padding, { ensures: { atMostSeven: (_n, spaces) => spaces <= 7n } })
 ```
 
 <!-- run -->
 ```text
-$ npx tsverify src/split.contract.ts restIsAPart
-restIsAPart
-  proved          aPart  (141 ms)
+$ npx tsverify src/digits.contract.ts paddingFits
+paddingFits
+  proved          atMostSeven  (104 ms)
   trusted (declared, not proved):
-    - half: pure, checked from source (read half); laws aPart — src/split.contract.ts:4:28
+    - digits: pure, checked from source (read digits); laws atLeastOne — src/digits.contract.ts:4:28
   assumed:
     - The code throws only where it says so (a `throw`, a failure): an exception from anywhere else, a call or a binding never read, is not seen.
     - Each argument has its TypeScript type; the code's own casts, `any` and `!` are refused.
     - A purity check takes on trust that a property read runs no getter; that a module constant it reads is never changed by other code; that it terminates.
 ```
 
-The proof of `rest` holds of the real program only if `half` does what `aPart` says. Every report lists what it trusted,
+The proof of `padding` holds of the real program only if `digits` does what `atLeastOne` says. Every report lists what it trusted,
 so that is never hidden; `brokenOn(assumption, inputs)`, from `tsverify`, runs the real function on inputs and returns each
 law it breaks, which is how a declaration is tested.
 
@@ -182,8 +190,8 @@ since the verifier reads its laws, so a project's `tsc` checks it with the proje
 
 - **The arguments are taken to have their TypeScript types.** That holds for typed callers. At the edge of a program,
   where values come from outside, they need checking first: that is where a schema comes in.
-- **The code is taken to throw only where it says so**, by a `throw` or a failure. An exception from anywhere else, a
-  call or a binding never read, is not seen.
+- **The code is taken to throw only where it says so**, by a `throw`, a failure, or a division by `0n` (checked). An
+  exception from anywhere else, a call or a binding never read, is not seen.
 - **A spread copies each property its value's type requires**: the value is taken to be plain data, its properties its
   own, none a getter.
 - **A declaration is trusted.** A law of `assume` is never proved, and a package's purity never checked.

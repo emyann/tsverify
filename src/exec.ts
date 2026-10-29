@@ -29,8 +29,21 @@
 // variables it changes are any values that satisfy them.
 import ts from "typescript"
 import type { Arith, Bool } from "z3-solver"
-import { type Lowering, arithmetic, cond as condOf, firstIndex, inSpec, later, lowerCall, lowerExpr, member, propertyKey } from "./lower.ts"
-import { ite, nullishOr, strictEq, truthy } from "./ops.ts"
+import {
+  type Lowering,
+  arithmetic,
+  cond as condOf,
+  firstIndex,
+  inSpec,
+  later,
+  lowerCall,
+  lowerExpr,
+  member,
+  onBranch,
+  propertyKey,
+  under,
+} from "./lower.ts"
+import { isNullish, ite, nullishOr, strictEq, truthy } from "./ops.ts"
 import { CONTRACT_MODULE, declared, functionOf, ownModule, unwrap } from "./project.ts"
 import { symbolicOf } from "./symbolic.ts"
 import { type Env, type FunctionNode, type Thunk, UNDEFINED, Unsupported, type Val, lazy, lazyRecord, locate, memoElems } from "./value.ts"
@@ -41,7 +54,7 @@ const K = ts.SyntaxKind
 export interface Obligation {
   /** The same obligation on both sides and in every instance (a loop inlined twice): kind, place and phase. */
   readonly key: string
-  readonly kind: "invariant" | "assert" | "requires"
+  readonly kind: "invariant" | "assert" | "requires" | "division"
   /** The claim as written. */
   readonly text: string
   /** `file:line:col`. */
@@ -146,11 +159,11 @@ export const runFunction = (
   caller: State | undefined,
   at: ts.Node,
 ): { readonly value: Thunk; readonly owned: boolean; readonly after: State | undefined } => {
-  const z3 = L.u.z3
   const vars = new Map<string, Binding>()
   for (const [name, thunk] of closure) vars.set(name, { kind: "value", thunk })
+  // A body entered from an expression runs under that expression's branch.
   let st: State = {
-    cond: caller?.cond ?? z3.Bool.val(true),
+    cond: caller?.cond ?? L.guard,
     vars,
     store: caller?.store ?? new Map(),
     dead: caller?.dead ?? new Map(),
@@ -169,7 +182,7 @@ export const runFunction = (
       arg !== undefined
         ? (arg as Extract<Arg, { kind: "value" }>).thunk
         : p.initializer !== undefined
-          ? later(L, () => lowerExpr(L, p.initializer!, envOf(L, now)))
+          ? later(L, () => lowerExpr(L, p.initializer!, envOf(L, now)), now.cond)
           : () => UNDEFINED
     st = bindName(L, st, p.name, thunk, arg?.kind === "value" ? arg.owned : false, type)
   })
@@ -177,7 +190,7 @@ export const runFunction = (
   if (!ts.isBlock(body)) {
     const now = st
     return {
-      value: later(L, () => lowerExpr(L, body, envOf(L, now))),
+      value: later(L, () => lowerExpr(L, body, envOf(L, now)), now.cond),
       owned: fresh(body),
       after: caller === undefined ? undefined : { ...caller, store: st.store },
     }
@@ -283,16 +296,17 @@ const readPlace = (L: Lowering, st: State, p: Place): Val => {
  * `v` with the value at `steps` replaced by `f` of it: a new value, every other part shared. `absent`: the last field is
  * deleted, so the object no longer holds its key.
  */
-const update = (L: Lowering, v: Val, steps: ReadonlyArray<Step>, f: (old: Val) => Val, at: ts.Node, absent: boolean): Val => {
+const update = (L: Lowering, v: Val, steps: ReadonlyArray<Step>, f: (old: Val) => Val, at: ts.Node, absent: boolean, guard: Bool): Val => {
   const [s, ...rest] = steps
-  if (s === undefined) return f(v)
+  // A field is read when a law reads it, long after the write: `f` runs under the branch of the write.
+  if (s === undefined) return under(L, guard, () => f(v))
   const z3 = L.u.z3
   const o = present(v)
   if (s.kind === "field") {
     if (o.kind !== "record") throw new Unsupported(`a field set on a ${o.kind}`, at)
     const gone = absent && rest.length === 0
     return lazyRecord(
-      (name) => (name === s.name ? update(L, o.field(name) ?? UNDEFINED, rest, f, at, absent) : o.field(name)),
+      (name) => (name === s.name ? update(L, o.field(name) ?? UNDEFINED, rest, f, at, absent, guard) : o.field(name)),
       undefined,
       o.has === undefined ? undefined : (name) => (name === s.name ? z3.Bool.val(!gone) : o.has!(name)),
     )
@@ -304,9 +318,9 @@ const update = (L: Lowering, v: Val, steps: ReadonlyArray<Step>, f: (old: Val) =
     ...(o.size === undefined ? {} : { size: o.size }),
     ...(o.maxSize === undefined ? {} : { maxSize: o.maxSize }),
     elem: memoElems((j) => {
-      if (j === s.index || j.eqIdentity(s.index)) return update(L, o.elem(j), rest, f, at, absent)
+      if (j === s.index || j.eqIdentity(s.index)) return update(L, o.elem(j), rest, f, at, absent, guard)
       if (z3.isIntVal(j) && z3.isIntVal(s.index)) return o.elem(j)
-      return ite(L.u, j.eq(s.index), update(L, o.elem(j), rest, f, at, absent), o.elem(j), at)
+      return ite(L.u, j.eq(s.index), update(L, o.elem(j), rest, f, at, absent, guard), o.elem(j), at)
     }),
   }
 }
@@ -315,7 +329,7 @@ const writePlace = (L: Lowering, st: State, p: Place, f: (old: Val) => Val, at: 
   const old = st.store.get(p.cell)!
   const store = new Map(st.store)
   const before = st
-  store.set(p.cell, { ...old, thunk: later(L, () => update(L, readCell(before, p.cell, p.text), p.steps, f, at, absent)) })
+  store.set(p.cell, { ...old, thunk: later(L, () => update(L, readCell(before, p.cell, p.text), p.steps, f, at, absent, L.guard)) })
   return { ...st, store }
 }
 
@@ -539,7 +553,9 @@ const statements = (L: Lowering, stmts: ReadonlyArray<ts.Statement>, st: State):
   const continues: Array<State> = []
   for (const s of stmts) {
     if (cur === undefined || L.u.z3.isFalse(cur.cond)) break
-    const x = statement(L, s, cur)
+    // What the statement lowers runs under the branch that reached it.
+    const at: State = cur
+    const x: Exits = under(L, at.cond, () => statement(L, s, at))
     returns.push(...x.returns)
     breaks.push(...x.breaks)
     continues.push(...x.continues)
@@ -719,6 +735,8 @@ const ASSIGN_OPS: ReadonlyMap<ts.SyntaxKind, ts.SyntaxKind> = new Map([
   [K.PlusEqualsToken, K.PlusToken],
   [K.MinusEqualsToken, K.MinusToken],
   [K.AsteriskEqualsToken, K.AsteriskToken],
+  [K.SlashEqualsToken, K.SlashToken],
+  [K.PercentEqualsToken, K.PercentToken],
 ])
 
 /** A statement that is an expression: an assignment, a change, a call run for what it changes, or a hint. */
@@ -729,11 +747,14 @@ const expressionStatement = (L: Lowering, e: ts.Expression, st: State): State =>
     const op = x.operatorToken.kind
     const env = envOf(L, st)
     const rhs = later(L, () => lowerExpr(L, x.right, env))
+    // `??=`, `||=` and `&&=` run their right side only on the branch that assigns.
+    const rhsWhere = (c: Bool): Val => onBranch(L, c, () => lowerExpr(L, x.right, env))
     const compute = (old: Val): Val => {
       if (op === K.EqualsToken) return rhs()
-      if (op === K.QuestionQuestionEqualsToken) return nullishOr(u, old, rhs, x)
-      if (op === K.BarBarEqualsToken) return ite(u, truthy(u, old), old, rhs(), x)
-      if (op === K.AmpersandAmpersandEqualsToken) return ite(u, truthy(u, old), rhs(), old, x)
+      if (op === K.QuestionQuestionEqualsToken)
+        return nullishOr(u, old, () => rhsWhere(old.kind === "maybe" ? isNullish(u, old) : u.z3.Bool.val(true)), x)
+      if (op === K.BarBarEqualsToken) return ite(u, truthy(u, old), old, rhsWhere(u.z3.Not(truthy(u, old))), x)
+      if (op === K.AmpersandAmpersandEqualsToken) return ite(u, truthy(u, old), rhsWhere(truthy(u, old)), old, x)
       const base = ASSIGN_OPS.get(op)
       if (base === undefined) throw new Unsupported(`operator ${ts.tokenToString(op)} is not modeled`, x.operatorToken)
       return arithmetic(L, base, old, rhs(), x)

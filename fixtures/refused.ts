@@ -17,7 +17,6 @@ function countdown(n: bigint): bigint {
 }
 export const recursion = contract(countdown, { ensures: { holds } })
 
-export const bigintDivision = contract((x: bigint) => x / 2n, { ensures: { holds } })
 
 export const elementAccess = contract((xs: ReadonlyArray<string>) => xs[0] === "a", { ensures: { holds } })
 export const global = contract((x: number) => Math.max(x, 0) > 0, { ensures: { holds } })

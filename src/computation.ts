@@ -10,7 +10,7 @@
 import ts from "typescript"
 import type { Arith } from "z3-solver"
 import type { Style } from "./adapter.ts"
-import { bind, bindParameters, cond, isLogical, later, lowerExpr, type Lowering, stepKey } from "./lower.ts"
+import { bind, bindParameters, cond, isLogical, later, lowerExpr, type Lowering, onBranch, stepKey } from "./lower.ts"
 import { isNullish, ite, truthy } from "./ops.ts"
 import { symbolicOf } from "./symbolic.ts"
 import { type Env, type FunctionNode, type Ran, Unsupported, type Val, jsString, lazy, lazyRecord, locate } from "./value.ts"
@@ -207,11 +207,23 @@ const stepsIn = (L: Lowering, style: Style, n: ts.Node, env: Env, trace: Val, k:
       const arm = (b: ts.Expression) =>
         stepsIn(L, style, b, env2, t2, (env3, t3) =>
           k(
-            bound(env3, n, () => lowerExpr(L, b, env3)),
+            bound(
+              env3,
+              n,
+              later(L, () => lowerExpr(L, b, env3)),
+            ),
             t3,
           ),
         )
-      return ite(L.u, cond(L, n.condition, env2), arm(n.whenTrue), arm(n.whenFalse), n)
+      const c = cond(L, n.condition, env2)
+      const yes = onBranch(L, c, () => arm(n.whenTrue))
+      return ite(
+        L.u,
+        c,
+        yes,
+        onBranch(L, L.u.z3.Not(c), () => arm(n.whenFalse)),
+        n,
+      )
     })
   if (isLogical(n) && holdsStep(style, n.right))
     return stepsIn(L, style, n.left, env, trace, (env2, t2) => {
@@ -224,10 +236,16 @@ const stepsIn = (L: Lowering, style: Style, n: ts.Node, env: Env, trace: Val, k:
           : op === K.BarBarToken
             ? truthy(L.u, left)
             : z3.Not(isNullish(L.u, left))
-      const right = stepsIn(L, style, n.right, env2, t2, (env3, t3) =>
-        k(
-          bound(env3, n, () => lowerExpr(L, n.right, env3)),
-          t3,
+      const right = onBranch(L, z3.Not(stops), () =>
+        stepsIn(L, style, n.right, env2, t2, (env3, t3) =>
+          k(
+            bound(
+              env3,
+              n,
+              later(L, () => lowerExpr(L, n.right, env3)),
+            ),
+            t3,
+          ),
         ),
       )
       return ite(
@@ -273,14 +291,9 @@ export const onFailure = (L: Lowering, r: Ran, at: ts.Node, handle: (error: Val,
   const error = outcome.field("error")
   if (error === undefined) return r
   if (tag.term.eqIdentity(jsString(L.u.z3, "Failure"))) return handle(error, r.trace)
+  const failed = tag.term.eq(jsString(L.u.z3, "Failure"))
   return unran(
-    ite(
-      L.u,
-      tag.term.eq(jsString(L.u.z3, "Failure")),
-      ran(handle(error, r.trace)),
-      ran({ outcome: asSuccess(outcome), trace: r.trace }),
-      at,
-    ),
+    ite(L.u, failed, ran(onBranch(L, failed, () => handle(error, r.trace))), ran({ outcome: asSuccess(outcome), trace: r.trace }), at),
   )
 }
 
@@ -301,7 +314,8 @@ const after = (L: Lowering, r: Ran, at: ts.Node, next: (value: Val, trace: Val) 
   if (tag.term.eqIdentity(jsString(L.u.z3, "Failure"))) return ran(r)
   if (tag.term.eqIdentity(jsString(L.u.z3, "Success")) && value !== undefined) return next(value, r.trace)
   const failed = tag.term.eq(jsString(L.u.z3, "Failure"))
-  return ite(L.u, failed, ran({ outcome: asFailure(outcome), trace: r.trace }), value === undefined ? ran(r) : next(value, r.trace), at)
+  const rest = value === undefined ? ran(r) : onBranch(L, L.u.z3.Not(failed), () => next(value, r.trace))
+  return ite(L.u, failed, ran({ outcome: asFailure(outcome), trace: r.trace }), rest, at)
 }
 
 const statements = (
@@ -357,13 +371,10 @@ const statements = (
   if (ts.isIfStatement(s))
     return stepsIn(L, style, s.expression, env, trace, (stepped, t) => {
       const branch = (b: ts.Statement) => statements(L, style, ts.isBlock(b) ? b.statements : [b], 0, stepped, t, (t2) => next(t2))
-      return ite(
-        L.u,
-        cond(L, s.expression, stepped),
-        branch(s.thenStatement),
-        s.elseStatement === undefined ? next(t) : branch(s.elseStatement),
-        s,
-      )
+      const c = cond(L, s.expression, stepped)
+      const yes = onBranch(L, c, () => branch(s.thenStatement))
+      const no = onBranch(L, L.u.z3.Not(c), () => (s.elseStatement === undefined ? next(t) : branch(s.elseStatement)))
+      return ite(L.u, c, yes, no, s)
     })
   if (ts.isForOfStatement(s)) return stepsIn(L, style, s.expression, env, trace, (stepped, t) => forOf(L, style, s, stepped, t, next))
   if (ts.isBlock(s)) return statements(L, style, s.statements, 0, env, trace, (t) => next(t))
@@ -387,7 +398,14 @@ const whenThrough = (L: Lowering, v: Val, at: ts.Node, next: (trace: Val) => Val
   if (tag.kind !== "str") throw new Error("an outcome's _tag is a string")
   const mark = jsString(L.u.z3, THROUGH)
   if (tag.term.eqIdentity(mark)) return next(r.trace)
-  return ite(L.u, tag.term.eq(mark), next(r.trace), v, at)
+  const went = tag.term.eq(mark)
+  return ite(
+    L.u,
+    went,
+    onBranch(L, went, () => next(r.trace)),
+    v,
+    at,
+  )
 }
 
 /** The proof side runs a loop over an array of unknown length at most this many times. */
@@ -419,11 +437,12 @@ const forOf = (L: Lowering, style: Style, s: ts.ForOfStatement, env: Env, trace:
     if (k === bound) return through(L, t)
     const scope = new Map(env)
     bindName(L, name, () => xs.elem(z3.Int.val(k)), scope)
-    const ran = statements(L, style, body, 0, scope, t, (t2) => through(L, t2))
+    const inBounds = z3.Int.val(k).lt(xs.length)
+    const ran = onBranch(L, inBounds, () => statements(L, style, body, 0, scope, t, (t2) => through(L, t2)))
     return ite(
       L.u,
-      z3.Int.val(k).lt(xs.length),
-      whenThrough(L, ran, s, (t2) => iteration(k + 1, t2)),
+      inBounds,
+      onBranch(L, inBounds, () => whenThrough(L, ran, s, (t2) => iteration(k + 1, t2))),
       through(L, t),
       s,
     )

@@ -18,8 +18,8 @@ it reads.
 | `examples/` | the worked examples: a charge written against its spec, an order's status, an account's ledger and a withdrawal, a program calling lodash |
 | `src/project.ts` | the program (a file's text can be replaced or added in memory), diagnostics, a contract read from source |
 | `src/symbolic.ts` | any value of a TypeScript type, built lazily: a field becomes an unknown only when read |
-| `src/lower.ts` | pure TypeScript to symbolic values, with JavaScript's semantics |
-| `src/exec.ts` | statements: state, places and ownership, loops through their invariants, and the proof code's obligations |
+| `src/lower.ts` | pure TypeScript to symbolic values, with JavaScript's semantics, and the branch each runs on, which a division's obligation holds on |
+| `src/exec.ts` | statements: state, places and ownership, loops through their invariants, and the obligations of the proof code and of each division |
 | `src/ops.ts` | truthiness, `===`, `<`, `??` and conditional values, exactly as JavaScript defines them |
 | `src/universe.ts` | the Z3 context, its unknowns (one function per path through arrays), assumptions and quantifier scopes |
 | `src/concrete.ts` | model to JS values (replay), and JS values to constraints (the translator check) |

@@ -266,7 +266,8 @@ spec code that runs a computation, calls an operation, reads the clock, or calls
 code may:
 
 - use what the code may use ([what it reads](reads.md)): comparisons, `&&`, `?:`, optional chains, `.at`, `.some`,
-  `.every`, `.includes`, `.filter(p).length`, `.slice`;
+  `.every`, `.includes`, `.filter(p).length`, `.slice`, and `/` and `%` on bigints, where a division by `0n` makes the law
+  throw, so not hold (guard it, `b === 0n || …`);
 - call the program's own pure functions, read from source, as the code would;
 - call a function the spec declares with `assume`, whose laws are then assumed of it.
 

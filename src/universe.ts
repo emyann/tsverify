@@ -93,10 +93,16 @@ export class Universe {
    * when the run's trace holds it: a call on a path the run did not take is no part of what the world gave it.
    */
   readonly calls = new Set<string>()
-  /** A fresh root that a counterexample shows. */
-  given(prefix: string): string {
+  /**
+   * For a shown root no trace holds (a declared function's result, a clock read, an `Effect.try`), the branch on which
+   * the code read it: a counterexample shows it only when its run took that branch.
+   */
+  readonly reached = new Map<string, Bool>()
+  /** A fresh root that a counterexample shows, read on the branch `reached` when one is given. */
+  given(prefix: string, reached?: Bool): string {
     const name = this.fresh(prefix)
     this.shown.add(name)
+    if (reached !== undefined) this.reached.set(name, reached)
     return name
   }
 

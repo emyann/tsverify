@@ -6,23 +6,21 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import { after, before, describe, it } from "node:test"
-import { init, killThreads } from "z3-solver"
 import * as charge from "../fixtures/charge.ts"
 import { diagnostics, loadProject } from "../src/project.ts"
 import type { Ctx } from "../src/value.ts"
-import { verify } from "../src/verify.ts"
+import { verify, openZ3 } from "../src/verify.ts"
 
 const fixture = (name: string) => new URL(`../fixtures/${name}.ts`, import.meta.url).pathname
-const files = ["charge", "refused", "never-imported", "ill-typed"].map(fixture)
+const files = ["charge", "refused", "never-imported", "ill-typed", "reached"].map(fixture)
 const project = loadProject(files, new URL("../tsconfig.json", import.meta.url).pathname)
 
-let api: Awaited<ReturnType<typeof init>>
 let z3: Ctx
+let close: () => Promise<void>
 before(async () => {
-  api = await init()
-  z3 = api.Context("main")
+  ;({ z3, close } = await openZ3())
 })
-after(() => killThreads(api.em))
+after(() => close())
 
 const statuses = async (file: string, name: string) =>
   Object.fromEntries((await verify(z3, project, fixture(file), name)).laws.map((l) => [l.name, l.status]))
@@ -56,6 +54,20 @@ describe("charge", () => {
   })
 })
 
+describe("a counterexample shows what its run read of the world, and nothing else", () => {
+  const worldOf = async (name: string) => {
+    const law = (await verify(z3, project, fixture("reached"), name)).laws[0]
+    assert.equal(law?.status, "counterexample")
+    return { args: law.args, read: Object.keys(law.world ?? {}).map((k) => k.replace(/!\d+$/, "")) }
+  }
+  it("a clock read on the branch the run did not take is not shown", async () => {
+    assert.deepEqual(await worldOf("neverOnTime"), { args: [false], read: [] })
+  })
+  it("one on the branch it took is", async () => {
+    assert.deepEqual(await worldOf("alwaysOnTime"), { args: [true], read: ["date.iso"] })
+  })
+})
+
 describe("a refused construct leaves its contract unverified", () => {
   const cases: ReadonlyArray<readonly [string, RegExp]> = [
     ["cast", /a cast is a claim the verifier would have to trust: check the value instead/],
@@ -63,10 +75,6 @@ describe("a refused construct leaves its contract unverified", () => {
     ["numberArithmetic", /arithmetic on `number` rounds.*: use `bigint` where the values are whole/],
     ["looseEquality", /operator == is not modeled: write `===`/],
     ["letCapture", /`limit` is a binding the verifier cannot see .*: read it from a `const` or an argument/],
-    [
-      "bigintDivision",
-      /bigint `\/` is not modeled .*: keep it out of the code a law reads, or move it into a function the spec declares with `assume`/,
-    ],
     ["elementAccess", /`xs\[0\]` on an array is not read: write `xs\.at\(0\)`/],
     ["global", /`Math` is a binding the verifier cannot see/],
   ]
