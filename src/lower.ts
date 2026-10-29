@@ -83,7 +83,7 @@ export interface Lowering extends Typing {
    * after it. Never an assumption of the universe: each obligation is checked with the hints made before it only, so
    * no hint proves itself, and a law with all of them.
    */
-  readonly hints: Array<Bool<"main">>
+  readonly hints: Array<Bool>
   /** The lemmas the proof code called, by `file#name`: each is proved too. */
   readonly lemmas: Map<string, LemmaUse>
   /**
@@ -104,7 +104,7 @@ export interface GuessedInvariant {
   readonly key: string
   readonly at: string
   readonly text: string
-  readonly claim: (env: Env, i: Arith<"main">) => Bool<"main">
+  readonly claim: (env: Env, i: Arith) => Bool
 }
 
 /** A fresh lowering over a universe. */
@@ -150,7 +150,7 @@ export const later = (L: Lowering, f: () => Val): Thunk => {
 const K = ts.SyntaxKind
 const EMPTY: Env = new Map()
 
-const bool = (term: Bool<"main">): Val => ({ kind: "bool", term })
+const bool = (term: Bool): Val => ({ kind: "bool", term })
 
 /** The value of calling `fn` (closing over `env`) with `args`. */
 export const lowerCall = (L: Lowering, fn: FunctionNode, env: Env, args: ReadonlyArray<Val>, at: ts.Node): Val => {
@@ -204,7 +204,7 @@ export const propertyKey = (name: ts.PropertyName): string => {
 }
 
 /** A condition's truth, read as JavaScript reads it: `a && b` is truthy when both are. */
-export const cond = (L: Lowering, e: ts.Expression, env: Env): Bool<"main"> => {
+export const cond = (L: Lowering, e: ts.Expression, env: Env): Bool => {
   const z3 = L.u.z3
   const stepped = ranStep(e, env)
   if (stepped !== undefined) return truthy(L.u, stepped())
@@ -610,7 +610,7 @@ const arrayMethod = (L: Lowering, arr: Extract<Val, { kind: "array" }>, name: st
     if (a === undefined) throw new Unsupported(`\`.${name}\` with no argument ${k + 1}`, e)
     return a
   }
-  const predicate = (): ((i: Arith<"main">) => Bool<"main">) => {
+  const predicate = (): ((i: Arith) => Bool) => {
     if (e.arguments.length !== 1) throw new Unsupported(`\`.${name}\` with a \`this\` argument is not modeled`, e)
     const f = lowerExpr(L, arg(0), env)
     if (f.kind !== "fn") throw new Unsupported(`\`.${name}\` of a ${f.kind}`, e)
@@ -620,7 +620,7 @@ const arrayMethod = (L: Lowering, arr: Extract<Val, { kind: "array" }>, name: st
   /** `exists` (or `forall`) an index of the array where `p` holds, with the facts about element i inside. */
   /** How many elements to write a quantifier out over: the array's own bound (exact on both sides), else the search side's. */
   const writtenOut = arr.maxSize ?? u.bound
-  const quantify = (q: "exists" | "forall", p: (i: Arith<"main">) => Bool<"main">): Bool<"main"> => {
+  const quantify = (q: "exists" | "forall", p: (i: Arith) => Bool): Bool => {
     if (writtenOut !== undefined) {
       // Written out: element k for each k below the bound, counted only where k < length.
       const each = Array.from({ length: writtenOut }, (_, k) => {
@@ -676,7 +676,7 @@ const arrayMethod = (L: Lowering, arr: Extract<Val, { kind: "array" }>, name: st
       // admits every real count, so a proof stands and a model there proves nothing.
       if (u.depth > 0) throw new Unsupported("`.filter` inside a quantifier (`.some`, `.every`, another `.filter`) is not modeled", e)
       const p = predicate()
-      let count: Arith<"main">
+      let count: Arith
       if (writtenOut !== undefined) {
         count = z3.Sum(
           z3.Int.val(0),
@@ -749,7 +749,6 @@ const narrowed = (L: Lowering, e: ts.Expression, v: Val, op: ts.SyntaxKind): Val
 }
 
 export const arithmetic = (L: Lowering, op: ts.SyntaxKind, l: Val, r: Val, e: ts.BinaryExpression): Val => {
-  const { u } = L
   if (l.kind === "int" && r.kind === "int" && l.origin === "bigint" && r.origin === "bigint") {
     if (op === K.PlusToken) return { ...l, term: l.term.add(r.term) }
     if (op === K.MinusToken) return { ...l, term: l.term.sub(r.term) }
@@ -771,15 +770,15 @@ export const emptyEnv = EMPTY
 export const firstIndex = (
   L: Lowering,
   arr: Extract<Val, { kind: "array" }>,
-  p: (i: Arith<"main">) => Bool<"main">,
+  p: (i: Arith) => Bool,
   at: ts.Node,
-): { readonly found: Bool<"main">; readonly k: Arith<"main"> } => {
+): { readonly found: Bool; readonly k: Arith } => {
   const { u } = L
   const z3 = u.z3
   const bound = arr.maxSize ?? u.bound
   if (bound !== undefined) {
-    let k: Arith<"main"> = z3.Int.val(bound)
-    let found: Bool<"main"> = z3.Bool.val(false)
+    let k: Arith = z3.Int.val(bound)
+    let found: Bool = z3.Bool.val(false)
     for (let j = bound - 1; j >= 0; j--) {
       const hit = z3.And(z3.Int.val(j).lt(arr.length), p(z3.Int.val(j)))
       k = z3.If(hit, z3.Int.val(j), k)
@@ -788,7 +787,7 @@ export const firstIndex = (
     return { found, k }
   }
   if (u.depth > 0) throw new Unsupported("a search (`.find`) inside a quantifier is not modeled", at)
-  const k = u.leaf([u.fresh("first"), "$"], "int", [], "count") as never as Arith<"main">
+  const k = u.leaf([u.fresh("first"), "$"], "int", [], "count") as never as Arith
   const some = z3.Int.const(u.fresh("i"))
   const hasOne = u.within(some, () => p(some))
   const found = z3.Exists([some], z3.And(some.ge(0), some.lt(arr.length), ...hasOne.facts, hasOne.result))
@@ -804,7 +803,7 @@ export const firstIndex = (
 }
 
 /** A count from a value: a count itself, or a whole-number literal. */
-const countOf = (L: Lowering, v: Val, at: ts.Node): Arith<"main"> => {
+const countOf = (L: Lowering, v: Val, at: ts.Node): Arith => {
   if (v.kind === "int" && v.origin === "count") return v.term
   if (v.kind === "num" && L.u.z3.isRealVal(v.real) && L.u.z3.isIntVal(v.cls) && Number(v.cls.value()) === NUM.finite) {
     const r = v.real.value()
@@ -852,7 +851,7 @@ const objectLiteral = (L: Lowering, e: ts.ObjectLiteralExpression, env: Env): Va
     if (ts.isSpreadAssignment(p)) return { spread: later(L, () => lowerExpr(L, p.expression, env)), node: p }
     throw new Unsupported("methods and accessors in an object literal are not modeled", p)
   })
-  const spreadOf = (v: Val, name: string, at: ts.Node): { has: Bool<"main">; value: Val | undefined } => {
+  const spreadOf = (v: Val, name: string, at: ts.Node): { has: Bool; value: Val | undefined } => {
     if (v.kind === "nullish") return { has: z3.Bool.val(false), value: undefined }
     if (v.kind === "maybe") {
       if (v.value === undefined) return { has: z3.Bool.val(false), value: undefined }
@@ -873,11 +872,11 @@ const objectLiteral = (L: Lowering, e: ts.ObjectLiteralExpression, env: Env): Va
       at,
     )
   }
-  const resolved = new Map<string, { has: Bool<"main">; value: Val | undefined }>()
+  const resolved = new Map<string, { has: Bool; value: Val | undefined }>()
   const resolve = (name: string) => {
     let r = resolved.get(name)
     if (r !== undefined) return r
-    let has: Bool<"main"> = z3.Bool.val(false)
+    let has: Bool = z3.Bool.val(false)
     let value: Val | undefined
     for (const p of parts) {
       if ("key" in p) {
@@ -919,7 +918,7 @@ const arrayLiteral = (L: Lowering, e: ts.ArrayLiteralExpression, env: Env): Val 
     const t = L.checker.getContextualType(e) ?? L.checker.getTypeAtLocation(e)
     const elementType = L.checker.isArrayType(L.checker.getNonNullableType(t)) ? L.checker.getTypeArguments(L.checker.getNonNullableType(t) as ts.TypeReference)[0] : undefined
     const beyond = new Map<string, Val>()
-    const past = (i: Arith<"main">): Val => {
+    const past = (i: Arith): Val => {
       if (elementType === undefined || elementType.flags & ts.TypeFlags.Never) return UNDEFINED
       let v = beyond.get(termId(i))
       if (v === undefined) {
@@ -953,9 +952,9 @@ const arrayLiteral = (L: Lowering, e: ts.ArrayLiteralExpression, env: Env): Val 
     if (v.kind !== "array") throw new Unsupported(`a spread of a ${v.kind} into an array is not modeled`, x)
     return { spread: v }
   })
-  let length: Arith<"main"> = z3.Int.val(0)
+  let length: Arith = z3.Int.val(0)
   let maxSize: number | undefined = 0
-  const offsets: Array<Arith<"main">> = []
+  const offsets: Array<Arith> = []
   for (const p of parts) {
     offsets.push(length)
     if ("item" in p) {
@@ -1038,7 +1037,7 @@ const closureCheck = (L: Lowering, e: ts.ArrowFunction | ts.FunctionExpression):
   let host: ts.Node | undefined = e.parent
   while (host !== undefined && !ts.isFunctionLike(host)) host = host.parent
   if (host === undefined || !("body" in host) || host.body === undefined) return
-  const changed = changedNames(host.body as ts.Node, L.checker)
+  const changed = changedNames(host.body, L.checker)
   const captured: Array<string> = []
   const visit = (n: ts.Node): void => {
     if (ts.isIdentifier(n) && changed.has(n.text)) {

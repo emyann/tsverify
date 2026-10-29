@@ -50,6 +50,8 @@
     "build": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\" && tsc -p tsconfig.build.json",
     "prepack": "npm run build",
     "typecheck": "tsc --noEmit",
+    "lint": "oxlint && oxfmt --check",
+    "format": "oxfmt",
     "test": "node --conditions=tsverify-source --test test/*.test.ts",
     "verify": "node --conditions=tsverify-source src/cli.ts",
     "bench": "node --conditions=tsverify-source bench/mutants.ts --json bench/results.json",
@@ -76,6 +78,9 @@
     "@types/node": "24.19.2",
     "effect": "4.0.6",
     "hono": "4.13.13",
-    "lodash-es": "4.18.1"
+    "lodash-es": "4.18.1",
+    "oxfmt": "0.71.0",
+    "oxlint": "1.89.0",
+    "oxlint-tsgolint": "7.0.2005"
   }
 }

@@ -30,7 +30,7 @@ export const symbolicOf = (
   t: Lowering,
   type: ts.Type | ReadonlyArray<ts.Type>,
   segments: ReadonlyArray<string>,
-  indices: ReadonlyArray<Arith<"main">>,
+  indices: ReadonlyArray<Arith>,
   at: ts.Node,
   optional = false,
 ): Val => {
@@ -54,7 +54,7 @@ export const symbolicOf = (
   function maybeOf(
     t: Lowering,
     segments: ReadonlyArray<string>,
-    indices: ReadonlyArray<Arith<"main">>,
+    indices: ReadonlyArray<Arith>,
     canNull: boolean,
     canUndefined: boolean,
     value: (() => Val) | undefined,
@@ -71,7 +71,7 @@ const present = (
   t: Lowering,
   members: ReadonlyArray<ts.Type>,
   segments: ReadonlyArray<string>,
-  indices: ReadonlyArray<Arith<"main">>,
+  indices: ReadonlyArray<Arith>,
   at: ts.Node,
   path: string,
 ): Val => {
@@ -89,7 +89,7 @@ const present = (
   if (all(F.StringLike)) {
     const term = u.leaf(leaf, "str", indices) as never as ReturnType<typeof z3.String.val>
     if (members.every((m) => m.isStringLiteral()))
-      u.assume(z3.Or(...members.map((m) => term.eq(z3.String.val((m as ts.StringLiteralType).value)))), indices)
+      u.assume(z3.Or(...members.map((m) => term.eq(z3.String.val((m).value)))), indices)
     return { kind: "str", term }
   }
   if (all(F.NumberLike)) {
@@ -107,7 +107,7 @@ const present = (
     }
     if (members.every((m) => m.isNumberLiteral()))
       u.assume(
-        z3.And(cls.eq(NUM.finite), z3.Or(...members.map((m) => real.eq(z3.Real.val(exactRational((m as ts.NumberLiteralType).value)))))),
+        z3.And(cls.eq(NUM.finite), z3.Or(...members.map((m) => real.eq(z3.Real.val(exactRational((m).value)))))),
         indices,
       )
     return { kind: "num", cls, real }

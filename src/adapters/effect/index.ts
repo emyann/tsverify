@@ -146,7 +146,7 @@ export const effectAdapter: Adapter = {
   operation: (L, returns) => {
     const sym = returns.getSymbol()
     const decl = sym?.declarations?.[0]
-    if (sym?.name !== "Effect" || decl === undefined || !/\/node_modules\/effect\/dist\/Effect\.d\.ts$/.test(decl.getSourceFile().fileName))
+    if (sym?.name !== "Effect" || decl === undefined || !decl.getSourceFile().fileName.endsWith('/node_modules/effect/dist/Effect.d.ts'))
       return undefined
     const [success, failure] = L.checker.getTypeArguments(returns as ts.TypeReference)
     if (success === undefined) return undefined
@@ -158,7 +158,7 @@ export const effectAdapter: Adapter = {
     const service = L.checker.getPropertyOfType(t, "Service")
     const key = L.checker.getPropertyOfType(t, "key")
     const decl = service?.declarations?.[0]
-    if (service === undefined || key === undefined || decl === undefined || !/\/node_modules\/effect\/dist\/Context\.d\.ts$/.test(decl.getSourceFile().fileName))
+    if (service === undefined || key === undefined || decl === undefined || !decl.getSourceFile().fileName.endsWith('/node_modules/effect/dist/Context.d.ts'))
       return undefined
     const name = operand.getText()
     const memo = `service:${name}`

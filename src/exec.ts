@@ -48,8 +48,8 @@ export interface Obligation {
   readonly at: string
   /** An invariant on entry, or kept by an iteration; an assert or a lemma's precondition, here. */
   readonly phase: "entry" | "kept" | "here"
-  readonly cond: Bool<"main">
-  readonly goal: Bool<"main">
+  readonly cond: Bool
+  readonly goal: Bool
   /** How many of the lowering's hints were made before it: those it may be proved with. */
   readonly hints: number
   /** For an invariant the verifier guessed, the law it restates. */
@@ -68,14 +68,14 @@ export interface Place {
   readonly steps: ReadonlyArray<Step>
   readonly text: string
 }
-type Step = { readonly kind: "field"; readonly name: string } | { readonly kind: "index"; readonly index: Arith<"main"> }
+type Step = { readonly kind: "field"; readonly name: string } | { readonly kind: "index"; readonly index: Arith }
 
 type Binding =
   /** A value fixed for the scope: what a closure captured, a value the caller gave. */
   | { readonly kind: "value"; readonly thunk: Thunk }
   | { readonly kind: "cell"; readonly cell: number }
   /** A borrow: reads and changes go through to the place. `isUndefined` when it may be none (`.find`). */
-  | { readonly kind: "place"; readonly place: Place; readonly isUndefined?: Bool<"main"> }
+  | { readonly kind: "place"; readonly place: Place; readonly isUndefined?: Bool }
 
 interface Cell {
   readonly thunk: Thunk
@@ -87,7 +87,7 @@ interface Cell {
 }
 
 export interface State {
-  readonly cond: Bool<"main">
+  readonly cond: Bool
   readonly vars: ReadonlyMap<string, Binding>
   readonly store: ReadonlyMap<number, Cell>
   /** Cells moved into another object, with where: never read again. */
@@ -300,7 +300,7 @@ const borrowsOf = (st: State): Array<{ name: string; place: Place }> =>
   [...st.vars].flatMap(([name, b]) => (b.kind === "place" ? [{ name, place: b.place }] : []))
 
 /** The place `e` names, when it names one: a variable, a field or element of one, what `.find` or `.at` found in one. */
-const placeOf = (L: Lowering, st: State, e: ts.Expression): { readonly place: Place; readonly isUndefined?: Bool<"main"> } | undefined => {
+const placeOf = (L: Lowering, st: State, e: ts.Expression): { readonly place: Place; readonly isUndefined?: Bool } | undefined => {
   const z3 = L.u.z3
   const x = unwrap(e)
   if (ts.isIdentifier(x)) {
@@ -461,7 +461,7 @@ const merge = (L: Lowering, states: ReadonlyArray<State | undefined>, at: ts.Nod
   })
 }
 
-const withCond = (st: State, cond: Bool<"main">): State => ({ ...st, cond })
+const withCond = (st: State, cond: Bool): State => ({ ...st, cond })
 
 /** Each exit of a block, with the bindings it declared out of scope. */
 const scoped = (x: Exits, vars: ReadonlyMap<string, Binding>): Exits => {
@@ -820,9 +820,9 @@ const switchStatement = (L: Lowering, s: ts.SwitchStatement, st: State): Exits =
   const d = later(L, () => lowerExpr(L, s.expression, env))
   const clauses = s.caseBlock.clauses
   const tests = clauses.map((c) => (ts.isCaseClause(c) ? strictEq(L.u, d(), lowerExpr(L, c.expression, env), c) : undefined))
-  const anyMatch = z3.Or(z3.Bool.val(false), ...tests.filter((t): t is Bool<"main"> => t !== undefined))
+  const anyMatch = z3.Or(z3.Bool.val(false), ...tests.filter((t): t is Bool => t !== undefined))
   let fall: State | undefined
-  let before: Bool<"main"> = z3.Bool.val(false)
+  let before: Bool = z3.Bool.val(false)
   const returns: Array<Exits["returns"][number]> = []
   const leaving: Array<State> = []
   const continues: Array<State> = []
@@ -865,7 +865,7 @@ const invariantsOf = (L: Lowering, body: ts.Statement): { readonly invariants: R
 }
 
 /** An invariant's, or an assert's, claim in a state: the callback written in place, run as spec code. */
-const claim = (L: Lowering, st: State, call: ts.CallExpression, i: Arith<"main"> | undefined): Bool<"main"> => {
+const claim = (L: Lowering, st: State, call: ts.CallExpression, i: Arith | undefined): Bool => {
   const f = call.arguments[0]
   if (f === undefined || !(ts.isArrowFunction(unwrap(f)) || ts.isFunctionExpression(unwrap(f)))) throw new Unsupported("a hint takes a function written in place", call)
   const fn = unwrap(f) as ts.ArrowFunction | ts.FunctionExpression
@@ -883,7 +883,7 @@ interface LoopClaim {
   readonly key: string
   readonly at: string
   readonly text: string
-  readonly claim: (st: State, i: Arith<"main">) => Bool<"main">
+  readonly claim: (st: State, i: Arith) => Bool
 }
 
 const writtenClaim = (L: Lowering, call: ts.CallExpression): LoopClaim => ({
@@ -893,7 +893,7 @@ const writtenClaim = (L: Lowering, call: ts.CallExpression): LoopClaim => ({
   claim: (st, i) => claim(L, st, call, i),
 })
 
-const obligateClaim = (L: Lowering, inv: LoopClaim, phase: "entry" | "kept", cond: Bool<"main">, goal: Bool<"main">): void => {
+const obligateClaim = (L: Lowering, inv: LoopClaim, phase: "entry" | "kept", cond: Bool, goal: Bool): void => {
   L.obligations.push({
     key: `${inv.key}#${phase}`,
     kind: "invariant",
@@ -907,7 +907,7 @@ const obligateClaim = (L: Lowering, inv: LoopClaim, phase: "entry" | "kept", con
   })
 }
 
-const obligate = (L: Lowering, kind: Obligation["kind"], node: ts.CallExpression, phase: Obligation["phase"], cond: Bool<"main">, goal: Bool<"main">, text?: string): void => {
+const obligate = (L: Lowering, kind: Obligation["kind"], node: ts.CallExpression, phase: Obligation["phase"], cond: Bool, goal: Bool, text?: string): void => {
   const at = locate(node)
   const what = text ?? node.arguments[0]?.getText() ?? node.getText()
   L.obligations.push({ key: `${kind}@${at}#${phase}`, kind, text: what, at, phase, cond, goal, hints: L.hints.length })
@@ -971,25 +971,25 @@ const forOf = (L: Lowering, s: ts.ForOfStatement, st: State): Exits => {
   const init = s.initializer
   if (!ts.isVariableDeclarationList(init) || init.declarations.length !== 1 || !ts.isIdentifier(init.declarations[0]!.name))
     throw new Unsupported("a `for…of` loop is modeled with one variable, `for (const x of xs)`", s)
-  const name = (init.declarations[0]!.name as ts.Identifier).text
+  const name = (init.declarations[0]!.name).text
   const iterPlace = placeOf(L, st, s.expression)
   const iterated = present(iterPlace !== undefined ? readPlace(L, st, iterPlace.place) : lowerExpr(L, s.expression, envOf(L, st)))
   if (iterated.kind !== "array") throw new Unsupported(`a \`for…of\` over a ${iterated.kind} is not modeled`, s.expression)
   const arr = iterated
   const { invariants: written, rest } = invariantsOf(L, s.statement)
-  for (const inv of written) noElement(L, inv, init.declarations[0]!.name as ts.Identifier)
+  for (const inv of written) noElement(L, inv, init.declarations[0]!.name)
   // What is written, then the verifier's guesses, if it makes any for this loop, each read in the loop's state: when
   // nothing is written, or beside what is (`verify`'s second round, for a law what is written leaves unproved).
   if (written.length > 0) L.wrote = true
   const guessed = L.guess !== undefined && (written.length === 0 || L.guessBeside === true) ? L.guess(s) : []
   const invariants: ReadonlyArray<LoopClaim> = [
     ...written.map((call) => writtenClaim(L, call)),
-    ...guessed.map((g) => ({ ...g, claim: (at: State, i: Arith<"main">) => g.claim(envOf(L, at), i) })),
+    ...guessed.map((g) => ({ ...g, claim: (at: State, i: Arith) => g.claim(envOf(L, at), i) })),
   ]
   const changed = changedBy(L, st, [s.statement], s.statement)
   if (iterPlace !== undefined && changed.has(iterPlace.place.cell)) throw new Unsupported(`changes \`${s.expression.getText()}\` while iterating it`, s)
   const elementType = L.checker.getTypeAtLocation(init.declarations[0]!.name)
-  const bindElement = (head: State, i: Arith<"main">): State => {
+  const bindElement = (head: State, i: Arith): State => {
     if (iterPlace !== undefined && isObjectType(L, elementType))
       return bindVar(head, name, { kind: "place", place: extend(iterPlace.place, { kind: "index", index: i }, name) })
     return newCell(L, head, name, () => arr.elem(i), false, elementType)
@@ -1016,7 +1016,7 @@ const forOf = (L: Lowering, s: ts.ForOfStatement, st: State): Exits => {
   }
   // Proof side, unknown length: through the invariants.
   for (const inv of invariants) obligateClaim(L, inv, "entry", st.cond, inv.claim(st, z3.Int.val(0)))
-  const i = u.leaf([u.fresh("i"), "$"], "int", [], "count") as never as Arith<"main">
+  const i = u.leaf([u.fresh("i"), "$"], "int", [], "count") as never as Arith
   const step = havoc(L, st, changed, "step", s)
   const hyp = z3.And(st.cond, i.ge(0), i.lt(arr.length), ...invariants.map((inv) => inv.claim(step, i)))
   const x = scoped(statements(L, rest, withCond(bindElement(step, i), hyp)), st.vars)
@@ -1034,7 +1034,7 @@ const forOf = (L: Lowering, s: ts.ForOfStatement, st: State): Exits => {
  * solver's count and state left it by a `return` or a `break`, and that iteration is one that does. What holds at the
  * end is never known on the second way: a loop that returns early never reaches it.
  */
-const leave = (L: Lowering, st: State, x: Exits, after: State, atEnd: Bool<"main">, at: ts.Node): Exits => {
+const leave = (L: Lowering, st: State, x: Exits, after: State, atEnd: Bool, at: ts.Node): Exits => {
   const z3 = L.u.z3
   const exits = [...x.returns.map((r) => r.state.cond), ...x.breaks.map((b) => b.cond)]
   if (exits.length === 0) {
@@ -1044,7 +1044,7 @@ const leave = (L: Lowering, st: State, x: Exits, after: State, atEnd: Bool<"main
   const ran = z3.Bool.const(L.u.fresh("loop.ran"))
   L.u.assume(z3.Implies(z3.And(st.cond, z3.Not(ran)), z3.Or(...exits)))
   L.hints.push(z3.Implies(z3.And(st.cond, ran), atEnd))
-  const early = (c: Bool<"main">) => z3.And(c, z3.Not(ran))
+  const early = (c: Bool) => z3.And(c, z3.Not(ran))
   return {
     normal: merge(L, [withCond(after, z3.And(st.cond, ran)), ...x.breaks.map((b) => withCond(b, early(b.cond)))], at),
     returns: x.returns.map((r) => ({ ...r, state: withCond(r.state, early(r.state.cond)) })),
@@ -1072,7 +1072,7 @@ const guarded = (L: Lowering, s: ts.ForStatement | ts.WhileStatement, st0: State
   if (ts.isForStatement(s) && s.initializer !== undefined)
     st = ts.isVariableDeclarationList(s.initializer) ? declare(L, s.initializer, st) : expressionStatement(L, s.initializer, st)
   const guardExpr = ts.isForStatement(s) ? s.condition : s.expression
-  const guard = (x: State): Bool<"main"> => (guardExpr === undefined ? z3.Bool.val(true) : condOf(L, guardExpr, envOf(L, x)))
+  const guard = (x: State): Bool => (guardExpr === undefined ? z3.Bool.val(true) : condOf(L, guardExpr, envOf(L, x)))
   const incr = (x: State | undefined): State | undefined =>
     x === undefined || !ts.isForStatement(s) || s.incrementor === undefined ? x : expressionStatement(L, s.incrementor, x)
   const { invariants, rest } = invariantsOf(L, s.statement)

@@ -49,7 +49,7 @@ const appended = (L: Lowering, trace: Val, call: Val, at: ts.Node): Val => {
     length: size === undefined ? trace.length.add(1) : z3.Int.val(size),
     ...(size === undefined ? {} : { size }),
     maxSize: trace.maxSize + 1,
-    elem: (i: Arith<"main">) => {
+    elem: (i: Arith) => {
       if (trace.size !== undefined && z3.isIntVal(i)) return Number(i.value()) === trace.size ? call : trace.elem(i)
       return ite(L.u, i.eq(trace.length), call, trace.elem(i), at)
     },

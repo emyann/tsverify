@@ -49,7 +49,7 @@ describe("a withdrawal, as an Effect program and as async TypeScript, under the 
       const v = await verify(z3, project, file, "withdraw")
       assert.equal(v.unsupported, undefined)
       assert.deepEqual(statuses(v), Object.fromEntries(LAWS.map((l) => [l, "proved"])))
-      assert.deepEqual(v.cover.map((c) => [c.value, c.status]).sort(), ends.map((e) => [e, "reachable"]).sort())
+      assert.deepEqual(v.cover.map((c) => `${c.value} ${c.status}`).sort(), ends.map((e) => `${e} reachable`).sort())
       // The fold is declared, not read here; the report names the declaration and says its purity was checked.
       assert.deepEqual(v.trusted.map((t) => [t.name, t.purity, t.laws]), [["accountOf", "checked", []]])
     })

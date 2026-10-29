@@ -48,8 +48,8 @@ describe("the Effect forms, verified", () => {
       const v = await verify(z3, project, specFile, name)
       assert.equal(v.unsupported, undefined)
       assert.ok(v.laws.every((l) => l.status === "proved"), JSON.stringify(statuses(v)))
-      const want = ends.map((e) => (e.endsWith(" unreachable") ? [e.replace(" unreachable", ""), "unreachable"] : [e, "reachable"]))
-      assert.deepEqual(v.cover.map((c) => [c.value, c.status]).sort(), want.sort())
+      const want = ends.map((e) => (e.endsWith(" unreachable") ? e : `${e} reachable`))
+      assert.deepEqual(v.cover.map((c) => `${c.value} ${c.status}`).sort(), want.sort())
     })
 })
 

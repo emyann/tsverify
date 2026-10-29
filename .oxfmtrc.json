@@ -1,0 +1,11 @@
+{
+  "$schema": "./node_modules/oxfmt/configuration_schema.json",
+  // 140 is how the code already wraps: 97% of its lines were under it when it was adopted. Double quotes and no semicolons, as it is
+  // written.
+  "printWidth": 140,
+  "semi": false,
+  "trailingComma": "all",
+  // Code only. Markdown is prose, whose examples are run as written (test/docs.test.ts); JSON is data, the bench's results among it; the
+  // fixtures are the verifier's input, kept as their tests read them.
+  "ignorePatterns": ["**/*.md", "**/*.json", "**/*.yaml", "**/*.yml", "fixtures/**", "dist/**"]
+}

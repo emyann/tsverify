@@ -35,7 +35,7 @@ describe("object spreads", () => {
 
   it("the report says what reading it assumed of the value", async () => {
     const v = await verify(z3, project, file, "renamed")
-    assert.ok(v.notes.some((n) => /^A spread copies each property its value's type requires/.test(n)), JSON.stringify(v.notes))
+    assert.ok(v.notes.some((n) => n.startsWith('A spread copies each property its value\'s type requires')), JSON.stringify(v.notes))
   })
 
   it("a key the value may lack is refused", async () => {

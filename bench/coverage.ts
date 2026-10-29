@@ -33,7 +33,7 @@ const jsonOut = process.argv.includes("--json") ? process.argv[process.argv.inde
 const modular = process.argv.includes("--modular")
 const effectOnly = process.argv.includes("--effect")
 const keepNames = process.argv.includes("--names")
-const parsed = ts.parseJsonConfigFileContent(ts.readConfigFile(tsconfig, ts.sys.readFile).config, ts.sys, path.dirname(tsconfig))
+const parsed = ts.parseJsonConfigFileContent(ts.readConfigFile(tsconfig, (f) => ts.sys.readFile(f)).config, ts.sys, path.dirname(tsconfig))
 const files = parsed.fileNames.filter((f) => !/\.test\.tsx?$|\/test\//.test(f) && !f.endsWith(".d.ts"))
 const project = loadProject(files, tsconfig)
 

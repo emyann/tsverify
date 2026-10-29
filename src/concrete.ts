@@ -31,7 +31,7 @@ const trie = (u: Universe): Node => {
   return root
 }
 
-const term = (u: Universe, leaf: Leaf, indices: ReadonlyArray<number>): Expr<"main"> =>
+const term = (u: Universe, leaf: Leaf, indices: ReadonlyArray<number>): Expr =>
   leaf.constant ?? leaf.decl!.call(...indices.map((i) => u.z3.Int.val(i)))
 
 /** Arrays longer than this make a counterexample too big to replay. */
@@ -40,12 +40,12 @@ export const REPLAY_LENGTH = 64
 export class TooLong extends Error {}
 
 /** The JavaScript value of root `name` (a parameter's name) in a model. */
-export const fromModel = (u: Universe, model: Model<"main">, name: string): unknown => {
+export const fromModel = (u: Universe, model: Model, name: string): unknown => {
   const root = trie(u).children.get(name)
   return root === undefined ? {} : read(u, model, root, [])
 }
 
-const read = (u: Universe, model: Model<"main">, n: Node, indices: ReadonlyArray<number>): unknown => {
+const read = (u: Universe, model: Model, n: Node, indices: ReadonlyArray<number>): unknown => {
   const z3 = u.z3
   const leafAt = (seg: string): unknown => {
     const leaf = n.children.get(seg)?.leaf
@@ -57,7 +57,7 @@ const read = (u: Universe, model: Model<"main">, n: Node, indices: ReadonlyArray
       case "str":
         return (v as unknown as { asString(): string }).asString()
       case "num": {
-        const cls = Number(model.eval(term(u, n.children.get("~cls")!.leaf!, indices), true).toString())
+        const cls = Number(model.eval(term(u, n.children.get("~cls")!.leaf!, indices), true).sexpr())
         if (cls === NUM.nan) return Number.NaN
         if (cls === NUM.posInf) return Number.POSITIVE_INFINITY
         if (cls === NUM.negInf) return Number.NEGATIVE_INFINITY
@@ -65,7 +65,7 @@ const read = (u: Universe, model: Model<"main">, n: Node, indices: ReadonlyArray
         return Number(numerator) / Number(denominator)
       }
       case "int":
-        return leaf.origin === "bigint" ? (u.z3.isIntVal(v) ? v.value() : BigInt(v.toString())) : Number(u.z3.isIntVal(v) ? v.value() : v.toString())
+        return leaf.origin === "bigint" ? (u.z3.isIntVal(v) ? v.value() : BigInt(v.sexpr())) : Number(u.z3.isIntVal(v) ? v.value() : v.sexpr())
     }
   }
   if (n.children.has("$")) return leafAt("$")
@@ -87,14 +87,14 @@ const read = (u: Universe, model: Model<"main">, n: Node, indices: ReadonlyArray
 }
 
 /** Constraints saying root `name`'s leaves hold the JavaScript value `value`. */
-export const pin = (u: Universe, name: string, value: unknown): Array<Bool<"main">> => {
+export const pin = (u: Universe, name: string, value: unknown): Array<Bool> => {
   const root = trie(u).children.get(name)
-  const out: Array<Bool<"main">> = []
+  const out: Array<Bool> = []
   if (root !== undefined) write(u, root, [], value, out)
   return out
 }
 
-const write = (u: Universe, n: Node, indices: ReadonlyArray<number>, value: unknown, out: Array<Bool<"main">>): void => {
+const write = (u: Universe, n: Node, indices: ReadonlyArray<number>, value: unknown, out: Array<Bool>): void => {
   const z3 = u.z3
   const leafAt = (seg: string) => n.children.get(seg)?.leaf
   const prim = leafAt("$")
@@ -103,8 +103,8 @@ const write = (u: Universe, n: Node, indices: ReadonlyArray<number>, value: unkn
     if (prim.sort === "num") {
       const x = value as number
       const cls = Number.isNaN(x) ? NUM.nan : x === Infinity ? NUM.posInf : x === -Infinity ? NUM.negInf : NUM.finite
-      out.push((term(u, n.children.get("~cls")!.leaf!, indices) as Arith<"main">).eq(cls))
-      if (cls === NUM.finite) out.push((t as Arith<"main">).eq(z3.Real.val(exactRational(x))))
+      out.push((term(u, n.children.get("~cls")!.leaf!, indices) as Arith).eq(cls))
+      if (cls === NUM.finite) out.push((t as Arith).eq(z3.Real.val(exactRational(x))))
     } else out.push(t.eq(literal(u, value)))
     return
   }
@@ -120,7 +120,7 @@ const write = (u: Universe, n: Node, indices: ReadonlyArray<number>, value: unkn
   const len = leafAt("#len")
   if (len !== undefined) {
     const arr = value as ReadonlyArray<unknown>
-    out.push((term(u, len, indices) as Arith<"main">).eq(arr.length))
+    out.push((term(u, len, indices) as Arith).eq(arr.length))
     const elem = n.children.get("[]")
     if (elem !== undefined) arr.forEach((x, k) => write(u, elem, [...indices, k], x, out))
     return
@@ -130,7 +130,7 @@ const write = (u: Universe, n: Node, indices: ReadonlyArray<number>, value: unkn
 }
 
 /** A JavaScript string, boolean or bigint as a Z3 literal. */
-export const literal = (u: Universe, value: unknown): Expr<"main"> => {
+export const literal = (u: Universe, value: unknown): Expr => {
   const z3 = u.z3
   if (typeof value === "string") return z3.String.val(value)
   if (typeof value === "boolean") return z3.Bool.val(value)

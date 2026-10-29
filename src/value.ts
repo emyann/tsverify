@@ -8,7 +8,7 @@
 import ts from "typescript"
 import type { Arith, Bool, Context, Seq } from "z3-solver"
 
-export type Ctx = Context<"main">
+export type Ctx = Context
 export type FunctionNode = ts.ArrowFunction | ts.FunctionExpression | ts.FunctionDeclaration
 
 /** A binding: evaluated the first time it is read, then kept. */
@@ -17,22 +17,22 @@ export type Env = ReadonlyMap<string, Thunk>
 
 export type Val =
   /** An exact integer: a `bigint`, or a `number` known to be a whole count (an array's length). The two never mix. */
-  | { readonly kind: "int"; readonly origin: "bigint" | "count"; readonly term: Arith<"main"> }
+  | { readonly kind: "int"; readonly origin: "bigint" | "count"; readonly term: Arith }
   /**
    * A `number`, for comparison: its class (`NUM.finite`, `NUM.nan`, `NUM.posInf`,
    * `NUM.negInf`) and, when finite, its value as a real. Every double is such a
    * value, so a law proved over them holds of every double; arithmetic, whose
    * rounding this does not see, is refused.
    */
-  | { readonly kind: "num"; readonly cls: Arith<"main">; readonly real: Arith<"main"> }
-  | { readonly kind: "bool"; readonly term: Bool<"main"> }
-  | { readonly kind: "str"; readonly term: Seq<"main"> }
+  | { readonly kind: "num"; readonly cls: Arith; readonly real: Arith }
+  | { readonly kind: "bool"; readonly term: Bool }
+  | { readonly kind: "str"; readonly term: Seq }
   | { readonly kind: "nullish"; readonly which: "null" | "undefined" }
   /** `null`, `undefined` or `value`; `value` means something only where neither flag holds. Never nested. */
   | {
       readonly kind: "maybe"
-      readonly isNull: Bool<"main">
-      readonly isUndefined: Bool<"main">
+      readonly isNull: Bool
+      readonly isUndefined: Bool
       readonly value: Val | undefined
     }
   /**
@@ -44,7 +44,7 @@ export type Val =
       readonly kind: "record"
       readonly field: (name: string) => Val | undefined
       readonly id?: string
-      readonly has?: (name: string) => Bool<"main"> | undefined
+      readonly has?: (name: string) => Bool | undefined
     }
   /**
    * An array: its length, and its element at an index (built on demand; may refuse). `size` is its length when
@@ -52,8 +52,8 @@ export type Val =
    */
   | {
       readonly kind: "array"
-      readonly length: Arith<"main">
-      readonly elem: (i: Arith<"main">) => Val
+      readonly length: Arith
+      readonly elem: (i: Arith) => Val
       readonly id?: string
       readonly size?: number
       readonly maxSize?: number
@@ -121,7 +121,7 @@ export const lazy = (f: () => Val): Thunk => {
 export const lazyRecord = (
   build: (name: string) => Val | undefined,
   id?: string,
-  has?: (name: string) => Bool<"main"> | undefined,
+  has?: (name: string) => Bool | undefined,
 ): Val => {
   const memo = new Map<string, Val | undefined>()
   return {
@@ -151,7 +151,7 @@ export const termId = (t: { id(): number }): string => {
  * An array's elements, each built once per index: an array made from another (a write, a merge of two paths, a push)
  * reads the other's elements, and without the memo each read would rebuild every array below it.
  */
-export const memoElems = (elem: (i: Arith<"main">) => Val): ((i: Arith<"main">) => Val) => {
+export const memoElems = (elem: (i: Arith) => Val): ((i: Arith) => Val) => {
   const built = new Map<string, Val>()
   return (i) => {
     const key = termId(i)

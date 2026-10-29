@@ -130,7 +130,7 @@ export interface Lowered {
   readonly result: Val
   /** A computation's calls, in order; undefined for a function. */
   readonly trace: Val | undefined
-  readonly pre: Bool<"main">
+  readonly pre: Bool
   /** The laws whose guessed invariant could not be read in the loop's state: guesses to drop. */
   readonly unguessable: ReadonlySet<string>
 }
@@ -204,7 +204,7 @@ const guesser =
     const returned = fn.body.statements.find((st): st is ts.ReturnStatement => ts.isReturnStatement(st) && st.pos >= loop.end && st.expression !== undefined && ts.isIdentifier(unwrap(st.expression)))
     if (xs?.kind !== "array" || returned === undefined) return []
     const result = unwrap(returned.expression!) as ts.Identifier
-    const count = (term: Arith<"main">): Val => ({ kind: "int", origin: "count", term })
+    const count = (term: Arith): Val => ({ kind: "int", origin: "count", term })
     return source.ensures
       .filter((law) => laws.has(law.name) && law.law.parameters.length === args.length + 1)
       .map((law) => ({
@@ -228,7 +228,7 @@ const guesser =
       }))
   }
 
-const lawOn = (side: Lowered, law: ContractSource["ensures"][number]): Bool<"main"> =>
+const lawOn = (side: Lowered, law: ContractSource["ensures"][number]): Bool =>
   side.source.kind === "lemma" ? truthy(side.u, side.result) : inSpec(side.L, () =>
     truthy(side.u, lowerCall(side.L, law.law, emptyEnv, side.trace === undefined ? [...side.args, side.result] : [...side.args, side.result, side.trace], law.law)),
   )
@@ -237,7 +237,7 @@ const lawOn = (side: Lowered, law: ContractSource["ensures"][number]): Bool<"mai
  * The law with the function's result, and a computation's calls, replaced by any value of the law's own parameter types;
  * `undefined` when such a value cannot be built.
  */
-const lawOnAnyResult = (side: Lowered, law: ContractSource["ensures"][number]): Bool<"main"> | undefined => {
+const lawOnAnyResult = (side: Lowered, law: ContractSource["ensures"][number]): Bool | undefined => {
   const params = law.law.parameters
   const k = side.args.length
   try {
@@ -338,9 +338,9 @@ export const verify = async (z3: Ctx, project: Project, file: string, name: stri
  */
 const contradicted = async (
   search: Lowered,
-  items: ReadonlyArray<{ readonly key: string; readonly broken: Bool<"main"> }>,
+  items: ReadonlyArray<{ readonly key: string; readonly broken: Bool }>,
   opts: Options,
-  hints?: ReadonlyArray<Bool<"main">>,
+  hints?: ReadonlyArray<Bool>,
 ): Promise<Map<string, ReadonlyArray<unknown> | undefined>> => {
   const z3 = search.u.z3
   const out = new Map<string, ReadonlyArray<unknown> | undefined>()
@@ -372,11 +372,11 @@ export const judge = async (z3: Ctx, project: Project, file: string, proof: Lowe
       : `proved only if the proof code's obligations hold, and ${open.length} of them ${open.length === 1 ? "is" : "are"} not proved (${open[0]!.kind} ${open[0]!.text} at ${open[0]!.at}: ${open[0]!.status}); no counterexample with arrays of at most ${bound} elements`
 
   const laws: Array<LawResult> = []
-  const searchable = new Map<string, Bool<"main">>()
+  const searchable = new Map<string, Bool>()
   for (const law of source.ensures) {
     const started = performance.now()
-    let onProof: Bool<"main">
-    let onSearch: Bool<"main">
+    let onProof: Bool
+    let onSearch: Bool
     try {
       onProof = lawOn(proof, law)
       onSearch = lawOn(search, law)
@@ -438,7 +438,7 @@ export const judge = async (z3: Ctx, project: Project, file: string, proof: Lowe
   const literals = (returns.isUnion() ? returns.types : [returns]).filter((t) => t.isStringLiteral())
   if (source.kind === "function" && proof.result.kind === "str" && literals.length > 0)
     for (const t of literals) {
-      const value = (t as ts.StringLiteralType).value
+      const value = (t).value
       const is = (side: Lowered) => strictEq(side.u, side.result, { kind: "str", term: z3.String.val(value) }, side.fn)
       const found = await solve(search, [search.pre, is(search)], opts)
       let c: CoverResult
@@ -493,7 +493,7 @@ const obligationsOf = async (
   opts: Options,
 ): Promise<Array<ObligationResult>> => {
   const keys = [...new Set([...proof.L.obligations, ...search.L.obligations].map((o) => o.key))]
-  const broken = (side: Lowered, key: string): Bool<"main"> | undefined => {
+  const broken = (side: Lowered, key: string): Bool | undefined => {
     const os = side.L.obligations.filter((o) => o.key === key)
     return os.length === 0 ? undefined : z3.Or(...os.map((o) => z3.And(o.cond, z3.Not(o.goal), ...side.L.hints.slice(0, o.hints))))
   }
@@ -502,7 +502,7 @@ const obligationsOf = async (
    * met before it held. A loop's `kept` is proved from any state its invariants allow; a run on which they all held up to
    * here, and this one fails, breaks that step, where a run that failed an earlier one need not.
    */
-  const firstToFail = (key: string): Bool<"main"> | undefined => {
+  const firstToFail = (key: string): Bool | undefined => {
     const os = search.L.obligations
     const each = os.flatMap((o, k) => (o.key !== key ? [] : [z3.And(o.cond, z3.Not(o.goal), ...os.slice(0, k).map((p) => z3.Implies(p.cond, p.goal)))]))
     return each.length === 0 ? undefined : z3.Or(...each)
@@ -595,9 +595,9 @@ const trustedOf = (trust: Trust): Array<Trusted> =>
  * The ends a computation can come to, as cover goals: success, and a failure for each `_tag` its declared failure
  * type names (one undistinguished failure when it declares none).
  */
-const outcomesOf = (project: Project, side: Lowered): Array<readonly [string, (s: Lowered) => Bool<"main">]> => {
+const outcomesOf = (project: Project, side: Lowered): Array<readonly [string, (s: Lowered) => Bool]> => {
   const field = (v: Val, n: string): Val | undefined => (v.kind === "record" ? v.field(n) : undefined)
-  const tagIs = (v: Val | undefined, t: string, z3: Ctx): Bool<"main"> =>
+  const tagIs = (v: Val | undefined, t: string, z3: Ctx): Bool =>
     v?.kind === "str" ? v.term.eq(z3.String.val(t)) : z3.Bool.val(false)
   const sig = project.checker.getTypeAtLocation(side.source.target).getCallSignatures()[0]
   const returns = sig?.getReturnType()
@@ -608,7 +608,7 @@ const outcomesOf = (project: Project, side: Lowered): Array<readonly [string, (s
     const tt = t === undefined ? undefined : project.checker.getTypeOfSymbol(t)
     return tt?.isStringLiteral() ? [tt.value] : []
   })
-  const goals: Array<readonly [string, (s: Lowered) => Bool<"main">]> = [["Success", (s) => tagIs(field(s.result, "_tag"), "Success", s.u.z3)]]
+  const goals: Array<readonly [string, (s: Lowered) => Bool]> = [["Success", (s) => tagIs(field(s.result, "_tag"), "Success", s.u.z3)]]
   if (tags.length === 0) goals.push(["Failure", (s) => tagIs(field(s.result, "_tag"), "Failure", s.u.z3)])
   for (const t of tags)
     goals.push([
@@ -640,10 +640,10 @@ type Outcome =
   | { readonly status: "unknown"; readonly reason: string }
 
 /** Checks a side's assumptions with `goals`; on `sat`, reads the arguments back, preferring short arrays. */
-export const solve = async (side: Lowered, goals: ReadonlyArray<Bool<"main">>, opts: Options = {}, hints: ReadonlyArray<Bool<"main">> = side.L.hints): Promise<Outcome> => {
+export const solve = async (side: Lowered, goals: ReadonlyArray<Bool>, opts: Options = {}, hints: ReadonlyArray<Bool> = side.L.hints): Promise<Outcome> => {
   const { u } = side
   const z3 = u.z3
-  const run = async (extra: ReadonlyArray<Bool<"main">>) => {
+  const run = async (extra: ReadonlyArray<Bool>) => {
     const solver = new z3.Solver()
     solver.set("timeout", opts.timeoutMs ?? 10_000)
     for (const a of [...u.assumptions, ...hints, ...goals, ...extra]) solver.add(a)
@@ -656,7 +656,7 @@ export const solve = async (side: Lowered, goals: ReadonlyArray<Bool<"main">>, o
   // A model may pick a huge array; ask again with short ones, which narrows the same formula.
   const short = [...u.leaves.values()]
     .filter((l) => l.arity === 0 && l.segments.at(-1) === "#len")
-    .map((l) => (l.constant as Arith<"main">).le(8))
+    .map((l) => (l.constant as Arith).le(8))
   const small = short.length > 0 && u.bound === undefined ? await run(short) : undefined
   const model = small?.status === "sat" ? small.solver.model() : first.solver.model()
   return { status: "sat", witness: witness(side, model) }
@@ -671,7 +671,7 @@ const ended = (x: unknown): unknown => {
   return x
 }
 
-const witness = (side: Lowered, model: Model<"main">): Witness => {
+const witness = (side: Lowered, model: Model): Witness => {
   try {
     const roots = new Set([...side.u.leaves.values()].map((l) => l.segments[0]!).filter((r) => side.u.shown.has(r)))
     // A declared function's result inside a quantifier is one per element: a function of the index, not a value to show.
@@ -727,7 +727,7 @@ const valueOf = (u: Universe, want: unknown): Val => {
 /** A Z3 context to verify many contracts with, and how to let it go: a test opens one before its cases and closes it after. */
 export const openZ3 = async (): Promise<{ readonly z3: Ctx; readonly close: () => Promise<void> }> => {
   const api = await init()
-  return { z3: api.Context("main"), close: async () => void (await killThreads(api.em)) }
+  return { z3: api.Context("main"), close: async () =>  (await killThreads(api.em)) }
 }
 
 export const withZ3 = async <A>(f: (z3: Ctx) => Promise<A>): Promise<A> => {

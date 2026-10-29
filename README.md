@@ -165,6 +165,7 @@ npm run verify -- examples/hono                                      # a Hono AP
 npm run bench       # planted bugs: the solver beside property testing (~15 s)
 npm run coverage -- <tsconfig.json> [--modular]                      # how much of a code base it reads
 npm run typecheck
+npm run lint        # oxlint, then oxfmt --check; npm run format writes the layout
 ```
 
 On this repository `npm run verify` exits 1, on purpose: two examples keep a law the solver refutes,

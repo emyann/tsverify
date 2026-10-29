@@ -46,7 +46,7 @@ const tsconfigOf = (file: string): string => {
     }
     return path.resolve(given)
   }
-  const found = ts.findConfigFile(path.dirname(file), ts.sys.fileExists)
+  const found = ts.findConfigFile(path.dirname(file), (f) => ts.sys.fileExists(f))
   if (found === undefined) {
     console.error(`no tsconfig.json above ${file}: pass one with --project <tsconfig.json>`)
     process.exit(2)
@@ -84,7 +84,9 @@ const literal = (x: unknown): string =>
               ? Object.keys(x).length === 0
                 ? "{}"
                 : `{ ${Object.entries(x).map(([k, v]) => `${/^[A-Za-z_$][\w$]*$/.test(k) ? k : JSON.stringify(k)}: ${literal(v)}`).join(", ")} }`
-              : String(x)
+              : x === null || typeof x === "boolean"
+                ? String(x)
+                : `<${typeof x}>`
 /** A counterexample's arguments, as the call that takes them would write them. */
 const show = (args: ReadonlyArray<unknown>) => `(${args.map(literal).join(", ")})`
 

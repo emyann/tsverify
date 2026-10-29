@@ -16,14 +16,14 @@ export interface Leaf {
   readonly sort: LeafSort
   readonly origin: "bigint" | "count" | undefined
   readonly arity: number
-  readonly decl: FuncDecl<"main"> | undefined
-  readonly constant: Expr<"main"> | undefined
+  readonly decl: FuncDecl | undefined
+  readonly constant: Expr | undefined
 }
 
 interface Scope {
   /** The quantified index this scope binds, or none for the global scope. */
-  readonly bound: Arith<"main"> | undefined
-  readonly items: Array<Bool<"main">>
+  readonly bound: Arith | undefined
+  readonly items: Array<Bool>
 }
 
 /** The largest length a JavaScript array can have. */
@@ -69,7 +69,7 @@ export class Universe {
   }
 
   /** The assumptions of the global scope: true of every leaf, wherever it was first read. */
-  get assumptions(): ReadonlyArray<Bool<"main">> {
+  get assumptions(): ReadonlyArray<Bool> {
     return this.scopes[0]!.items
   }
 
@@ -100,17 +100,17 @@ export class Universe {
    * binds one of them (a fact about element `i` of a quantifier is that
    * quantifier's), else in the global scope.
    */
-  assume(fact: Bool<"main">, indices: ReadonlyArray<Arith<"main">> = []): void {
+  assume(fact: Bool, indices: ReadonlyArray<Arith> = []): void {
     if (this.scopes.length > 1 && indices.length > 0) {
       const seen = new Set<number>()
       const found = new Set<number>()
-      const walk = (t: Expr<"main">): void => {
+      const walk = (t: Expr): void => {
         const id = t.id()
         if (seen.has(id)) return
         seen.add(id)
         found.add(id)
         if (!this.z3.isApp(t)) return
-        for (let k = 0; k < t.numArgs(); k++) walk(t.arg(k) as Expr<"main">)
+        for (let k = 0; k < t.numArgs(); k++) walk(t.arg(k))
       }
       for (const i of indices) walk(i)
       for (let s = this.scopes.length - 1; s > 0; s--) {
@@ -124,12 +124,12 @@ export class Universe {
   }
 
   /** The indices the open quantifier scopes bind, outermost first. */
-  openBounds(): Array<Arith<"main">> {
+  openBounds(): Array<Arith> {
     return this.scopes.slice(1).map((s) => s.bound!)
   }
 
   /** Runs `f` in a scope binding `bound`; returns its result and the facts that scope collected. */
-  within<A>(bound: Arith<"main">, f: () => A): { readonly result: A; readonly facts: ReadonlyArray<Bool<"main">> } {
+  within<A>(bound: Arith, f: () => A): { readonly result: A; readonly facts: ReadonlyArray<Bool> } {
     const scope: Scope = { bound, items: [] }
     this.scopes.push(scope)
     try {
@@ -143,9 +143,9 @@ export class Universe {
   leaf(
     segments: ReadonlyArray<string>,
     sort: LeafSort,
-    indices: ReadonlyArray<Arith<"main">>,
+    indices: ReadonlyArray<Arith>,
     origin?: "bigint" | "count",
-  ): Expr<"main"> {
+  ): Expr {
     const key = segments.join("")
     let leaf = this.leaves.get(key)
     if (leaf === undefined) {

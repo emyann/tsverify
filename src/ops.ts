@@ -17,7 +17,7 @@ const T = (u: Universe) => u.z3.Bool.val(true)
 const F = (u: Universe) => u.z3.Bool.val(false)
 
 /** The parts of a value that may be null or undefined: both flags, and the value present otherwise. */
-const parts = (u: Universe, v: Val): { isNull: Bool<"main">; isUndefined: Bool<"main">; value: Val | undefined } =>
+const parts = (u: Universe, v: Val): { isNull: Bool; isUndefined: Bool; value: Val | undefined } =>
   v.kind === "opaque"
     ? refuseOpaque("whether it is null or undefined")
     : v.kind === "maybe"
@@ -27,13 +27,13 @@ const parts = (u: Universe, v: Val): { isNull: Bool<"main">; isUndefined: Bool<"
       : { isNull: F(u), isUndefined: F(u), value: v }
 
 /** `v == null`: v is null or undefined. */
-export const isNullish = (u: Universe, v: Val): Bool<"main"> => {
+export const isNullish = (u: Universe, v: Val): Bool => {
   const p = parts(u, v)
   return u.z3.Or(p.isNull, p.isUndefined)
 }
 
 /** JavaScript's ToBoolean. */
-export const truthy = (u: Universe, v: Val): Bool<"main"> => {
+export const truthy = (u: Universe, v: Val): Bool => {
   const z3 = u.z3
   switch (v.kind) {
     case "bool":
@@ -62,10 +62,10 @@ export const truthy = (u: Universe, v: Val): Bool<"main"> => {
 type Num = Extract<Val, { kind: "num" }>
 
 /** A count as a number: finite, and exactly representable (at most 2^32 - 1). */
-const countAsNum = (u: Universe, n: Arith<"main">): Num => ({ kind: "num", cls: u.z3.Int.val(NUM.finite), real: u.z3.ToReal(n) })
+const countAsNum = (u: Universe, n: Arith): Num => ({ kind: "num", cls: u.z3.Int.val(NUM.finite), real: u.z3.ToReal(n) })
 
 /** `a === b` on numbers: false on NaN, true for -0 and 0, true for one infinity and itself. */
-const numEq = (u: Universe, a: Num, b: Num): Bool<"main"> => {
+const numEq = (u: Universe, a: Num, b: Num): Bool => {
   const z3 = u.z3
   return z3.Or(
     z3.And(a.cls.eq(NUM.finite), b.cls.eq(NUM.finite), a.real.eq(b.real)),
@@ -75,7 +75,7 @@ const numEq = (u: Universe, a: Num, b: Num): Bool<"main"> => {
 }
 
 /** `a < b` on numbers: false with NaN on either side; -Infinity below every finite value, Infinity above. */
-const numLt = (u: Universe, a: Num, b: Num): Bool<"main"> => {
+const numLt = (u: Universe, a: Num, b: Num): Bool => {
   const z3 = u.z3
   const fin = (x: Num) => x.cls.eq(NUM.finite)
   return z3.Or(
@@ -87,10 +87,10 @@ const numLt = (u: Universe, a: Num, b: Num): Bool<"main"> => {
 
 export type Order = "<" | "<=" | ">" | ">="
 
-const arithCmp = (a: Arith<"main">, b: Arith<"main">, op: Order): Bool<"main"> =>
+const arithCmp = (a: Arith, b: Arith, op: Order): Bool =>
   op === "<" ? a.lt(b) : op === "<=" ? a.le(b) : op === ">" ? a.gt(b) : a.ge(b)
 
-const numCmp = (u: Universe, a: Num, b: Num, op: Order): Bool<"main"> =>
+const numCmp = (u: Universe, a: Num, b: Num, op: Order): Bool =>
   op === "<"
     ? numLt(u, a, b)
     : op === ">"
@@ -100,7 +100,7 @@ const numCmp = (u: Universe, a: Num, b: Num, op: Order): Bool<"main"> =>
         : u.z3.Or(numLt(u, b, a), numEq(u, a, b))
 
 /** `a === b`. Objects compare by identity, which the verifier does not model. */
-export const strictEq = (u: Universe, a: Val, b: Val, at: ts.Node): Bool<"main"> => {
+export const strictEq = (u: Universe, a: Val, b: Val, at: ts.Node): Bool => {
   const z3 = u.z3
   if (a.kind === "opaque" || b.kind === "opaque") return refuseOpaque("`===`", at)
   if (a.kind === "maybe" || b.kind === "maybe" || a.kind === "nullish" || b.kind === "nullish") {
@@ -125,7 +125,7 @@ export const strictEq = (u: Universe, a: Val, b: Val, at: ts.Node): Bool<"main">
 const isPrimitive = (v: Val): boolean => v.kind === "str" || v.kind === "bool" || v.kind === "num" || v.kind === "int"
 
 /** `a op b` for `<`, `<=`, `>`, `>=` on numbers and bigints. */
-export const compare = (u: Universe, a: Val, b: Val, op: Order, at: ts.Node): Bool<"main"> => {
+export const compare = (u: Universe, a: Val, b: Val, op: Order, at: ts.Node): Bool => {
   if (a.kind === "int" && b.kind === "int" && a.origin === b.origin) return arithCmp(a.term, b.term, op)
   if (a.kind === "num" && b.kind === "num") return numCmp(u, a, b, op)
   if (a.kind === "num" && b.kind === "int" && b.origin === "count") return numCmp(u, a, countAsNum(u, b.term), op)
@@ -145,7 +145,7 @@ export const nullishOr = (u: Universe, a: Val, b: () => Val, at: ts.Node): Val =
 }
 
 /** The value `c ? a : b`. */
-export const ite = (u: Universe, c: Bool<"main">, a: Val, b: Val, at: ts.Node): Val => {
+export const ite = (u: Universe, c: Bool, a: Val, b: Val, at: ts.Node): Val => {
   const z3 = u.z3
   if (a === b || z3.isTrue(c)) return a
   if (z3.isFalse(c)) return b

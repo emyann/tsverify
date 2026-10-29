@@ -77,7 +77,7 @@ describe("a refused construct leaves its contract unverified", () => {
     assert.match(v.unsupported ?? "(verified)", /fixtures\/ill-typed\.ts:\d+:\d+: a member of a value the type checker has not shown/)
   })
   for (const [name, reason] of cases)
-    it(`${name}`, async () => {
+    it(name, async () => {
       const v = await verify(z3, project, fixture("refused"), name)
       assert.match(v.unsupported ?? "(verified)", reason)
       assert.match(v.unsupported!, /fixtures\/refused\.ts:\d+:\d+: /)

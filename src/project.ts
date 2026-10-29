@@ -16,7 +16,7 @@ export const loadProject = (
   tsconfig: string,
   overrides: ReadonlyMap<string, string> = new Map(),
 ): Project => {
-  const read = ts.readConfigFile(tsconfig, ts.sys.readFile)
+  const read = ts.readConfigFile(tsconfig, (f) => ts.sys.readFile(f))
   if (read.error !== undefined) throw new Error(ts.flattenDiagnosticMessageText(read.error.messageText, "\n"))
   const options = ts.parseJsonConfigFileContent(read.config, ts.sys, path.dirname(tsconfig)).options
   const host = ts.createCompilerHost(options, true)

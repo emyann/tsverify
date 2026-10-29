@@ -18,7 +18,7 @@ export type EffectCallsOf<Ops> = {
 }[keyof Ops]
 
 export interface EffectContract<Args extends ReadonlyArray<unknown>, A, E, Ops> {
-  readonly fn: (...args: Args) => Effect.Effect<A, E, never> | Effect.Effect<A, E, any>
+  readonly fn: (...args: Args) => Effect.Effect<A, E> | Effect.Effect<A, E, any>
   readonly requires?: (...args: Args) => boolean
   readonly ensures: Readonly<Record<string, (...args: [...Args, Outcome<A, E>, ReadonlyArray<EffectCallsOf<Ops>>]) => boolean>>
 }
