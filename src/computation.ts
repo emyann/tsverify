@@ -75,6 +75,7 @@ export const operation = (
     run: (trace) => {
       const z3 = L.u.z3
       const base = [L.u.given(`${target}.${op}`)]
+      L.u.calls.add(base[0]!)
       const tag = L.u.leaf([...base, "._tag", "$"], "str", []) as never as ReturnType<typeof z3.String.val>
       const canFail = types.failure !== undefined && !(types.failure.flags & ts.TypeFlags.Never)
       L.u.assume(canFail ? z3.Or(tag.eq(z3.String.val("Success")), tag.eq(z3.String.val("Failure"))) : tag.eq(z3.String.val("Success")))
@@ -90,8 +91,19 @@ export const operation = (
       const argRecord = lazyRecord((n) =>
         n === "length" ? { kind: "int", origin: "count", term: z3.Int.val(args.length) } : /^\d+$/.test(n) ? args[Number(n)] : undefined,
       )
+      // `~root` names this call's root, so a counterexample can tell which calls its run made; no law's type has it.
       const call = lazyRecord((n) =>
-        n === "target" ? str(L, target) : n === "op" ? str(L, op) : n === "args" ? argRecord : n === "outcome" ? outcome : undefined,
+        n === "target"
+          ? str(L, target)
+          : n === "op"
+            ? str(L, op)
+            : n === "args"
+              ? argRecord
+              : n === "outcome"
+                ? outcome
+                : n === "~root"
+                  ? str(L, base[0]!)
+                  : undefined,
       )
       return { outcome, trace: appended(L, trace, call, at) }
     },

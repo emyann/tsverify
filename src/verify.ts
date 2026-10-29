@@ -771,9 +771,31 @@ const ended = (x: unknown): unknown => {
   return x
 }
 
+/** The operation calls a computation's run made, by root: the calls its trace holds in `model`. Undefined for a function. */
+const madeCalls = (side: Lowered, model: Model): ReadonlySet<string> | undefined => {
+  const { trace, u } = side
+  if (trace === undefined || trace.kind !== "array") return undefined
+  const length = model.eval(trace.length, true)
+  if (!u.z3.isIntVal(length)) return undefined
+  const made = new Set<string>()
+  for (let i = 0; i < Number(length.value()); i++) {
+    const call = trace.elem(u.z3.Int.val(i))
+    const root = call.kind === "record" ? call.field("~root") : undefined
+    if (root?.kind !== "str") continue
+    const name = model.eval(root.term, true)
+    if (u.z3.isString(name)) made.add(name.asString())
+  }
+  return made
+}
+
 const witness = (side: Lowered, model: Model): Witness => {
   try {
-    const roots = new Set([...side.u.leaves.values()].map((l) => l.segments[0]!).filter((r) => side.u.shown.has(r)))
+    const made = madeCalls(side, model)
+    const roots = new Set(
+      [...side.u.leaves.values()]
+        .map((l) => l.segments[0]!)
+        .filter((r) => side.u.shown.has(r) && (made === undefined || !side.u.calls.has(r) || made.has(r))),
+    )
     // A declared function's result inside a quantifier is one per element: a function of the index, not a value to show.
     for (const l of side.u.leaves.values()) if (l.arity > l.segments.filter((s) => s === "[]").length) roots.delete(l.segments[0]!)
     const world = Object.fromEntries([...roots].sort().map((r) => [r, ended(fromModel(side.u, model, r))]))

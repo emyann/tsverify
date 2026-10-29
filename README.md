@@ -141,7 +141,7 @@ src/rename.ts
   rename
     counterexample  emptyNameTouchesNothing  (94 ms)
                     e.g. ({}, "", "")
-                    where names.get gave "", names.set succeeded
+                    where names.get gave ""
 
 1 contract in 1 file: laws 1 counterexample
 ```

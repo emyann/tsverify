@@ -88,6 +88,11 @@ export class Universe {
    * (a loop's state, a quantifier's index, the vacuity check's result).
    */
   readonly shown = new Set<string>()
+  /**
+   * The shown roots that are an operation's call. A counterexample shows one only when its run made the call, which is
+   * when the run's trace holds it: a call on a path the run did not take is no part of what the world gave it.
+   */
+  readonly calls = new Set<string>()
   /** A fresh root that a counterexample shows. */
   given(prefix: string): string {
     const name = this.fresh(prefix)
