@@ -125,5 +125,8 @@ export const summed = contract(sum, {
   ensures: { notNegative: (_events, out) => out >= 0n },
 })
 
-/** Read where the checker has not narrowed it, `n` is a bigint or a string: no one value, still refused. */
-export const either = contract((ev: Event): boolean => ev.n === 0n, { ensures: { holds: () => true } })
+/** Read where the checker has not narrowed it, `n` is a bigint or a string: a value of either kind, which `===` tells apart. */
+export const either = contract((ev: Event): boolean => ev.n === 0n, {
+  ensures: { onlyACount: (ev, out) => !out || ev.type !== "name" },
+})
+export const eitherZero = contract((ev: Event): boolean => ev.n === 0n, { ensures: { never: (_ev, out) => !out } })

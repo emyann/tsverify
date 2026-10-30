@@ -146,7 +146,9 @@ const asked = (o: ObligationResult): string =>
           ? "inside the array"
           : o.kind === "exact"
             ? "exact"
-            : o.kind
+            : o.kind === "key"
+              ? "a key of its own, or none of Object's"
+              : o.kind
 const obligation = (o: ObligationResult): ReactNode =>
   marked(
     o.status,
@@ -163,6 +165,7 @@ const proofCode = (os: ReadonlyArray<ObligationResult>): Array<ReactNode> =>
       ["divisions:", os.filter((o) => o.kind === "division")],
       ["element writes:", os.filter((o) => o.kind === "write")],
       ["arithmetic:", os.filter((o) => o.kind === "exact")],
+      ["keys read:", os.filter((o) => o.kind === "key")],
     ] as const
   ).flatMap(([heading, xs]) => (xs.length === 0 ? [] : [styled(DIM, heading), indented(...xs.map(obligation))]))
 

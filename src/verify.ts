@@ -172,7 +172,11 @@ export const lowerSide = (
   guessBeside = false,
 ): Lowered => {
   const u = new Universe(z3, bound)
-  const L = lowering({ u, checker: project.checker }, adapters, trust)
+  const L = lowering(
+    { u, checker: project.checker, unchecked: project.program.getCompilerOptions().noUncheckedIndexedAccess === true },
+    adapters,
+    trust,
+  )
   const unguessable = new Set<string>()
   const symbolicArgs = (fn: FunctionNode) => {
     const params = fn.parameters.map((p, i) => (ts.isIdentifier(p.name) ? p.name.text : `arg${i}`))
@@ -818,8 +822,12 @@ export const solve = async (
   const first = await run([])
   if (first.status === "unsat") return { status: "unsat" }
   if (first.status === "unknown") return { status: "unknown", reason: first.solver.reasonUnknown() }
-  // A model may pick a huge array; ask again with short ones, which narrows the same formula.
-  const short = [...u.leaves.values()].filter((l) => l.arity === 0 && l.segments.at(-1) === "#len").map((l) => (l.constant as Arith).le(8))
+  // A model may pick a huge array or dictionary; ask again with short ones, which narrows the same formula. A `Map`'s
+  // or a `Set`'s count is left as it is: bounding it can cost the query its time, and its model is read back whole.
+  const counts = new Set(["#len", "#own"])
+  const short = [...u.leaves.values()]
+    .filter((l) => l.arity === 0 && counts.has(l.segments.at(-1) ?? ""))
+    .map((l) => (l.constant as Arith).le(8))
   const small = short.length > 0 && u.bound === undefined ? await run(short) : undefined
   const model = small?.status === "sat" ? small.solver.model() : first.solver.model()
   return { status: "sat", witness: witness(side, model) }

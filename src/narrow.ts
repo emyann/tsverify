@@ -69,6 +69,11 @@ const familiesOfVal = (v: Val): ReadonlySet<Family> | undefined => {
       const inner = familiesOfVal(v.value)
       return inner === undefined ? undefined : new Set<Family>(["nullish", ...inner])
     }
+    case "mixed": {
+      const out = new Set<Family>()
+      for (const p of v.parts) for (const f of familiesOfVal(p.value) ?? []) out.add(f)
+      return out
+    }
     case "opaque":
       return undefined
     default:

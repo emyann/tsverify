@@ -136,11 +136,16 @@ describe("a read narrowed by a check of its tag", () => {
     }
   })
 
-  it("a read the checker has not narrowed to one kind is refused, saying to check the tag first", async () => {
+  it("a read the checker has not narrowed to one kind is a value of either kind: a string is no `0n`", async () => {
     const v = await verify(z3, project, file, "either")
-    assert.match(
-      v.unsupported ?? "(verified)",
-      /`ev\.n` is a bigint on some paths and a str on others: read it once a check of its object's tag/,
+    assert.deepEqual(
+      v.laws.map((l) => [l.name, l.status]),
+      [["onlyACount", "proved"]],
     )
+    const zero = await verify(z3, project, file, "eitherZero")
+    const [law] = zero.laws
+    assert.equal(law?.status, "counterexample")
+    const [ev] = law.args as [narrow.Event]
+    assert.equal(ev.n, 0n)
   })
 })

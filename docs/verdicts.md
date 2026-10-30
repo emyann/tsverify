@@ -231,6 +231,13 @@ element written at a computed index, `proved` inside the array, or with the inpu
 judged on the runs where each operation is exact and each write lands inside, and is proved only once every one of
 them is ([What it reads](reads.md), *Numbers* and *Indexes*).
 
+## Keys read
+
+`keys read:` lists each read of a dictionary at a key that may be a name `Object.prototype` holds, with the verdict: `proved`
+the dictionary's own key, or none of those names, wherever it runs, or a `counterexample`, the input on which the read
+finds Object's member instead of an entry. A law is judged on the runs where each holds, and is proved only once every one
+is ([What it reads](reads.md), *Dictionaries*).
+
 ## One contract, in full
 
 Given a file and a name, the command prints everything it knows of that contract:

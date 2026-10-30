@@ -125,7 +125,8 @@ const declaredPure = (): Assumptions => {
 const trust = modular ? trustOf(declaredPure()) : undefined
 
 await withZ3(async (z3) => {
-  const recogniser = lowering({ u: new Universe(z3), checker: project.checker }, ADAPTERS)
+  const unchecked = project.program.getCompilerOptions().noUncheckedIndexedAccess === true
+  const recogniser = lowering({ u: new Universe(z3), checker: project.checker, unchecked }, ADAPTERS)
   const computationOf = (L: Lowering, e: ts.Node) => L.adapters.map((a) => a.computation?.(L, e)).find((c) => c !== undefined)
   // An exported call counts when an adapter reads it as a computation; other calls (a `Context.Service` class, a table) are no function.
   const fns = project.program
@@ -157,7 +158,7 @@ await withZ3(async (z3) => {
     if (effectOnly && !effect) continue
     if (effect) effects++
     const u = new Universe(z3)
-    const L = lowering({ u, checker: project.checker }, ADAPTERS, trust)
+    const L = lowering({ u, checker: project.checker, unchecked }, ADAPTERS, trust)
     try {
       const c = ts.isCallExpression(f.node) ? computationOf(L, f.node) : undefined
       const fn = c?.node ?? (f.node as FunctionNode)

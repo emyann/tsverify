@@ -1,0 +1,113 @@
+// Records read by key and values of more than one kind: a dictionary (`Record<string, T>`) read at a key, `in` and
+// `Object.hasOwn` of it; a record read at a key its type holds to a few names; a value that is a boolean or a name,
+// told apart by `typeof`; `trim`, `Boolean(x)`; and a field read once a check has shown its object present.
+// `test/records.test.ts` asks each.
+import { contract } from "../src/contract.ts"
+
+export type Steps = Readonly<Record<string, { readonly taskId: string | null }>>
+
+/** The task a step was filed as: `null` where it was not filed, or where the record has no such step. */
+export function filedAs(steps: Steps, name: string): string | null {
+  const record = steps[name]
+  return record === undefined ? null : record.taskId
+}
+
+export const filedAsItsRecordSays = contract(filedAs, {
+  /** A step's name is no name of `Object.prototype`'s: `steps["toString"]` finds Object's own function. */
+  requires: (steps, name) => Object.hasOwn(steps, name) || (name !== "toString" && name !== "constructor" && name.startsWith("s")),
+  ensures: {
+    itsRecords: (steps, name, out) => !Object.hasOwn(steps, name) || out === steps[name]?.taskId,
+    noneWithoutOne: (steps, name, out) => Object.hasOwn(steps, name) || out === null,
+    aStepIsIn: (steps, name, out) => out === null || name in steps,
+  },
+})
+
+/** Refused nowhere, and broken: a key may be a name `Object.prototype` holds, which `steps[name]` finds. */
+export const anyNameRead = contract(filedAs, { ensures: { always: () => true } })
+/** False: a counterexample reads the dictionary back as a plain object. */
+export const neverFiled = contract(filedAs, {
+  requires: (steps, name) => Object.hasOwn(steps, name),
+  ensures: { never: (_steps, _name, out) => out === null },
+})
+
+export type Phase = "waiting" | "running" | "done"
+const WORDS: Partial<Record<Phase, string>> = { waiting: "not filed", running: "still running" }
+
+/** What a phase says to a person; a phase with no words of its own, "other". */
+export function said(phase: Phase): string {
+  return WORDS[phase] ?? "other"
+}
+
+export const saidOfEachPhase = contract(said, {
+  ensures: {
+    waiting: (p, out) => p !== "waiting" || out === "not filed",
+    running: (p, out) => p !== "running" || out === "still running",
+    done: (p, out) => p !== "done" || out === "other",
+  },
+})
+
+/** A setting given as a switch or a mode's name. */
+export function modeOf(setting: boolean | "strict" | "loose"): string {
+  if (typeof setting === "string") return setting
+  return setting ? "strict" : "off"
+}
+
+export const modeOfASetting = contract(modeOf, {
+  ensures: {
+    aNameIsItself: (s, out) => typeof s !== "string" || out === s,
+    onIsStrict: (s, out) => s !== true || out === "strict",
+    offIsOff: (s, out) => s !== false || out === "off",
+  },
+})
+
+/** False: a counterexample gives a switch or a name, as JavaScript holds it. */
+export const neverStrict = contract(modeOf, { ensures: { never: (_s, out) => out !== "strict" } })
+
+/** What kind of value a field holds, as `typeof` says it. */
+export function kindOf(v: string | number | undefined | null): string {
+  return typeof v
+}
+
+export const kindOfAField = contract(kindOf, {
+  ensures: {
+    aMissingOne: (v, out) => v !== undefined || out === "undefined",
+    nullIsAnObject: (v, out) => v !== null || out === "object",
+    aNumber: (v, out) => typeof v !== "number" || out === "number",
+  },
+})
+
+/** Whether words given are empty, spaces and line ends alone. */
+export function blank(message: string | undefined): boolean {
+  return message !== undefined && !message.trim()
+}
+
+export const blankWords = contract(blank, {
+  ensures: {
+    emptyIsBlank: (m, out) => m !== "" || out,
+    spacesAreBlank: (m, out) => m !== " \t\n" || out,
+    aLetterIsNot: (m, out) => m === undefined || !m.includes("a") || !out,
+    noneIsNot: (m, out) => m !== undefined || !out,
+  },
+})
+
+/** Whether a list was given and names "a". */
+export function listsA(xs: ReadonlyArray<string> | undefined): boolean {
+  return Boolean(xs?.includes("a"))
+}
+
+export const listsAWhenGiven = contract(listsA, {
+  ensures: { exactly: (xs, out) => out === (xs !== undefined && xs.includes("a")) },
+})
+
+export type Run = { readonly id: string; readonly pruned?: { readonly at: string; readonly files: number } }
+
+/** When a run was pruned, read from its record once it is shown pruned. */
+export function prunedAt(run: Run): string {
+  if (!run.pruned) return "never"
+  const { at } = run.pruned
+  return at
+}
+
+export const prunedAtItsTime = contract(prunedAt, {
+  ensures: { itsTime: (run, out) => run.pruned === undefined || out === run.pruned.at },
+})

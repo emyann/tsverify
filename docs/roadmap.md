@@ -11,7 +11,8 @@ In rough order:
 - A `requires` that leaves out a path, found where it is written: the ends of a result say so today (`reaches:`, an end
   `unreachable`), for a union of strings or of records told apart by a tag; the same of each branch of the code.
 - Collections the code changes: `Map.set`, `Set.add` and `delete` on a map the function allocated, its `size` and its
-  iteration, by the keys it holds.
+  iteration, by the keys it holds; and a dictionary's keys, values and entries (`Object.keys`), its keys held distinct
+  and in JavaScript's order, integer-like keys first.
 - A query's time, steadier: a proof that takes a second can take more than ten when Z3 meets the same formula in another
   order, as it does when terms are freed and their numbers reused. Each number the loops keep whole by construction (a
   counter) is held as an integer; the rest are held in parts the solver must reason about.

@@ -84,6 +84,18 @@ describe("arrays at a computed index, verified", () => {
       /`xs\[0\]` on an array is read where its type says it may be missing: turn on `noUncheckedIndexedAccess`/,
     )
   })
+  it("so is a dictionary's entry, unless its type says it may be missing", async () => {
+    const unchecked = path.join(root, "fixtures/unchecked/first.ts")
+    const project = loadProject([unchecked], path.join(root, "fixtures/unchecked/tsconfig.json"))
+    const refused = await verify(z3, project, unchecked, "entryIsA")
+    assert.match(refused.unsupported ?? "(verified)", /`t\[k\]` on a record keyed by any string .*turn on `noUncheckedIndexedAccess`/)
+    const read = await verify(z3, project, unchecked, "checkedEntryIsA")
+    assert.equal(read.unsupported, undefined)
+    assert.deepEqual(
+      read.obligations.map((o) => [o.kind, o.status]),
+      [["key", "proved"]],
+    )
+  })
 })
 
 describe("the laws hold when the functions run", () => {

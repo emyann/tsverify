@@ -9,16 +9,21 @@
 // are refused where the lowering meets them, and the report names the reliance.
 import ts from "typescript"
 import type { Arith, Bool } from "z3-solver"
-import { collectionOf } from "./collections.ts"
+import { collectionOf, dictionaryOf } from "./collections.ts"
 import { operation } from "./computation.ts"
 import { ite } from "./ops.ts"
 import type { Lowering } from "./lower.ts"
 import { MAX_LENGTH, type Universe } from "./universe.ts"
-import { NUM, UNDEFINED, Unsupported, type Val, exactRational, jsString, lazy, lazyRecord, memoElems, termId } from "./value.ts"
+import { KIND, NUM, UNDEFINED, Unsupported, type Val, exactRational, jsString, lazy, lazyRecord, memoElems, termId } from "./value.ts"
 
 export interface Typing {
   readonly u: Universe
   readonly checker: ts.TypeChecker
+  /**
+   * Whether the program is compiled with `noUncheckedIndexedAccess`: an element read's type then says where it may be
+   * missing, and a type that does not was narrowed by a check the code made.
+   */
+  readonly unchecked?: boolean
 }
 
 const F = ts.TypeFlags
@@ -162,6 +167,35 @@ const present = (
       u.assume(z3.Or(...members.map((m) => term.eq(literalBigint(m as ts.BigIntLiteralType)))), indices)
     return { kind: "int", origin: "bigint", term }
   }
+  // Primitives of more than one kind (`boolean | "unsigned"`): which kind it is, and its value in each.
+  const kindOfType = (m: ts.Type): number | undefined =>
+    m.flags & F.BooleanLike
+      ? KIND.bool
+      : m.flags & F.StringLike
+        ? KIND.str
+        : m.flags & F.NumberLike
+          ? KIND.num
+          : m.flags & F.BigIntLike
+            ? KIND.bigint
+            : undefined
+  if (members.length > 1 && members.every((m) => kindOfType(m) !== undefined)) {
+    const tags = [...new Set(members.map((m) => kindOfType(m)!))].sort((x, y) => x - y)
+    const tag = u.leaf([...segments, "~kind"], "int", indices) as never as Arith
+    u.assume(z3.Or(...tags.map((k) => tag.eq(k))), indices)
+    const names = ["bool", "str", "num", "bigint"]
+    const parts = tags.map((k) => ({
+      tag: k,
+      value: present(
+        t,
+        members.filter((m) => kindOfType(m) === k),
+        [...segments, `^${names[k]}`],
+        indices,
+        at,
+        `${path}^${names[k]}`,
+      ),
+    }))
+    return { kind: "mixed", tag, parts }
+  }
   const id = `${path}@${indices.map(termId).join(",")}`
   if (members.length > 1) {
     // A union of object types: one record, each field the union of the types the members holding it give it. The
@@ -268,6 +302,15 @@ const present = (
     }
   }
   if (isLibDate(type)) return dateOf(t, segments, indices, at, id)
+  const keyedBy = checker.getIndexInfosOfType(type).find((info) => info.keyType.flags & F.String)
+  if (keyedBy !== undefined && checker.getPropertiesOfType(type).length === 0 && type.getCallSignatures().length === 0) {
+    // A dictionary, `Record<string, T>`: the array of its own entries (`dictionaryOf`), read back as a plain object.
+    const length = u.leaf([...segments, "#own"], "int", indices, "count") as never as Arith
+    u.assume(z3.And(length.ge(0), length.le(u.bound ?? MAX_LENGTH)), indices)
+    const keys = memoElems((i) => symbolicOf(t, checker.getStringType(), [...segments, "[]", "{key}"], [...indices, i], at))
+    const values = memoElems((i) => symbolicOf(t, keyedBy.type, [...segments, "[]", "{value}"], [...indices, i], at))
+    return dictionaryOf(t, { length, key: keys, value: values }, at, id)
+  }
   const collection = libCollection(type)
   if (collection !== undefined) return givenCollection(t, collection, type, segments, indices, at, id)
   const signatures = type.getCallSignatures()

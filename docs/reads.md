@@ -15,6 +15,9 @@ part as a harmless one.
   code's and the caller's, but for one with an optional or a rest element;
 - functions and closures, and computations (async functions, Effect programs); a function the code is given, as some
   function, each call some value of its return type, on which a counterexample leans;
+- a dictionary the code is given, `Record<string, T>`, read at any key (*Dictionaries*, below);
+- values of more than one primitive kind (`boolean | "strict"`), each the kind it is, `typeof` telling them apart
+  (*Narrowing*, below);
 - a `Date` the code is given, read through `getTime()` and `valueOf()`: `NaN` or a whole number of milliseconds within
   8.64e15 of 1970; a `Map` and a `Set`, given or built from an array (`new Set(["done", "failed"])`), read through `has`
   and `get` (*Collections*, below);
@@ -29,7 +32,10 @@ part as a harmless one.
   `Math.floor`, `Math.ceil`, `Math.trunc`, `Math.round`, `Math.abs`, `Math.max`, `Math.min`, `Number.isInteger`,
   `Number.isSafeInteger`, `Number.isFinite`, `Number.isNaN`, and `Object.is`, which tells `-0` from `0`; `Date.parse`,
   as some function of its string;
-- `"key" in obj`, of a key written as a string (*Narrowing*, below);
+- `typeof x`, and `Boolean(x)`, the truth a condition reads;
+- `"key" in obj`, of a key written as a string (*Narrowing*, below), and of any key of a dictionary;
+- a record read at a key its type holds to a few names (`WORDS[phase]`, `phase: "waiting" | "running"`), as the field
+  of the name it is;
 - `/` and `%` on bigints, as JavaScript computes them: the quotient truncated toward zero, the remainder with the
   dividend's sign. A division by `0n` throws, so each divisor is proved other than `0n` on the branch where its division
   runs (*Divisions*, below);
@@ -37,6 +43,7 @@ part as a harmless one.
 - a string's `.length`, in UTF-16 code units, as JavaScript counts them, and its `startsWith`, `endsWith`, `includes`
   and `indexOf` of one string, `charAt(i)`, `at(i)`, `s[i]` (under `noUncheckedIndexedAccess`) and `slice`, each with
   JavaScript's positions: truncated, counted from the end where `at` and `slice` count so, `""` or `undefined` outside;
+  and `trim`, `trimStart` and `trimEnd`, of the white space and line ends JavaScript takes off;
 - on arrays: `.length`, an element at any index, `xs[i]` and `.at(i)` (*Indexes*, below), `.some`, `.every`, `.includes`
   (of a string, a boolean, a bigint or a count), `.find`, `.slice` with JavaScript's positions, `.map`, `.toReversed()`,
   `.reverse()` of a copy made where it is called (`[...xs].reverse()`), and `.filter`, `.join` and `.flatMap` (*Folds*,
@@ -133,6 +140,17 @@ constructor keeps it. `get` is `undefined` where the key has no entry. A `Map` o
 that are strings, booleans or bigints, and reads back in a counterexample as `new Map([...])` or `new Set([...])`. Its
 `size`, its iteration and every change to it are refused.
 
+### Dictionaries
+
+A `Record<string, T>` the code is given is the array of its own entries, a key's the first that holds it, and reads back
+in a counterexample as a plain object. `d[k]` is the value of `k`'s entry, `undefined` where it has none, read where its
+type says it may be missing (`noUncheckedIndexedAccess`) or where a check the code made narrowed it
+(`if (!d[k]) return`); with neither, it is refused, its type a claim the verifier would have to trust. Where `d` has no
+entry for `k` and `k` is a name `Object.prototype` holds (`"toString"`, `"constructor"`), JavaScript finds that member,
+a function: that the key is `d`'s own or none of those is an obligation, listed under `keys read:`
+([Verdicts](verdicts.md)). `k in d` holds of an own key and of those names, `Object.hasOwn(d, k)` of an own key alone.
+Its keys, values and entries (`Object.keys`) are refused.
+
 ### Narrowing
 
 A check of a value's tag narrows it, as the type checker narrows it. A union whose members give one field different
@@ -147,6 +165,11 @@ A read takes the paths on which the value can have the type the checker gives th
 wrote the key; of one it is given, whether its type requires it, every value taken to hold the keys its type declares and
 no other, as TypeScript's narrowing by `in` takes it, which the report lists among what it assumed. A key the type makes
 optional is refused: an absent key and one holding `undefined` read alike.
+
+A value of more than one primitive kind (`boolean | "strict" | "loose"`) is held as the kind it is and its value as each:
+`typeof setting === "string"` narrows it, `===` compares it as JavaScript does (a string is no `0n`), and a
+counterexample gives it as the kind it is. So is a field whose kind differs by member, read where no check of its
+object's tag narrowed it.
 
 ## What it refuses, and what to write instead
 

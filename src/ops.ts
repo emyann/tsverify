@@ -5,7 +5,7 @@
 // string's truthiness is its being non-empty.
 import type { Arith, Bool } from "z3-solver"
 import type { Universe } from "./universe.ts"
-import { NUM, Unsupported, type Val, jsString, lazyRecord, memoElems, termId } from "./value.ts"
+import { KIND, NUM, Unsupported, type Val, jsString, lazyRecord, memoElems, termId } from "./value.ts"
 import type ts from "typescript"
 
 /** A read of a value of type `unknown`, refused: it may be anything. */
@@ -57,9 +57,33 @@ export const truthy = (u: Universe, v: Val): Bool => {
     case "builtin":
     case "comp":
       return T(u)
+    case "mixed":
+      return z3.Or(...v.parts.map((p) => z3.And(v.tag.eq(p.tag), truthy(u, p.value))))
     case "opaque":
       return refuseOpaque("the truth")
   }
+}
+
+/** The kind a primitive value is, by `KIND`; `undefined` for any other. */
+export const kindOf = (v: Val): number | undefined =>
+  v.kind === "bool"
+    ? KIND.bool
+    : v.kind === "str"
+      ? KIND.str
+      : v.kind === "num" || (v.kind === "int" && v.origin === "count")
+        ? KIND.num
+        : v.kind === "int"
+          ? KIND.bigint
+          : undefined
+
+/** A primitive or a value of more than one kind, as the parts of one: each kind it may be, by its tag. */
+const kindParts = (
+  u: Universe,
+  v: Val,
+): { readonly tag: Arith; readonly parts: ReadonlyArray<{ readonly tag: number; readonly value: Val }> } | undefined => {
+  if (v.kind === "mixed") return v
+  const k = kindOf(v)
+  return k === undefined ? undefined : { tag: u.z3.Int.val(k), parts: [{ tag: k, value: v }] }
 }
 
 type Num = Extract<Val, { kind: "num" }>
@@ -155,6 +179,9 @@ export const strictEq = (u: Universe, a: Val, b: Val, at: ts.Node): Bool => {
     const valuesEqual = pa.value !== undefined && pb.value !== undefined ? strictEq(u, pa.value, pb.value, at) : F(u)
     return z3.Or(z3.And(pa.isNull, pb.isNull), z3.And(pa.isUndefined, pb.isUndefined), z3.And(bothPresent, valuesEqual))
   }
+  // A value of more than one kind equals another where it is of that one's kind and its part there equals it.
+  if (a.kind === "mixed") return z3.Or(...a.parts.map((p) => z3.And(a.tag.eq(p.tag), strictEq(u, p.value, b, at))))
+  if (b.kind === "mixed") return strictEq(u, b, a, at)
   if (a.kind === "str" && b.kind === "str") return a.term.eq(b.term)
   if (a.kind === "bool" && b.kind === "bool") return a.term.eq(b.term)
   if (a.kind === "num" && b.kind === "num") return numEq(u, a, b)
@@ -238,6 +265,23 @@ export const ite = (u: Universe, c: Bool, a: Val, b: Val, at: ts.Node): Val => {
   // A count where the other path has a number (`let high = xs.length`, later `high = mid`): a number, which holds it.
   if (a.kind === "int" && a.origin === "count" && b.kind === "num") return ite(u, c, countAsNum(u, a.term), b, at)
   if (a.kind === "num" && b.kind === "int" && b.origin === "count") return ite(u, c, a, countAsNum(u, b.term), at)
+  if (a.kind === "record" && b.kind === "record" && a.entries !== undefined && b.entries !== undefined) {
+    // Two dictionaries, one on each path: a key read in the one its path holds.
+    const ea = a.entries
+    const eb = b.entries
+    return lazyRecord(
+      () => undefined,
+      undefined,
+      undefined,
+      { cond: c, a, b },
+      undefined,
+      (key, call) => {
+        const x = ea(key, call)
+        const y = eb(key, call)
+        return { found: z3.If(c, x.found, y.found), value: ite(u, c, x.value, y.value, at) }
+      },
+    )
+  }
   if (a.kind === "record" && b.kind === "record") {
     // A field one side lacks belongs to a variant the other is not: the type checker lets it be read only where it
     // exists. A read it has narrowed further takes each side apart (`narrowedField`).
@@ -280,6 +324,18 @@ export const ite = (u: Universe, c: Bool, a: Val, b: Val, at: ts.Node): Val => {
       ...(maxSize === undefined ? {} : { maxSize }),
       ...(a.id !== undefined && b.id !== undefined ? { id: `ite(${termId(c)},${a.id},${b.id})` } : {}),
     }
+  }
+  // Primitives of two kinds, one on each path: a value of more than one kind, its tag the one its path holds.
+  const pa = kindParts(u, a)
+  const pb = kindParts(u, b)
+  if (pa !== undefined && pb !== undefined) {
+    const tags = [...new Set([...pa.parts, ...pb.parts].map((p) => p.tag))].sort((x, y) => x - y)
+    const parts = tags.map((tag) => {
+      const x = pa.parts.find((p) => p.tag === tag)?.value
+      const y = pb.parts.find((p) => p.tag === tag)?.value
+      return { tag, value: x !== undefined && y !== undefined ? ite(u, c, x, y, at) : (x ?? y)! }
+    })
+    return { kind: "mixed", tag: z3.If(c, pa.tag, pb.tag), parts }
   }
   throw new Unsupported(`a value that is a ${describe(a)} on one path and a ${describe(b)} on another is not modeled`, at)
 }

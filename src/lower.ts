@@ -60,6 +60,7 @@ import { type AssumedFn, type Assumptions, coveringViews } from "./trust.ts"
 import {
   type Env,
   type FunctionNode,
+  KIND,
   NUM,
   type Thunk,
   UNDEFINED,
@@ -295,7 +296,21 @@ export const bindParameters = (L: Lowering, fn: FunctionNode, env: Env, args: Re
 
 /** `value`, or what `fallback` gives where it is `undefined`: a default, of a parameter or of a pattern's name. */
 export const defaulted = (L: Lowering, value: Thunk, fallback: Thunk | undefined, at: ts.Node): Thunk =>
-  fallback === undefined ? value : later(L, () => undefinedOr(L.u, value(), fallback, at))
+  fallback === undefined
+    ? value
+    : later(L, () => {
+        const given = value()
+        // A function the caller may give, or leave to the default the code writes: the default called as written.
+        const merged = given.kind === "maybe" && given.value?.kind === "builtin"
+        return undefinedOr(L.u, given, merged ? () => callable(L, fallback()) : fallback, at)
+      })
+
+/**
+ * A function the code writes, as a value that may stand where a function it is given does (a default for a parameter
+ * of a function's type): called, it is called as the code wrote it.
+ */
+const callable = (L: Lowering, v: Val): Val =>
+  v.kind === "fn" ? { kind: "builtin", name: nameOf(v.node), call: (args, at) => applyValue(L, v, args, at) } : v
 
 /**
  * What an object pattern's rest holds: every property of `v` but the keys the pattern named before it. As a spread,
@@ -400,13 +415,14 @@ export const bind = (L: Lowering, name: ts.BindingName, value: Thunk, scope: Map
   const { keys, rest } = patternKeys(name)
   // Each name read at its type, as a property access is: a path where the object lacks the key reads `undefined` there.
   const objType = L.checker.getTypeAtLocation(name)
+  const whole = (): Val => shownPresent(value(), objType)
   for (const { key, el } of keys)
     bind(
       L,
       el.name,
       defaulted(
         L,
-        later(L, () => member(L, value(), key, el, objType, L.checker.getTypeAtLocation(el))),
+        later(L, () => member(L, whole(), key, el, objType, L.checker.getTypeAtLocation(el))),
         el.initializer === undefined ? undefined : later(L, () => lowerExpr(L, el.initializer!, scope)),
         el,
       ),
@@ -419,7 +435,7 @@ export const bind = (L: Lowering, name: ts.BindingName, value: Thunk, scope: Map
       later(L, () =>
         restOf(
           L,
-          value(),
+          whole(),
           keys.map((k) => k.key),
           rest,
         ),
@@ -510,17 +526,18 @@ export const lowerExpr = (L: Lowering, e: ts.Expression, env: Env): Val => {
   if (ts.isYieldExpression(e) || ts.isAwaitExpression(e))
     throw new Unsupported("a step (`yield*`, `await`) is modeled in a computation's body, outside any function it defines", e)
 
-  if (ts.isIdentifier(e) && env.has(e.text)) return env.get(e.text)!()
+  if (ts.isIdentifier(e) && env.has(e.text)) return narrowedKind(L, e, env.get(e.text)!())
   if (ts.isIdentifier(e) || ts.isPropertyAccessExpression(e) || ts.isCallExpression(e) || ts.isNewExpression(e))
     for (const a of L.adapters) {
       const v = a.expr?.(L, e, env)
       if (v !== undefined) return v
     }
-  if (ts.isIdentifier(e)) return identifier(L, e, env)
-  if (ts.isPropertyAccessExpression(e)) return propertyAccess(L, e, env)
-  if (ts.isElementAccessExpression(e)) return elementAccess(L, e, env)
+  if (ts.isIdentifier(e)) return narrowedKind(L, e, identifier(L, e, env))
+  if (ts.isPropertyAccessExpression(e)) return narrowedKind(L, e, propertyAccess(L, e, env))
+  if (ts.isElementAccessExpression(e)) return narrowedKind(L, e, elementAccess(L, e, env))
   if (ts.isNewExpression(e)) throw new Unsupported(`\`new\` of a class no adapter models`, e)
-  if (ts.isCallExpression(e)) return call(L, e, env)
+  if (ts.isCallExpression(e)) return narrowedKind(L, e, call(L, e, env))
+  if (ts.isTypeOfExpression(e)) return typeOf(L, lowerExpr(L, e.expression, env), e)
   if (ts.isArrowFunction(e) || ts.isFunctionExpression(e)) {
     closureCheck(L, e)
     return { kind: "fn", node: e, env }
@@ -596,6 +613,14 @@ const template = (L: Lowering, e: ts.TemplateExpression, env: Env): Val => {
   return v
 }
 
+/** A value the type checker has shown present (`if (!run.pruned) return`, then `const { at } = run.pruned`): what it holds. */
+export const shownPresent = (v: Val, type: ts.Type): Val => {
+  const parts = type.isUnion() ? type.types : [type]
+  return v.kind === "maybe" && v.value !== undefined && !parts.some((m) => m.flags & (ts.TypeFlags.Null | ts.TypeFlags.Undefined))
+    ? v.value
+    : v
+}
+
 /** `xs[i]` on an array or a string at any index, missing outside it; `t[k]` for a whole-number literal k on a tuple (or any record), its field `k`. */
 const elementAccess = (L: Lowering, e: ts.ElementAccessExpression, env: Env): Val => {
   const k = literalIndex(e.argumentExpression)
@@ -646,6 +671,32 @@ const elementAccess = (L: Lowering, e: ts.ElementAccessExpression, env: Env): Va
         value: { kind: "str", term: v.term.at(term) },
       }
     }
+    if (v.kind === "record" && v.entries !== undefined) {
+      const key = ts.isStringLiteralLike(e.argumentExpression)
+        ? ({ kind: "str", term: jsString(L.u.z3, e.argumentExpression.text) } as const)
+        : shown(L, lowerExpr(L, e.argumentExpression, env), e.argumentExpression)
+      return dictionaryRead(L, v, key, e)
+    }
+    if (v.kind === "record" && k === undefined) {
+      // A key the type checker holds to a few names (`why[status]`, `status: "running" | "failed"`): the field of the
+      // name it is, read as each one is.
+      const kt = L.checker.getTypeAtLocation(e.argumentExpression)
+      const names = (kt.isUnion() ? kt.types : [kt]).map((m) => (m.isStringLiteral() ? m.value : undefined))
+      if (names.length > 0 && names.every((n) => n !== undefined)) {
+        const proto = names.find((n) => PROTO.includes(n) && v.field(n) === undefined)
+        if (proto !== undefined)
+          throw new Unsupported(`\`${e.getText()}\` may be \`${proto}\`, a name \`Object.prototype\` holds, which is not modeled`, e)
+        const key = lowerExpr(L, e.argumentExpression, env)
+        const objType = L.checker.getTypeAtLocation(e.expression)
+        const last = names.at(-1)!
+        return names
+          .slice(0, -1)
+          .reduceRight<Val>(
+            (rest, n) => ite(L.u, strictEq(L.u, key, { kind: "str", term: jsString(L.u.z3, n) }, e), member(L, v, n, e, objType), rest, e),
+            member(L, v, last, e, objType),
+          )
+      }
+    }
     if (k === undefined || k < 0n) throw new Unsupported(`an element at a computed index of a ${v.kind} is not read`, e)
     if (v.kind === "record") {
       const narrowed = narrowedField(L, v, String(k), L.checker.getTypeAtLocation(e.expression), L.checker.getTypeAtLocation(e), e)
@@ -656,6 +707,71 @@ const elementAccess = (L: Lowering, e: ts.ElementAccessExpression, env: Env): Va
     }
     throw new Unsupported(`an element of a ${v.kind} is not read`, e)
   })
+}
+
+/**
+ * A value of more than one kind, read where the type checker has narrowed it (`typeof x === "string"`, `x === "unsigned"`):
+ * its part of the kinds the narrowed type allows. No run reaches the read with the value of another kind.
+ */
+const narrowedKind = (L: Lowering, e: ts.Expression, v: Val): Val => {
+  const inner = v.kind === "maybe" ? v.value : v
+  if (inner?.kind !== "mixed") return v
+  const t = L.checker.getTypeAtLocation(e)
+  const allowed = new Set<number>(
+    (t.isUnion() ? t.types : [t]).flatMap((m) =>
+      m.flags & ts.TypeFlags.BooleanLike
+        ? [KIND.bool]
+        : m.flags & ts.TypeFlags.StringLike
+          ? [KIND.str]
+          : m.flags & ts.TypeFlags.NumberLike
+            ? [KIND.num]
+            : m.flags & ts.TypeFlags.BigIntLike
+              ? [KIND.bigint]
+              : [],
+    ),
+  )
+  const kept = inner.parts.filter((p) => allowed.has(p.tag))
+  if (kept.length === 0 || kept.length === inner.parts.length) return v
+  const picked: Val = kept.length === 1 ? kept[0]!.value : { ...inner, parts: kept }
+  return v.kind === "maybe" ? { ...v, value: picked } : picked
+}
+
+/** `typeof v`, as JavaScript names a value's kind: `"object"` of `null` among them. */
+const typeOf = (L: Lowering, v: Val, at: ts.Node): Val => {
+  const z3 = L.u.z3
+  const word = (w: string) => jsString(z3, w)
+  const of = (x: Val): ReturnType<typeof word> => {
+    switch (x.kind) {
+      case "bool":
+        return word("boolean")
+      case "str":
+        return word("string")
+      case "num":
+        return word("number")
+      case "int":
+        return word(x.origin === "bigint" ? "bigint" : "number")
+      case "nullish":
+        return word(x.which === "null" ? "object" : "undefined")
+      case "maybe":
+        return z3.If(
+          x.isNull,
+          word("object"),
+          z3.If(x.isUndefined, word("undefined"), x.value === undefined ? word("undefined") : of(x.value)),
+        )
+      case "mixed":
+        return x.parts.reduceRight<ReturnType<typeof word>>((rest, p) => z3.If(x.tag.eq(p.tag), of(p.value), rest), word("undefined"))
+      case "record":
+      case "array":
+      case "comp":
+        return word("object")
+      case "fn":
+      case "builtin":
+        return word("function")
+      case "opaque":
+        throw new Unsupported("`typeof` of a value of type `unknown` is not modeled: such a value is carried and never read", at)
+    }
+  }
+  return { kind: "str", term: of(v) }
 }
 
 export const num = (z3: Lowering["u"]["z3"], n: number): Val => ({
@@ -724,6 +840,9 @@ const named = (L: Lowering, e: ts.Identifier): Val => {
       e,
     )
   }
+  // `Boolean(x)`: whether `x` is truthy, as a condition reads it.
+  if (e.text === "Boolean" && isLib(L.checker, e))
+    return { kind: "builtin", name: "Boolean", call: ([v]) => ({ kind: "bool", term: truthy(L.u, v ?? UNDEFINED) }) }
   throw new Unsupported(
     `\`${e.text}\` is a binding the verifier cannot see (a \`let\` or a global): read it from a \`const\` or an argument, or move it into a function the spec declares with \`assume\``,
     e,
@@ -782,6 +901,7 @@ const optionally = (L: Lowering, obj: Val, e: ts.Node, objExpr: ts.Expression, f
  * (`narrowedField`). A field the object lacks reads as undefined where its type declares it (an optional field left out).
  */
 export const member = (L: Lowering, obj: Val, name: string, at: ts.Node, objType?: ts.Type, type?: ts.Type): Val => {
+  if (obj.kind === "record" && obj.entries !== undefined) return dictionaryRead(L, obj, { kind: "str", term: jsString(L.u.z3, name) }, at)
   if (obj.kind === "record") {
     const narrowed = objType === undefined || type === undefined ? undefined : narrowedField(L, obj, name, objType, type, at)
     if (narrowed !== undefined) return narrowed
@@ -977,6 +1097,18 @@ const standard = (L: Lowering, callee: ts.PropertyAccessExpression): Val | undef
         )
         return { kind: "num", cls, real: z3.ToReal(ms), whole: z3.Bool.val(true), int: ms }
       })
+    case "Object.hasOwn":
+      return {
+        kind: "builtin",
+        name,
+        call: (args, at) => {
+          const [o, key] = args
+          const d = o?.kind === "maybe" ? o.value : o
+          if (args.length !== 2 || d?.kind !== "record" || d.entries === undefined || key === undefined)
+            throw new Unsupported("`Object.hasOwn` is read of a record keyed by any string (`Record<string, T>`) and a key", at)
+          return bool(d.entries(key, at).found)
+        },
+      }
     case "Number.isInteger":
       return check(whole)
     case "Number.isSafeInteger":
@@ -1301,12 +1433,51 @@ const stringMethod = (L: Lowering, s: Extract<Val, { kind: "str" }>, name: strin
       const to = relativePosition(L, length, args[1], length, e.arguments[1] ?? e)
       return str(s.term.extract(from, z3.If(to.gt(from), to.sub(from), z3.Int.val(0))))
     }
+    case "trim":
+    case "trimStart":
+    case "trimEnd":
+      taking(0, "no argument")
+      return str(trimmed(L, s.term, name === "trim" || name === "trimStart", name === "trim" || name === "trimEnd"))
     default:
       throw new Unsupported(
-        `method \`${name}\` of a string is not modeled: \`startsWith\`, \`endsWith\`, \`includes\`, \`indexOf\`, \`charAt\`, \`at\` and \`slice\` are`,
+        `method \`${name}\` of a string is not modeled: \`startsWith\`, \`endsWith\`, \`includes\`, \`indexOf\`, \`charAt\`, \`at\`, \`slice\` and \`trim\` are`,
         e,
       )
   }
+}
+
+/** The code units JavaScript's `trim` takes off: its white space and its line terminators. */
+const WHITE = ["\t", "\n", "\v", "\f", "\r", " ", "\u00a0", "\u1680", "\u2028", "\u2029", "\u202f", "\u205f", "\u3000", "\ufeff"]
+
+/**
+ * `s` with its white space taken off its start (`start`) and its end (`end`), as `trim`, `trimStart` and `trimEnd` take it:
+ * the part `t` of `s = p + t + q` where `p` and `q` are white space alone and `t` starts and ends with a code unit that
+ * is not, or is empty. That part is one, whatever `s` is.
+ */
+const trimmed = (
+  L: Lowering,
+  s: Extract<Val, { kind: "str" }>["term"],
+  start: boolean,
+  end: boolean,
+): Extract<Val, { kind: "str" }>["term"] => {
+  const { u } = L
+  const z3 = u.z3
+  const white = z3.Union(z3.Range(jsString(z3, "\u2000"), jsString(z3, "\u200a")), ...WHITE.map((c) => z3.Re.toRe(jsString(z3, c))))
+  const any = z3.AllChar(z3.Re.sort(z3.String.sort()))
+  const other = z3.Diff(any, white)
+  const indices = u.openBounds()
+  const part = (what: string) => u.leaf([u.fresh(what), "$"], "str", indices) as never as Extract<Val, { kind: "str" }>["term"]
+  const t = part("trimmed")
+  const p = start ? part("trim.start") : jsString(z3, "")
+  const q = end ? part("trim.end") : jsString(z3, "")
+  const body =
+    start && end
+      ? z3.Option(z3.ReConcat(other, z3.Option(z3.ReConcat(z3.Star(any), other))))
+      : start
+        ? z3.Option(z3.ReConcat(other, z3.Star(any)))
+        : z3.Option(z3.ReConcat(z3.Star(any), other))
+  u.assume(z3.And(s.eq(p.concat(t).concat(q)), z3.InRe(p, z3.Star(white)), z3.InRe(q, z3.Star(white)), z3.InRe(t, body)), indices)
+  return t
 }
 
 /** A whole-number literal argument, such as the -1 of `.at(-1)`. */
@@ -1700,6 +1871,73 @@ const binary = (L: Lowering, e: ts.BinaryExpression, env: Env): Val => {
   }
 }
 
+/** What `Object.prototype` holds, which a plain object finds under any key it does not hold itself. */
+const PROTO = [
+  "constructor",
+  "hasOwnProperty",
+  "isPrototypeOf",
+  "propertyIsEnumerable",
+  "toLocaleString",
+  "toString",
+  "valueOf",
+  "__proto__",
+  "__defineGetter__",
+  "__defineSetter__",
+  "__lookupGetter__",
+  "__lookupSetter__",
+]
+
+/** Whether `key` names a member of `Object.prototype`. */
+const protoKey = (L: Lowering, key: Val, at: ts.Node): Bool =>
+  L.u.z3.Or(...PROTO.map((n) => strictEq(L.u, key, { kind: "str", term: jsString(L.u.z3, n) }, at)))
+
+/**
+ * `obj[key]` of a dictionary (`Record<string, T>`), read where its type says it may be missing
+ * (`noUncheckedIndexedAccess`): the value of the key's entry, `undefined` where it has none. Where it has none and the key
+ * is a name `Object.prototype` holds (`"constructor"`, `"toString"`), JavaScript finds that member, a function, which is
+ * not modeled: that the key is the dictionary's own or none of those is an obligation, listed under `keys read:`.
+ */
+const dictionaryRead = (L: Lowering, d: Extract<Val, { kind: "record" }>, key: Val, at: ts.Node): Val => {
+  const z3 = L.u.z3
+  // Its type says what the entry is, read so (`noUncheckedIndexedAccess`) or narrowed by a check the code made; with
+  // neither, it says the key is there, which may be false.
+  const t = L.checker.getTypeAtLocation(at)
+  if (L.unchecked !== true && !(t.isUnion() ? t.types : [t]).some((m) => m.flags & ts.TypeFlags.Undefined))
+    throw new Unsupported(
+      `\`${at.getText()}\` on a record keyed by any string is read where its type says the key is there, which may be false: turn on \`noUncheckedIndexedAccess\``,
+      at,
+    )
+  if (key.kind !== "str" && !(key.kind === "maybe" && key.value?.kind === "str"))
+    throw new Unsupported(`a key of a record that is a ${key.kind}: of a string it is read`, at)
+  const { found, value } = d.entries!(key, at)
+  const literal = ts.isPropertyAccessExpression(at) || (ts.isElementAccessExpression(at) && ts.isStringLiteralLike(at.argumentExpression))
+  const named = ts.isPropertyAccessExpression(at)
+    ? at.name.text
+    : ts.isElementAccessExpression(at) && ts.isStringLiteralLike(at.argumentExpression)
+      ? at.argumentExpression.text
+      : undefined
+  if (!(literal && named !== undefined && !PROTO.includes(named))) {
+    const goal = z3.Or(found, z3.Not(protoKey(L, key, at)))
+    if (L.mode === "spec" && L.defined !== undefined) L.defined.push(z3.Implies(L.guard, goal))
+    else {
+      const where = locate(at)
+      L.obligations.push({
+        key: `key@${where}#here`,
+        kind: "key",
+        text: at.getText(),
+        at: where,
+        phase: "here",
+        cond: L.guard,
+        goal,
+        hints: L.hints.length,
+      })
+    }
+  }
+  if (value.kind === "maybe")
+    return { kind: "maybe", isNull: z3.And(found, value.isNull), isUndefined: z3.Or(z3.Not(found), value.isUndefined), value: value.value }
+  return { kind: "maybe", isNull: z3.Bool.val(false), isUndefined: z3.Not(found), value }
+}
+
 /**
  * `"key" in obj`, of a key written as a string: of an object the code built, whether it holds the key (`has`); of one it
  * is given, whether its type requires the key, every value taken to hold the keys its type declares and no other, as
@@ -1709,8 +1947,17 @@ const binary = (L: Lowering, e: ts.BinaryExpression, env: Env): Val => {
 const keyIn = (L: Lowering, e: ts.BinaryExpression, env: Env): Val => {
   const z3 = L.u.z3
   const key = unwrapParens(e.left)
-  if (!ts.isStringLiteral(key) && !ts.isNoSubstitutionTemplateLiteral(key))
-    throw new Unsupported('`in` is read with a key written as a string (`"refused" in moved`)', e.left)
+  if (!ts.isStringLiteral(key) && !ts.isNoSubstitutionTemplateLiteral(key)) {
+    // A key the code computes, of a dictionary: an entry it has, or a name `Object.prototype` holds.
+    const target = lowerExpr(L, e.right, env)
+    const d = target.kind === "maybe" ? target.value : target
+    if (d?.kind === "record" && d.entries !== undefined) {
+      const k = shown(L, lowerExpr(L, e.left, env), e.left)
+      if (k.kind !== "str") throw new Unsupported(`a key of a record that is a ${k.kind}: of a string it is read`, e.left)
+      return bool(z3.Or(d.entries(k, e).found, protoKey(L, k, e)))
+    }
+    throw new Unsupported('`in` is read with a key written as a string (`"refused" in moved`), or of a dictionary', e.left)
+  }
   const name = key.text
   const holds = (v: Val): Bool => {
     if (v.kind === "maybe" && v.value !== undefined) return holds(v.value)
@@ -1719,6 +1966,11 @@ const keyIn = (L: Lowering, e: ts.BinaryExpression, env: Env): Val => {
       throw new Unsupported(`\`${JSON.stringify(name)} in\` an array is not modeled`, e)
     }
     if (v.kind !== "record") throw new Unsupported(`\`in\` of a ${v.kind} is not modeled`, e)
+    // A dictionary holds a key it has an entry for, and every name `Object.prototype` holds.
+    if (v.entries !== undefined) {
+      const key: Val = { kind: "str", term: jsString(z3, name) }
+      return z3.Or(v.entries(key, e).found, protoKey(L, key, e))
+    }
     const built = v.has?.(name)
     if (built !== undefined) return built
     if (v.split !== undefined) return z3.If(v.split.cond, holds(v.split.a), holds(v.split.b))

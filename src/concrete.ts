@@ -89,6 +89,12 @@ const read = (u: Universe, model: Model, n: Node, indices: ReadonlyArray<number>
     }
   }
   if (n.children.has("$")) return leafAt("$")
+  // A value of more than one kind: the part its tag names (`symbolicOf`), a plain value of that kind where none was read.
+  if (n.children.has("~kind")) {
+    const name = ["bool", "str", "num", "bigint"][leafAt("~kind") as number]!
+    const part = n.children.get(`^${name}`)
+    return part !== undefined ? read(u, model, part, indices) : { bool: false, str: "", num: 0, bigint: 0n }[name]
+  }
   // A union held one record per member: the one its selector names.
   if (n.children.has("~variant")) {
     const chosen = n.children.get(`|${String(leafAt("~variant"))}`)
@@ -115,6 +121,28 @@ const read = (u: Universe, model: Model, n: Node, indices: ReadonlyArray<number>
         if (!out.has(key)) out.set(key, valueNode === undefined ? {} : read(u, model, valueNode, [...indices, k]))
       }
     return kind === "#entries" ? out : new Set(out.keys())
+  }
+  // A dictionary the code was given: an object of its own entries, a key's the first that holds it, each a property of
+  // its own (`__proto__` among them, which an assignment would take for the prototype).
+  if (n.children.has("#own")) {
+    const length = leafAt("#own") as number
+    if (length > REPLAY_LENGTH) throw new TooLong(`a record of ${length} keys`)
+    const elem = n.children.get("[]")
+    const keyNode = elem?.children.get("{key}")
+    const valueNode = elem?.children.get("{value}")
+    const out: Record<string, unknown> = {}
+    if (keyNode !== undefined)
+      for (let k = 0; k < length; k++) {
+        const key = read(u, model, keyNode, [...indices, k]) as string
+        if (!Object.hasOwn(out, key))
+          Object.defineProperty(out, key, {
+            value: valueNode === undefined ? {} : read(u, model, valueNode, [...indices, k]),
+            enumerable: true,
+            writable: true,
+            configurable: true,
+          })
+      }
+    return out
   }
   // A `Date` the code was given: its time value (`dateOf` in `symbolic.ts`).
   const time = n.children.get("@time")
@@ -185,6 +213,14 @@ const write = (u: Universe, n: Node, indices: ReadonlyArray<number>, value: unkn
     } else out.push(t.eq(literal(u, value)))
     return
   }
+  const kind = leafAt("~kind")
+  if (kind !== undefined) {
+    const name = typeof value === "boolean" ? "bool" : typeof value === "string" ? "str" : typeof value === "number" ? "num" : "bigint"
+    out.push((term(u, kind, indices) as Arith).eq(["bool", "str", "num", "bigint"].indexOf(name)))
+    const part = n.children.get(`^${name}`)
+    if (part !== undefined) write(u, part, indices, value, out)
+    return
+  }
   const selector = leafAt("~variant")
   if (selector !== undefined) {
     // Whichever member holds the value: a member whose fields cannot hold it gives no constraint.
@@ -214,6 +250,19 @@ const write = (u: Universe, n: Node, indices: ReadonlyArray<number>, value: unkn
   const time = n.children.get("@time")
   if (time !== undefined) {
     write(u, time, indices, (value as Date).getTime(), out)
+    return
+  }
+  const own = leafAt("#own")
+  if (own !== undefined) {
+    const entries = Object.entries(value as Record<string, unknown>)
+    out.push((term(u, own, indices) as Arith).eq(entries.length))
+    const elem = n.children.get("[]")
+    entries.forEach(([key, v], k) => {
+      const keyNode = elem?.children.get("{key}")
+      const valueNode = elem?.children.get("{value}")
+      if (keyNode !== undefined) write(u, keyNode, [...indices, k], key, out)
+      if (valueNode !== undefined) write(u, valueNode, [...indices, k], v, out)
+    })
     return
   }
   for (const kind of ["#entries", "#members"] as const) {

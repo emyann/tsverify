@@ -28,6 +28,20 @@ const sameKey = (L: Lowering, a: Val, b: Val, at: ts.Node): Bool => {
   return a.kind === "num" && b.kind === "num" ? z3.Or(eq, z3.And(a.cls.eq(NUM.nan), b.cls.eq(NUM.nan))) : eq
 }
 
+/**
+ * A dictionary the code is given, `Record<string, T>`: the array of its own entries, a key's the first that holds it.
+ * Its reads go through `entries` (`dictionaryRead` in `lower.ts`), and a counterexample reads it back as a plain object.
+ */
+export const dictionaryOf = (L: Lowering, entries: Entries & { readonly value: (i: Arith) => Val }, at: ts.Node, id?: string): Val => {
+  const searched = { kind: "array" as const, length: entries.length, elem: entries.key }
+  const own = (key: Val, call: unknown): { readonly found: Bool; readonly value: Val } => {
+    const node = call as ts.Node
+    const { found, k } = firstIndex(L, searched, (i) => sameKey(L, entries.key(i), key, node), node)
+    return { found, value: entries.value(k) }
+  }
+  return lazyRecord(() => undefined, id, undefined, undefined, undefined, own)
+}
+
 export const collectionOf = (L: Lowering, kind: "Map" | "Set", entries: Entries, at: ts.Node, id?: string): Val => {
   const z3 = L.u.z3
   const { length } = entries

@@ -46,6 +46,7 @@ import {
   later,
   lowerCall,
   lowerExpr,
+  shownPresent,
   member,
   onBranch,
   patternKeys,
@@ -80,7 +81,7 @@ export interface Obligation {
    * `write` that lands inside its array, `exact` arithmetic on `number`. A law is judged on the runs where the model's
    * hold; a write and arithmetic are leaned on besides, since the runs where they fail go on, with a value not modeled.
    */
-  readonly kind: "invariant" | "assert" | "requires" | "division" | "write" | "exact"
+  readonly kind: "invariant" | "assert" | "requires" | "division" | "write" | "exact" | "key"
   /** The claim as written. */
   readonly text: string
   /** `file:line:col`. */
@@ -96,7 +97,7 @@ export interface Obligation {
 }
 
 /** The obligations of the model, which say what runs it reads exactly, rather than what the proof code asked. */
-export const MODELS: ReadonlySet<string> = new Set<Obligation["kind"]>(["division", "write", "exact"])
+export const MODELS: ReadonlySet<string> = new Set<Obligation["kind"]>(["division", "write", "exact", "key"])
 
 /** A lemma the proof code called: proved apart, as a contract is. */
 export interface LemmaUse {
@@ -291,6 +292,8 @@ const bindName = (L: Lowering, st: State, name: ts.BindingName, thunk: Thunk, ow
     return out
   }
   const { keys, rest } = patternKeys(name)
+  const objType = L.checker.getTypeAtLocation(name)
+  const whole = (): Val => shownPresent(thunk(), objType)
   let out = st
   for (const { key, el } of keys) {
     const now = out
@@ -300,7 +303,7 @@ const bindName = (L: Lowering, st: State, name: ts.BindingName, thunk: Thunk, ow
       el.name,
       defaulted(
         L,
-        later(L, () => member(L, thunk(), key, el, type, L.checker.getTypeAtLocation(el))),
+        later(L, () => member(L, whole(), key, el, type, L.checker.getTypeAtLocation(el))),
         el.initializer === undefined ? undefined : later(L, () => lowerExpr(L, el.initializer!, envOf(L, now)), now.cond),
         el,
       ),
@@ -316,7 +319,7 @@ const bindName = (L: Lowering, st: State, name: ts.BindingName, thunk: Thunk, ow
       later(L, () =>
         restOf(
           L,
-          thunk(),
+          whole(),
           keys.map((k) => k.key),
           rest,
         ),

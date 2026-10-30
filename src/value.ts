@@ -35,7 +35,15 @@ export type FunctionNode = ts.ArrowFunction | ts.FunctionExpression | ts.Functio
 export type Thunk = () => Val
 export type Env = ReadonlyMap<string, Thunk>
 
+/** The kinds of a primitive, by the tag a value of more than one kind holds (`mixed`). */
+export const KIND = { bool: 0, str: 1, num: 2, bigint: 3 } as const
+
 export type Val =
+  /**
+   * A value of more than one primitive kind (`boolean | "unsigned"`): which it is (`tag`, of `KIND`), and its value in each
+   * kind it may be. A read the type checker has narrowed to one kind reads that part (`narrowedKind` in `lower.ts`).
+   */
+  | { readonly kind: "mixed"; readonly tag: Arith; readonly parts: ReadonlyArray<{ readonly tag: number; readonly value: Val }> }
   /** An exact integer: a `bigint`, or a `number` known to be a whole count (an array's length). The two never mix. */
   | { readonly kind: "int"; readonly origin: "bigint" | "count"; readonly term: Arith }
   /**
@@ -90,6 +98,11 @@ export type Val =
        * that name (`false`), or makes it optional (`undefined`). What `in` reads where the code did not build it.
        */
       readonly declares?: (name: string) => boolean | undefined
+      /**
+       * Of a dictionary (a record keyed by any string, `Record<string, T>`): whether `key` is a key of its own, and the
+       * value its entry holds there. A key it does not hold reads as `undefined`, or as `Object.prototype`'s member.
+       */
+      readonly entries?: (key: Val, at: unknown) => { readonly found: Bool; readonly value: Val }
     }
   /**
    * An array: its length, and its element at an index (built on demand; may refuse). `size` is its length when
@@ -169,6 +182,7 @@ export const lazyRecord = (
   has?: (name: string) => Bool | undefined,
   split?: { readonly cond: Bool; readonly a: Val; readonly b: Val },
   declares?: (name: string) => boolean | undefined,
+  entries?: (key: Val, at: unknown) => { readonly found: Bool; readonly value: Val },
 ): Val => {
   const memo = new Map<string, Val | undefined>()
   return {
@@ -181,6 +195,7 @@ export const lazyRecord = (
     ...(has === undefined ? {} : { has }),
     ...(split === undefined ? {} : { split }),
     ...(declares === undefined ? {} : { declares }),
+    ...(entries === undefined ? {} : { entries }),
   }
 }
 
