@@ -515,8 +515,11 @@ export const judge = async (
         : `proved only of the inputs that run no loop longer: ${proof.u.truncated}; no counterexample with arrays of at most ${bound} elements`)
     let r: Omit<LawResult, "name" | "ms">
     if (proved.status === "unsat" && untrusted === undefined) {
-      // A proof of a law no result could break is a proof of nothing about the function.
-      const onAny = source.kind === "lemma" ? undefined : lawOnAnyResult(proof, law)
+      // A proof of a law no result could break is a proof of nothing about the function. A result that breaks it on the
+      // search side, which is exact, settles that it says something; only where none does is the proof side asked.
+      const onSome = source.kind === "lemma" ? undefined : lawOnAnyResult(search, law)
+      const somewhere = onSome === undefined ? undefined : await solve(search, [search.pre, searchRuns, z3.Not(onSome)], opts)
+      const onAny = source.kind === "lemma" || somewhere?.status === "sat" ? undefined : lawOnAnyResult(proof, law)
       const breakable = onAny === undefined ? undefined : await solve(proof, [proof.pre, proofRuns, z3.Not(onAny)], opts)
       r =
         breakable?.status === "unsat"
