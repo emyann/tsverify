@@ -788,6 +788,7 @@ export const solve = async (
   const run = async (extra: ReadonlyArray<Bool>) => {
     const solver = new z3.Solver()
     solver.set("timeout", opts.timeoutMs ?? 10_000)
+    vectorsBy(u, solver)
     for (const a of [...u.assumptions, ...hints, ...goals, ...extra]) solver.add(a)
     const status = await solver.check()
     return { status, solver }
@@ -874,6 +875,7 @@ export const disagreements = async (
     const pins = params.flatMap((p, i) => pin(u, p, args[i]))
     const solver = new z3.Solver()
     solver.set("timeout", 20_000)
+    vectorsBy(u, solver)
     for (const a of [...u.assumptions, ...pins, z3.Not(strictEq(u, result, valueOf(u, want), side.fn))]) solver.add(a)
     const status = await solver.check()
     if (status !== "unsat") out.push({ args, expected: want, status })
@@ -889,6 +891,14 @@ const valueOf = (u: Universe, want: unknown): Val => {
   if (typeof want === "bigint") return { kind: "int", origin: "bigint", term }
   if (typeof want === "number") return num(u.z3, want)
   throw new Error(`cannot compare a result of type ${typeof want}`)
+}
+
+/**
+ * A query that holds 32-bit vectors made from integers (`|`, `&`, `^` on numbers) is solved by integer blasting, which
+ * decides `x & (x - 1)` in milliseconds where bit-blasting beside the integers runs out of time.
+ */
+const vectorsBy = (u: Universe, solver: { set(key: string, value: number): void }): void => {
+  if (u.vectors) solver.set("smt.bv.solver", 2)
 }
 
 /** Runs `f` with a fresh Z3 context and frees Z3's worker threads after, so the process can exit. */

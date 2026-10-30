@@ -99,7 +99,11 @@ that makes it round is a counterexample to the obligation, never a wrong verdict
 solver must know when a sum is whole, which Z3 cannot prove of reals from facts about their summands. So each number is
 held in parts: on the proof side, whether it is whole, the integer it is if so, and otherwise an integer and a fraction
 strictly between 0 and 1; on the search side, an integer count of 1/1024. Whole numbers then add as integers do. A flag
-beside says whether a zero is `-0`, which only `Object.is` can see, and each operation gives it as IEEE 754 does.
+beside says whether a zero is `-0`, which only `Object.is` can see, and each operation gives it as IEEE 754 does. A
+bitwise operator is integer arithmetic mod 2^32 on the 32-bit integers JavaScript makes of its operands. `|`, `&` and
+`^` of two values neither of which is 0 or -1 go through Z3's 32-bit vectors, solved by integer blasting, which decides
+`x & (x - 1)` in milliseconds where bit-blasting beside the integers runs out of time; a sign mask, `x >> 31`, is 0 or
+-1 by construction, and needs no vectors.
 
 **Checked against the code.** The translator is the part everything else trusts, so the tests check it against the real
 function on 300 random inputs, on both sides (`test/order.test.ts`). Every counterexample the benchmark and the tests find

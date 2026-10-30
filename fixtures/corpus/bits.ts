@@ -1,5 +1,5 @@
-// 32-bit (and 8- and 4-bit) arithmetic. As JavaScript writes it, with `| 0`, `>>>` and `^` on `number`, it is refused;
-// in `bigint` with C's wrap-around written out with `%`, it is read.
+// 32-bit (and 8- and 4-bit) arithmetic: as JavaScript writes it, with `| 0`, `>>>` and `^` on `number`, and in `bigint`
+// with C's wrap-around written out with `%`.
 import { contract, invariant } from "../../src/contract.ts"
 import type { Case } from "./cases.ts"
 
@@ -134,25 +134,25 @@ const BIG32 = [-2147483648n, -1n, 0n, 1n, 99n, 2097152n, 1073741824n, 2147483647
 export const cases: Readonly<Record<string, Case>> = {
   branchlessAbs: {
     source: "https://z3prover.github.io/papers/programmingz3.html#sec-bit-vectors",
-    laws: { isAbs: ["invalid", "refused"] },
+    laws: { isAbs: "invalid" },
     samples: [],
     witnesses: { isAbs: [-2147483648] },
   },
   powerOfTwoIsPositive: {
     source: "https://microsoft.github.io/z3guide/docs/theories/Bitvectors",
-    laws: { positive: ["invalid", "refused"] },
+    laws: { positive: "invalid" },
     samples: [],
     witnesses: { positive: [-2147483648] },
   },
   unsignedShift: {
     source: "https://tc39.es/ecma262/#sec-unsigned-right-shift-operator",
-    laws: { inRange: ["valid", "refused"], sameAsI32: ["invalid", "refused"] },
+    laws: { inRange: "valid", sameAsI32: "invalid" },
     samples: [[0], [-1], [1.5], [NaN], [Infinity], [2 ** 32], [-(2 ** 31)]],
     witnesses: { sameAsI32: [-1] },
   },
   midpointInRange: {
     source: "https://research.google/blog/extra-extra-read-all-about-it-nearly-all-binary-searches-and-mergesorts-are-broken/",
-    laws: { between: ["invalid", "refused"] },
+    laws: { between: "invalid" },
     samples: [],
     witnesses: { between: [2 ** 31, 2 ** 31] },
   },

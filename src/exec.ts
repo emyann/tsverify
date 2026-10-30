@@ -810,6 +810,12 @@ const ASSIGN_OPS: ReadonlyMap<ts.SyntaxKind, ts.SyntaxKind> = new Map([
   [K.AsteriskEqualsToken, K.AsteriskToken],
   [K.SlashEqualsToken, K.SlashToken],
   [K.PercentEqualsToken, K.PercentToken],
+  [K.BarEqualsToken, K.BarToken],
+  [K.AmpersandEqualsToken, K.AmpersandToken],
+  [K.CaretEqualsToken, K.CaretToken],
+  [K.LessThanLessThanEqualsToken, K.LessThanLessThanToken],
+  [K.GreaterThanGreaterThanEqualsToken, K.GreaterThanGreaterThanToken],
+  [K.GreaterThanGreaterThanGreaterThanEqualsToken, K.GreaterThanGreaterThanGreaterThanToken],
 ])
 
 /** A statement that is an expression: an assignment, a change, a call run for what it changes, or a hint. */

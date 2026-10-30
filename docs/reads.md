@@ -19,7 +19,9 @@ part as a harmless one.
 **Expressions.**
 - `===`, `!==`, `<`, `<=`, `>`, `>=`, `!`, `&&`, `||`, `??`, `?:`, as JavaScript defines them, `NaN` and `-0` included;
 - `+`, `-` and `*` on bigints, `+` on strings, and template strings (an unknown string of their parts);
-- `+`, `-`, `*` and `/` on `number`, where they are exact, each an obligation that it is (*Numbers*, below);
+- `+`, `-`, `*` and `/` on `number`, where they are exact, each an obligation that it is (*Numbers*, below); its
+  bitwise operators, `|`, `&`, `^`, `~`, `<<`, `>>` and `>>>`, on 32-bit integers as JavaScript makes them; and `**` of
+  two literals (`2 ** 32`);
   `Math.floor`, `Math.ceil`, `Math.trunc`, `Math.abs`, `Math.max`, `Math.min`, `Number.isInteger`, `Number.isSafeInteger`,
   `Number.isFinite`, `Number.isNaN`, and `Object.is`, which tells `-0` from `0`;
 - `/` and `%` on bigints, as JavaScript computes them: the quotient truncated toward zero, the remainder with the
@@ -64,8 +66,11 @@ as ruling it out, for a counterexample. In other spec code (a declaration's laws
 `number` is read on counts and small whole literals alone, `i - 1`.
 
 `Math.floor`, `Math.ceil` and `Math.trunc` give the integral double JavaScript gives; `Math.max` and `Math.min` are `NaN`
-where an argument is, of any number of arguments; the `Number` checks read the class and the value. `%` on `number`,
-`**`, and `Math`'s other functions are refused.
+where an argument is, of any number of arguments; the `Number` checks read the class and the value. A bitwise operator
+makes each operand a 32-bit integer as JavaScript does (`NaN`, the infinities and the zeros are 0, a fraction is
+truncated, the rest wraps), so its result is exact and never `-0`: `(lo + hi) >>> 1` is proved between `lo` and `hi`
+while their sum is below 2^32, and refuted past it. `%` on `number`, `**` of anything but two literals, and `Math`'s
+other functions are refused.
 
 ### Indexes
 
@@ -103,7 +108,8 @@ Each refusal names the place, `file:line:column`, and the reason.
 | Written | Refused because | Write instead |
 | --- | --- | --- |
 | `x as T`, `x!`, `any` | each is a claim the verifier would have to trust | a check whose result the type follows: `===`, `x !== undefined`, a `_tag` |
-| `%` on `number` | not modeled | `bigint` where the values are whole |
+| `%` on `number` | not modeled | `bigint` where the values are whole, or `x & (2 ** k - 1)` for a remainder of a power of two |
+| `**` of a value the code computes, bitwise operators on `bigint` | not modeled | a literal power (`2 ** 32`), shifts and masks on `number` |
 | arithmetic on `number` in a declaration's laws or a guessed invariant, but on counts and small whole literals | its rounding is not modeled | the value computed in the program, or `bigint` |
 | a bigint `/` or `%` inside `.some`, `.every`, `.find` or `.filter` | the element is any index's, read or not | the division in a `for…of` over the elements, or outside the callback |
 | `==`, `!=` | not modeled | `===`, `!==`, and `x === null \|\| x === undefined` for a nullish check |

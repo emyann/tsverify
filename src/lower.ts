@@ -477,6 +477,12 @@ export const lowerExpr = (L: Lowering, e: ts.Expression, env: Env): Val => {
 
   if (ts.isPrefixUnaryExpression(e)) {
     if (e.operator === K.ExclamationToken) return bool(z3.Not(cond(L, e.operand, env)))
+    if (e.operator === K.TildeToken) {
+      const v = lowerExpr(L, e.operand, env)
+      const n = asNumber(L, v)
+      if (n === undefined) throw new Unsupported(`\`~\` of a ${v.kind} is not modeled: bitwise operators are read on \`number\``, e)
+      return integral(L, int32(L, truncatedOf(L, n)).neg().sub(1))
+    }
     if (e.operator === K.MinusToken) {
       const v = lowerExpr(L, e.operand, env)
       if (v.kind === "int" && v.origin === "bigint") return { ...v, term: v.term.neg() }
@@ -1320,7 +1326,23 @@ const binary = (L: Lowering, e: ts.BinaryExpression, env: Env): Val => {
     case K.AsteriskToken:
     case K.SlashToken:
     case K.PercentToken:
+    case K.BarToken:
+    case K.AmpersandToken:
+    case K.CaretToken:
+    case K.LessThanLessThanToken:
+    case K.GreaterThanGreaterThanToken:
+    case K.GreaterThanGreaterThanGreaterThanToken:
       return arithmetic(L, op, l, r, e)
+    case K.AsteriskAsteriskToken: {
+      // Of two literals, what JavaScript computes (`2 ** 32`); of anything else, a power the solver does not reason with.
+      const c = constantOf(e)
+      if (c === undefined)
+        throw new Unsupported(
+          "`**` is read of two literals (`2 ** 32`): a power of a value the code computes is not modeled",
+          e.operatorToken,
+        )
+      return typeof c === "bigint" ? { kind: "int", origin: "bigint", term: z3.Int.val(c) } : num(z3, c)
+    }
     default:
       throw new Unsupported(
         `operator ${ts.tokenToString(op)} is not modeled${op === K.EqualsEqualsToken || op === K.ExclamationEqualsToken ? `: write \`${op === K.EqualsEqualsToken ? "===" : "!=="}\` (and \`x === null || x === undefined\` for a nullish check)` : ""}`,
@@ -1341,6 +1363,7 @@ const narrowed = (L: Lowering, e: ts.Expression, v: Val, op: ts.SyntaxKind): Val
 }
 
 export const arithmetic = (L: Lowering, op: ts.SyntaxKind, l: Val, r: Val, e: ts.BinaryExpression): Val => {
+  if (BITWISE.has(op)) return bitwise(L, op, l, r, e)
   if (l.kind === "int" && r.kind === "int" && l.origin === "bigint" && r.origin === "bigint") {
     if (op === K.PlusToken) return { ...l, term: l.term.add(r.term) }
     if (op === K.MinusToken) return { ...l, term: l.term.sub(r.term) }
@@ -1379,6 +1402,194 @@ export const asNumber = (L: Lowering, v: Val): Extract<Val, { kind: "num" }> | u
   v.kind === "num" ? v : v.kind === "int" && v.origin === "count" ? countAsNum(L.u, v.term) : undefined
 
 const TWO_53 = 9007199254740992
+const TWO_32 = 4294967296
+const TWO_31 = 2147483648
+
+const BITWISE: ReadonlySet<ts.SyntaxKind> = new Set([
+  K.BarToken,
+  K.AmpersandToken,
+  K.CaretToken,
+  K.LessThanLessThanToken,
+  K.GreaterThanGreaterThanToken,
+  K.GreaterThanGreaterThanGreaterThanToken,
+])
+
+/** The number a literal, a negated one, or a `**` of two of them is, as JavaScript computes it; else `undefined`. */
+const constantOf = (e: ts.Expression): number | bigint | undefined => {
+  const x = unwrapParens(e)
+  if (ts.isNumericLiteral(x)) return Number(x.text)
+  if (ts.isBigIntLiteral(x)) return BigInt(x.text.slice(0, -1))
+  if (ts.isPrefixUnaryExpression(x) && x.operator === K.MinusToken) {
+    const c = constantOf(x.operand)
+    return c === undefined ? undefined : -c
+  }
+  if (ts.isBinaryExpression(x) && x.operatorToken.kind === K.AsteriskAsteriskToken) {
+    const a = constantOf(x.left)
+    const b = constantOf(x.right)
+    if (typeof a === "number" && typeof b === "number") return a ** b
+    if (typeof a === "bigint" && typeof b === "bigint" && b >= 0n) return a ** b
+  }
+  return undefined
+}
+
+const unwrapParens = (e: ts.Expression): ts.Expression => (ts.isParenthesizedExpression(e) ? unwrapParens(e.expression) : e)
+
+/** The results of `x >> 31` (a count of 31 mod 32): a sign mask, 0 or -1 by construction. */
+const MASKS = new WeakSet<Arith>()
+
+/** Whether `v` is a sign mask, made by `>> 31`. */
+const isMask = (v: Val): boolean => v.kind === "num" && v.int !== undefined && MASKS.has(v.int)
+
+/** A whole number the code made as an integer (a bitwise result): finite, never `-0`. */
+const integral = (L: Lowering, t: Arith): Val => ({
+  kind: "num",
+  cls: L.u.z3.Int.val(NUM.finite),
+  real: L.u.z3.ToReal(t),
+  whole: L.u.z3.Bool.val(true),
+  int: t,
+})
+
+/** The first step of `ToInt32` and `ToUint32`: 0 of `NaN`, the infinities and the zeros; else truncated toward 0. */
+const truncatedOf = (L: Lowering, v: Extract<Val, { kind: "num" }>): Arith => {
+  const z3 = L.u.z3
+  const t = z3.If(isWhole(L.u, v), intOf(L.u, v), z3.If(v.real.ge(0), z3.ToInt(v.real), z3.ToInt(v.real.neg()).neg()))
+  return z3.If(v.cls.eq(NUM.finite), t, z3.Int.val(0))
+}
+
+/** `t` as a signed 32-bit integer (`ToInt32`): `t` mod 2^32, from -2^31. */
+const int32 = (L: Lowering, t: Arith): Arith => {
+  const z3 = L.u.z3
+  const m = t.mod(TWO_32)
+  return z3.If(m.ge(TWO_31), m.sub(TWO_32), m)
+}
+
+/**
+ * A bitwise operator on two numbers, as JavaScript computes it: each operand made a 32-bit integer (`ToInt32`, and
+ * `ToUint32` for `>>>`), the result one too, so exact and never `-0`. Shifts are arithmetic, by 2^(count mod 32); `|`,
+ * `&` and `^` go through 32-bit vectors, but for `x | 0`, `x ^ 0` and `x & (2^k - 1)`, which are arithmetic too.
+ */
+const bitwise = (L: Lowering, op: ts.SyntaxKind, l: Val, r: Val, e: ts.BinaryExpression): Val => {
+  const z3 = L.u.z3
+  const a = asNumber(L, l)
+  const b = asNumber(L, r)
+  if (a === undefined || b === undefined)
+    throw new Unsupported(
+      `\`${ts.tokenToString(op)}\` between a ${l.kind} and a ${r.kind} is not modeled: bitwise operators are read on \`number\``,
+      e.operatorToken,
+    )
+  const x = truncatedOf(L, a)
+  const y = truncatedOf(L, b)
+  const k = constantOf(e.right)
+  const literal = typeof k === "number" && Number.isInteger(k) ? k : undefined
+  const x32 = int32(L, x)
+  const y32 = int32(L, y)
+  const vector = (
+    f: (p: ReturnType<typeof z3.Int2BV<32>>, q: ReturnType<typeof z3.Int2BV<32>>) => ReturnType<typeof z3.Int2BV<32>>,
+  ): Arith => {
+    L.u.vectors = true
+    return z3.BV2Int(f(z3.Int2BV(x, 32), z3.Int2BV(y, 32)), true)
+  }
+  // Of 0 or -1, a sign mask (`x >> 31`), each of `|`, `&` and `^` is arithmetic: the vectors are left to other operands.
+  const ones = z3.Int.val(-1)
+  const zero = z3.Int.val(0)
+  // An operand that is a sign mask by construction leaves no other case, and no vectors at all.
+  const masked = isMask(r) ? { mask: y32, other: x32 } : isMask(l) ? { mask: x32, other: y32 } : undefined
+  if (masked !== undefined && (op === K.BarToken || op === K.AmpersandToken || op === K.CaretToken)) {
+    const { mask, other } = masked
+    const isZero = mask.eq(zero)
+    return integral(
+      L,
+      op === K.BarToken
+        ? z3.If(isZero, other, ones)
+        : op === K.AmpersandToken
+          ? z3.If(isZero, zero, other)
+          : z3.If(isZero, other, other.neg().sub(1)),
+    )
+  }
+  // 2^(count mod 32): a constant of a literal count, else one of the 32.
+  const power = (): Arith => {
+    if (literal !== undefined) return z3.Int.val(2 ** (((literal % 32) + 32) % 32))
+    const c = y.mod(32)
+    let p: Arith = z3.Int.val(2 ** 31)
+    for (let j = 30; j >= 0; j--) p = z3.If(c.eq(j), z3.Int.val(2 ** j), p)
+    return p
+  }
+  switch (op) {
+    case K.BarToken:
+      return integral(
+        L,
+        literal === 0
+          ? x32
+          : z3.If(
+              z3.Or(x32.eq(ones), y32.eq(ones)),
+              ones,
+              z3.If(
+                x32.eq(zero),
+                y32,
+                z3.If(
+                  y32.eq(zero),
+                  x32,
+                  vector((p, q) => p.or(q)),
+                ),
+              ),
+            ),
+      )
+    case K.CaretToken:
+      return integral(
+        L,
+        literal === 0
+          ? x32
+          : z3.If(
+              x32.eq(zero),
+              y32,
+              z3.If(
+                y32.eq(zero),
+                x32,
+                z3.If(
+                  x32.eq(ones),
+                  y32.neg().sub(1),
+                  z3.If(
+                    y32.eq(ones),
+                    x32.neg().sub(1),
+                    vector((p, q) => p.xor(q)),
+                  ),
+                ),
+              ),
+            ),
+      )
+    case K.AmpersandToken: {
+      // A mask of the low bits keeps the 32-bit value's remainder: never negative, below the mask.
+      const mask = literal !== undefined && literal >= 0 && literal < TWO_31 && Number.isInteger(Math.log2(literal + 1))
+      return integral(
+        L,
+        mask
+          ? x.mod(TWO_32).mod(literal + 1)
+          : z3.If(
+              z3.Or(x32.eq(zero), y32.eq(zero)),
+              zero,
+              z3.If(
+                x32.eq(ones),
+                y32,
+                z3.If(
+                  y32.eq(ones),
+                  x32,
+                  vector((p, q) => p.and(q)),
+                ),
+              ),
+            ),
+      )
+    }
+    case K.LessThanLessThanToken:
+      return integral(L, int32(L, int32(L, x).mul(power())))
+    case K.GreaterThanGreaterThanToken: {
+      const shifted = int32(L, x).div(power())
+      if (literal !== undefined && ((literal % 32) + 32) % 32 === 31) MASKS.add(shifted)
+      return integral(L, shifted)
+    }
+    default:
+      return integral(L, x.mod(TWO_32).div(power()))
+  }
+}
 
 /**
  * `a op b` on doubles, read where it is exact: both finite (and the divisor not 0), the exact result a whole number or
