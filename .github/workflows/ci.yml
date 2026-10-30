@@ -1,5 +1,5 @@
-# tsverify's check, on clean runners: the suite on each Node it claims, the lint and the types once, and one job, `ci`, that says
-# whether all of them passed.
+# tsverify's check, on clean runners: the suite on each Node it claims, the lint, the types and the command on the examples that hold
+# once, and one job, `ci`, that says whether all of them passed.
 name: ci
 
 # A pull request is tested by pull_request, which runs a fork's code against a token that can only read.
@@ -77,13 +77,46 @@ jobs:
         timeout-minutes: 10
       - run: npm run typecheck
 
+  verify:
+    # The command on the examples meant to hold, as a project's CI runs it: it exits 1 unless every law is proved, which fails the
+    # gate. The rest of the repository keeps its failures on purpose (CONTRIBUTING.md), each pinned by a test; a new example that
+    # holds is added here.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        timeout-minutes: 5
+      - uses: actions/setup-node@v7
+        timeout-minutes: 5
+        with:
+          node-version: '24.16.0'
+      - run: npm ci
+        timeout-minutes: 10
+      # pipefail, which `shell: bash` sets, keeps the command's exit code through tee.
+      - name: npx tsverify, on the examples that hold
+        shell: bash
+        timeout-minutes: 10
+        run: >-
+          npm run --silent verify --
+          examples/charge
+          examples/hono
+          examples/account/account.contract.ts
+          examples/account/effects.contract.ts
+          examples/account/withdraw.ts
+          examples/account/withdraw.async.ts
+          | tee report.txt
+      - name: The report, on the run's summary
+        if: always()
+        run: |
+          { echo '```text'; cat report.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
   # The one context a branch protection would require. It needs every other job, so the protection never changes as jobs are added,
   # and always() makes it run even when one of them fails, is skipped or is cancelled, each of which it reads as a failure.
   ci:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     if: always()
-    needs: [test, lint, typecheck]
+    needs: [test, lint, typecheck, verify]
     steps:
       - name: Every job succeeded
         # toJSON(needs) goes through env, never into the shell's text: on a pull request from a fork, what the branch controls must not

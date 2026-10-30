@@ -17,7 +17,8 @@ npm run lint        # oxlint, then oxfmt --check; npm run format writes the layo
 
 On this repository `npm run verify` exits 1, on purpose: two examples keep a law the solver refutes,
 `examples/account/imports.contract.ts` keeps 8 laws bounded by a loop of steps, and `fixtures/vacuous` holds three vacuous
-laws.
+laws. CI's `verify` job runs the command on the examples meant to hold, and fails when one does not: an example added that
+holds goes on its list (`.github/workflows/ci.yml`).
 
 `test/docs.test.ts` runs every example of the documentation, the README and each page of `docs/`. It writes each page's
 files into a project of their own, in the page's order, runs each command the page shows, and compares what it prints. A
