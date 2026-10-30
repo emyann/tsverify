@@ -884,14 +884,19 @@ const standard = (L: Lowering, callee: ts.PropertyAccessExpression): Val | undef
       return first === undefined ? num(z3, largest ? -Infinity : Infinity) : rest.reduce(pair, first)
     },
   })
-  const check = (f: (v: Extract<Val, { kind: "num" }>) => Bool) =>
-    one((v) =>
-      v.kind === "num"
-        ? bool(f(v))
-        : v.kind === "int" && v.origin === "count"
-          ? bool(f(countAsNum(L.u, v.term)))
-          : bool(z3.Bool.val(false)),
-    )
+  // A `Number` check: of a number, what `f` says; of a value that may be missing, that it is there and a number `f`
+  // holds of; of anything else (a string, a boolean), false, as JavaScript gives it.
+  const check = (f: (v: Extract<Val, { kind: "num" }>) => Bool) => {
+    const of = (v: Val, at: ts.Node): Bool => {
+      if (v.kind === "num") return f(v)
+      if (v.kind === "int" && v.origin === "count") return f(countAsNum(L.u, v.term))
+      if (v.kind === "maybe") return v.value === undefined ? z3.Bool.val(false) : z3.And(z3.Not(isNullish(L.u, v)), of(v.value, at))
+      if (v.kind === "opaque" || v.kind === "builtin" || v.kind === "fn" || v.kind === "comp")
+        throw new Unsupported(`\`${name}\` of a ${v.kind} is not modeled`, at)
+      return z3.Bool.val(false)
+    }
+    return one((v, at) => bool(of(v, at)))
+  }
   const whole = (v: Extract<Val, { kind: "num" }>) => z3.And(v.cls.eq(NUM.finite), isWhole(L.u, v))
   switch (name) {
     case "Math.floor":
@@ -1229,6 +1234,10 @@ export const elementwise = (
   const before = L.obligations.length
   try {
     const out = quantified ? L.u.within(i, f) : { result: f(), facts: [] }
+    // What is known of each element (its type's facts, a declared function's laws) holds of every element in range, read
+    // or not: said of each beside the quantifier, so that a statement of every element is not made empty, at one the
+    // code never reads, by facts left free there.
+    if (quantified && out.facts.length > 0) L.u.assume(z3.ForAll([i], z3.Implies(inRange, z3.And(...out.facts))), L.u.openBounds())
     const hyp = z3.And(inRange, ...out.facts)
     const each = (goal: Bool) => (quantified ? z3.ForAll([i], z3.Implies(hyp, goal)) : z3.Implies(hyp, goal))
     if (outer !== undefined && inner.length > 0) outer.push(each(z3.And(...inner)))
