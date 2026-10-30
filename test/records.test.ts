@@ -10,6 +10,7 @@ import type { Ctx } from "../src/value.ts"
 import { openZ3, verify } from "../src/verify.ts"
 import { checkFixture } from "./fixture-plants.ts"
 
+const job = (id: string, size: number): fixture.Job => ({ id, size })
 checkFixture(
   "records.ts",
   fixture,
@@ -25,6 +26,16 @@ checkFixture(
     blankWords: [[""], [" \t\n"], ["a"], [undefined], [" a "]],
     listsAWhenGiven: [[undefined], [["a"]], [["b"]], [[]]],
     prunedAtItsTime: [[{ id: "r" }], [{ id: "r", pruned: { at: "t", files: 1 } }]],
+    askedPastTheNext: [
+      [{ p: { tries: ["a"] } }, "p", [{ step: "p", try: 3 }]],
+      [{ p: {} }, "p", [{ step: "p", try: 2 }]],
+      [{ p: { tries: [] } }, "p", [{ step: "q", try: 2 }]],
+    ],
+    quotedAtItsPrice: [
+      [[job("a", 1)], "a", undefined],
+      [[job("a", 1), job("b", 2)], "b", (j: fixture.Job) => j.size],
+      [[], "a", undefined],
+    ],
   },
   [
     {
@@ -54,6 +65,13 @@ checkFixture(
       contract: "listsAWhenGiven",
     },
     { id: "R7", what: "the run's id for its time", change: ["  return at\n", "  return run.id\n"], contract: "prunedAtItsTime" },
+    { id: "R8", what: "the next try for the one after", change: ["a.try === n + 1)", "a.try === n)"], contract: "askedPastTheNext" },
+    {
+      id: "R9",
+      what: "the first job's price",
+      change: ["priceOf(job, weigh)", "priceOf(jobs[0] ?? job, weigh)"],
+      contract: "quotedAtItsPrice",
+    },
   ],
 )
 

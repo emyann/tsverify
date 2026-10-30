@@ -141,6 +141,20 @@ export class Universe {
     return this.scopes.slice(1).map((s) => s.bound!)
   }
 
+  /**
+   * Runs `f` with only the outermost `depth` quantifier scopes open: a value the code made outside a quantifier and
+   * first read inside it is made where it was written, its facts and its leaves owing nothing to the element read then.
+   */
+  outside<A>(depth: number, f: () => A): A {
+    if (this.depth <= depth) return f()
+    const inner = this.scopes.splice(depth + 1)
+    try {
+      return f()
+    } finally {
+      this.scopes.push(...inner)
+    }
+  }
+
   /** Runs `f` in a scope binding `bound`; returns its result and the facts that scope collected. */
   within<A>(bound: Arith, f: () => A): { readonly result: A; readonly facts: ReadonlyArray<Bool> } {
     const scope: Scope = { bound, items: [] }

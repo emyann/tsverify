@@ -489,11 +489,8 @@ const placeOf = (L: Lowering, st: State, e: ts.Expression): { readonly place: Pl
     }
     const f = lowerExpr(L, x.arguments[0]!, envOf(L, st))
     if (f.kind !== "fn") return undefined
-    const { found, k } = firstIndex(
-      L,
-      arr,
-      (i) => truthy(L.u, lowerCall(L, f.node, f.env, [arr.elem(i), { kind: "int", origin: "count", term: i }], x)),
-      x,
+    const { found, k } = firstIndex(L, arr, (i) =>
+      truthy(L.u, lowerCall(L, f.node, f.env, [arr.elem(i), { kind: "int", origin: "count", term: i }], x)),
     )
     return { place: extend(base.place, { kind: "index", index: k }, x.getText()), isUndefined: z3.Not(found) }
   }

@@ -45,7 +45,8 @@ part as a harmless one.
   JavaScript's positions: truncated, counted from the end where `at` and `slice` count so, `""` or `undefined` outside;
   and `trim`, `trimStart` and `trimEnd`, of the white space and line ends JavaScript takes off;
 - on arrays: `.length`, an element at any index, `xs[i]` and `.at(i)` (*Indexes*, below), `.some`, `.every`, `.includes`
-  (of a string, a boolean, a bigint or a count), `.find`, `.slice` with JavaScript's positions, `.map`, `.toReversed()`,
+  (of a string, a boolean, a bigint or a count), `.find`, inside a `.some` or an `.every` too, `.slice` with
+  JavaScript's positions, `.map`, `.toReversed()`,
   `.reverse()` of a copy made where it is called (`[...xs].reverse()`), and `.filter`, `.join` and `.flatMap` (*Folds*,
   below);
 - calls of the program's functions, read from source and inlined, by name or through a namespace import

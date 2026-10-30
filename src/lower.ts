@@ -104,6 +104,8 @@ export interface Lowering extends Typing {
   readonly adapters: ReadonlyArray<Adapter>
   /** Results of declared pure functions and template strings, by callee and arguments' identities: the same call, the same value. */
   readonly opaque: Map<string, Val>
+  /** Searches of an array by a predicate, by the array's identity and the predicate's term: the same search, the same index. */
+  readonly searches: Map<string, { readonly found: Bool; readonly k: Arith }>
   readonly trust: Trust
   /** The mode of the code being lowered now. */
   mode: Mode
@@ -159,6 +161,7 @@ export const lowering = (typing: Typing, adapters: ReadonlyArray<Adapter>, trust
   stack: [],
   constants: new Map(),
   opaque: new Map(),
+  searches: new Map(),
   trust,
   mode: "exec",
   exact: undefined,
@@ -239,11 +242,12 @@ export const inSpec = <A>(L: Lowering, f: () => A): A => {
 /** A binding evaluated when first read, in the mode of the code that wrote it. */
 export const later = (L: Lowering, f: () => Val, guard: Bool = L.guard): Thunk => {
   const mode = L.mode
+  const depth = L.u.depth
   return lazy(() => {
     const prev = L.mode
     L.mode = mode
     try {
-      return under(L, guard, f)
+      return L.u.outside(depth, () => under(L, guard, f))
     } finally {
       L.mode = prev
     }
@@ -1719,7 +1723,7 @@ const arrayMethod = (L: Lowering, arr: Extract<Val, { kind: "array" }>, name: st
       }
     }
     case "find": {
-      const { found, k } = firstIndex(L, arr, predicate(), e)
+      const { found, k } = firstIndex(L, arr, predicate())
       return { kind: "maybe", isNull: z3.Bool.val(false), isUndefined: z3.Not(found), value: arr.elem(k) }
     }
     case "toReversed":
@@ -2484,7 +2488,6 @@ export const firstIndex = (
   L: Lowering,
   arr: Extract<Val, { kind: "array" }>,
   p: (i: Arith) => Bool,
-  at: ts.Node,
 ): { readonly found: Bool; readonly k: Arith } => {
   const { u } = L
   const z3 = u.z3
@@ -2499,10 +2502,20 @@ export const firstIndex = (
     }
     return { found, k }
   }
-  if (u.depth > 0) throw new Unsupported("a search (`.find`) inside a quantifier is not modeled", at)
-  const k = u.leaf([u.fresh("first"), "$"], "int", [], "count") as never as Arith
+  // Inside a quantifier the index is one per element the quantifier binds, and so are the facts that define it.
+  const indices = u.openBounds()
   const some = z3.Int.const(u.fresh("i"))
   const hasOne = elementwise(L, some, z3.And(some.ge(0), some.lt(arr.length)), () => p(some), true)
+  // The same array searched by the same predicate twice (the code's `.find` and a law's) is one search: the predicate
+  // is compared at one index of no search's.
+  const SEARCHED = z3.Int.const("searched~i")
+  const key =
+    arr.id === undefined
+      ? undefined
+      : `${arr.id}[${indices.map(termId).join(",")}]:${termId(z3.substitute(z3.And(hasOne.result, ...hasOne.facts), [some, SEARCHED]))}`
+  const known = key === undefined ? undefined : L.searches.get(key)
+  if (known !== undefined) return known
+  const k = u.leaf([u.fresh("first"), "$"], "int", indices, "count") as never as Arith
   const found = z3.Exists([some], z3.And(some.ge(0), some.lt(arr.length), ...hasOne.facts, hasOne.result))
   const before = z3.Int.const(u.fresh("j"))
   const none = elementwise(L, before, z3.And(before.ge(0), before.lt(k)), () => p(before), true)
@@ -2516,7 +2529,9 @@ export const firstIndex = (
         z3.ForAll([before], z3.Implies(z3.And(before.ge(0), before.lt(k), ...none.facts), z3.Not(none.result))),
       ),
     ),
+    indices,
   )
+  if (key !== undefined) L.searches.set(key, { found, k })
   return { found, k }
 }
 

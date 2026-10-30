@@ -36,7 +36,7 @@ export const dictionaryOf = (L: Lowering, entries: Entries & { readonly value: (
   const searched = { kind: "array" as const, length: entries.length, elem: entries.key }
   const own = (key: Val, call: unknown): { readonly found: Bool; readonly value: Val } => {
     const node = call as ts.Node
-    const { found, k } = firstIndex(L, searched, (i) => sameKey(L, entries.key(i), key, node), node)
+    const { found, k } = firstIndex(L, searched, (i) => sameKey(L, entries.key(i), key, node))
     return { found, value: entries.value(k) }
   }
   return lazyRecord(() => undefined, id, undefined, undefined, undefined, own)
@@ -56,7 +56,7 @@ export const collectionOf = (L: Lowering, kind: "Map" | "Set", entries: Entries,
   const lookup = (name: string, args: ReadonlyArray<Val>, call: ts.Node): { readonly found: Bool; readonly k: Arith } => {
     const key = args[0]
     if (args.length !== 1 || key === undefined) throw new Unsupported(`\`.${name}\` of a \`${kind}\` takes one key`, call)
-    const { found, k } = firstIndex(L, searched, (i) => sameKey(L, entries.key(entryAt(i)), key, call), call)
+    const { found, k } = firstIndex(L, searched, (i) => sameKey(L, entries.key(entryAt(i)), key, call))
     return { found, k: entryAt(k) }
   }
   const reads = kind === "Map" ? "`has` and `get`" : "`has`"
