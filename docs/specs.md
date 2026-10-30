@@ -69,12 +69,13 @@ export const statusOf: Implementation<StatusSpec> = (parcel) => {
 ```text
 $ npx tsverify src/parcel.ts
 src/parcel.ts
-  statusOf
-    proved          deliveredWins  (122 ms)
-    proved          lostOnlyIfNotDelivered  (14 ms)
-    proved          waitingUntilShipped  (19 ms)
+  ✓ statusOf  3 laws  (224 ms)
+    ✓ deliveredWins  (121 ms)
+    ✓ lostOnlyIfNotDelivered  (15 ms)
+    ✓ waitingUntilShipped  (21 ms)
 
-1 contract in 1 file: laws 3 proved
+✓ 3 laws proved
+  1 contract in 1 file · 0.9 s
 ```
 
 Given files, the command verifies every contract they export: each `const` typed `Implementation<S>`, and each
@@ -169,14 +170,16 @@ export const rename: Implementation<RenameSpec> = async (users, id, name) => {
 ```text
 $ npx tsverify src/rename.ts
 src/rename.ts
-  rename
-    proved          readsTheUserFirst  (99 ms)
-    proved          writesNothingWhenMissing  (68 ms)
-    counterexample  writesTheNewName  (31 ms)
-                    e.g. ({}, "A", "")
-                    where users.get gave { id: "", name: "" }, users.put succeeded
+  ✗ rename  1 counterexample, 2 proved  (259 ms)
+    ✓ readsTheUserFirst  (88 ms)
+    ✓ writesNothingWhenMissing  (66 ms)
+    ✗ writesTheNewName  (30 ms)
+      e.g. ({}, "A", "")
+      where users.get gave { id: "", name: "" }, users.put succeeded
 
-1 contract in 1 file: laws 2 proved, 1 counterexample
+✗ 1 counterexample
+✓ 2 laws proved
+  1 contract in 1 file · 1.0 s
 ```
 
 The code is what was meant; the law is not. Asked for `"A"`, the store gave back a user whose id is `""`, and the code
@@ -215,12 +218,13 @@ export type RenameSpec = typeof renameSpec
 ```text
 $ npx tsverify src/rename.ts
 src/rename.ts
-  rename
-    proved          readsTheUserFirst  (87 ms)
-    proved          writesNothingWhenMissing  (66 ms)
-    proved          writesTheUserItReadRenamed  (12 ms)
+  ✓ rename  3 laws  (240 ms)
+    ✓ readsTheUserFirst  (89 ms)
+    ✓ writesNothingWhenMissing  (68 ms)
+    ✓ writesTheUserItReadRenamed  (7 ms)
 
-1 contract in 1 file: laws 3 proved
+✓ 3 laws proved
+  1 contract in 1 file · 0.9 s
 ```
 
 The other choice was to change the code, `{ ...user, id, name }`, and keep the first law. Either way a person decides
@@ -265,11 +269,12 @@ export const overdue = contract(isOverdue, {
 ```text
 $ npx tsverify src/overdue.contract.ts
 src/overdue.contract.ts
-  overdue
-    proved          neverWithoutADate  (117 ms)
-    proved          lateOnlyAfter  (21 ms)
+  ✓ overdue  2 laws  (146 ms)
+    ✓ neverWithoutADate  (98 ms)
+    ✓ lateOnlyAfter  (20 ms)
 
-1 contract in 1 file: laws 2 proved
+✓ 2 laws proved
+  1 contract in 1 file · 0.9 s
 ```
 
 The code imports nothing of `tsverify`, and the spec imports the code. For an async function that exists,

@@ -37,15 +37,17 @@ export const largest: Implementation<LargestSpec> = (xs) => {
 ```text
 $ npx tsverify src/largest.ts
 src/largest.ts
-  largest
-    proved          noneLarger  (22 ms)
-    bounded         oneOfThem  (50 ms)
-                    not proved: the loop at src/largest.ts:6:3 is read through its invariants alone, and none rules this run out: write one that does, first in its body (`invariant((i) => ...)`); no counterexample with arrays of at most 4 elements
+  ~ largest  1 bounded, 1 proved · 2 obligations  (857 ms)
+    ✓ noneLarger  (23 ms)
+    ~ oneOfThem  (47 ms)
+      not proved: the loop at src/largest.ts:6:3 is read through its invariants alone, and none rules this run out: write one that does, first in its body (`invariant((i) => ...)`); no counterexample with arrays of at most 4 elements
     proof code:
-      proved          invariant on entry: noneLarger, of the elements gone through  (src/largest.ts:6:3)
-      proved          invariant kept by each iteration: noneLarger, of the elements gone through  (src/largest.ts:6:3)
+      ✓ invariant on entry: noneLarger, of the elements gone through  (src/largest.ts:6:3)
+      ✓ invariant kept by each iteration: noneLarger, of the elements gone through  (src/largest.ts:6:3)
 
-1 contract in 1 file: laws 1 proved, 1 bounded; obligations 2 proved
+~ 1 bounded
+✓ 1 law, 2 obligations proved
+  1 contract in 1 file · 1.6 s
 ```
 
 For a `for…of` loop over one of the function's parameters, the function returning a variable after it, the verifier
@@ -89,16 +91,17 @@ export const largest: Implementation<LargestSpec> = (xs) => {
 ```text
 $ npx tsverify src/largest.ts
 src/largest.ts
-  largest
-    proved          noneLarger  (20 ms)
-    proved          oneOfThem  (19 ms)
+  ✓ largest  2 laws · 4 obligations  (2218 ms)
+    ✓ noneLarger  (20 ms)
+    ✓ oneOfThem  (19 ms)
     proof code:
-      proved          invariant on entry: () => xs.length === 0 || xs.includes(best)  (src/largest.ts:8:5)
-      proved          invariant on entry: noneLarger, of the elements gone through  (src/largest.ts:7:3)
-      proved          invariant kept by each iteration: () => xs.length === 0 || xs.includes(best)  (src/largest.ts:8:5)
-      proved          invariant kept by each iteration: noneLarger, of the elements gone through  (src/largest.ts:7:3)
+      ✓ invariant on entry: () => xs.length === 0 || xs.includes(best)  (src/largest.ts:8:5)
+      ✓ invariant on entry: noneLarger, of the elements gone through  (src/largest.ts:7:3)
+      ✓ invariant kept by each iteration: () => xs.length === 0 || xs.includes(best)  (src/largest.ts:8:5)
+      ✓ invariant kept by each iteration: noneLarger, of the elements gone through  (src/largest.ts:7:3)
 
-1 contract in 1 file: laws 2 proved; obligations 4 proved
+✓ 2 laws, 4 obligations proved
+  1 contract in 1 file · 2.9 s
 ```
 
 - **An invariant is proved twice:** true before the first iteration (*on entry*), and kept by each one, from any state
@@ -167,12 +170,13 @@ export const totalNotNegative = contract(total, {
 ```text
 $ npx tsverify src/total.contract.ts
 src/total.contract.ts
-  totalNotNegative
-    proved          notNegative  (24 ms)
+  ✓ totalNotNegative  1 law · 1 obligation  (177 ms)
+    ✓ notNegative  (24 ms)
     proof code:
-      proved          assert: () => price >= discount  (src/total.ts:6:3)
+      ✓ assert: () => price >= discount  (src/total.ts:6:3)
 
-1 contract in 1 file: laws 1 proved; obligations 1 proved
+✓ 1 law, 1 obligation proved
+  1 contract in 1 file · 0.9 s
 ```
 
 Each obligation is proved with only the proof code written before it, so no `assert` proves itself.
@@ -211,19 +215,16 @@ export const area: Implementation<AreaSpec> = (width, height) => {
 ```text
 $ npx tsverify src/area.ts src/area.contract.ts
 src/area.contract.ts
-  productNotNegative
-    proved          holds  (87 ms)
+  ✓ productNotNegative  1 law  (106 ms)
 src/area.ts
-  area
-    proved          notNegative  (23 ms)
-    proof code:
-      proved          lemma's requires: productNotNegative: (a, b) => a >= 0n && b >= 0n  (src/area.ts:5:3)
-      proved          lemma: productNotNegative  (src/area.contract.ts#productNotNegative)
+  ✓ area  1 law · 2 obligations  (60 ms)
 
-2 contracts in 2 files: laws 2 proved; obligations 2 proved
+✓ 2 laws, 2 obligations proved
+  2 contracts in 2 files · 1.0 s
 ```
 
-A call proves the lemma's `requires` where it is made, and then knows its statement. A lemma may not lean on itself.
+A call proves the lemma's `requires` where it is made, and then knows its statement: `area`'s two obligations, which
+`npx tsverify src/area.ts` lists. A lemma may not lean on itself.
 
 Z3 proves many such facts alone: `width * height >= 0n` is proved here without the lemma too. A lemma is for a fact worth
 naming and proving once, used in many places, and for one the solver does not find in time where it is needed. The code

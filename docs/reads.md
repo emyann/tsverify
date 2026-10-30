@@ -130,8 +130,8 @@ export const paddingFits = contract(padding, { ensures: { atMostSeven: (_n, spac
 <!-- run -->
 ```text
 $ npx tsverify src/digits.contract.ts paddingFits
-paddingFits
-  proved          atMostSeven  (104 ms)
+✓ paddingFits  1 law  (143 ms)
+  ✓ atMostSeven  (110 ms)
   trusted (declared, not proved):
     - digits: pure, checked from source (read digits); laws atLeastOne — src/digits.contract.ts:4:28
   assumed:
@@ -176,9 +176,11 @@ export const firstOrNone = contract(firstTag, { ensures: { neverEmpty: (_tags, t
 ```text
 $ npx tsverify src/tags.contract.ts
 src/tags.contract.ts
-  firstOrNone: not verified — src/tags.ts:7:58: `cleaned` is declared pure and is not: src/tags.ts:3:3: changes its argument `tags`. Declare it `pure: false`, or change it so it changes only what it allocates
+  ! firstOrNone  not verified
+    src/tags.ts:7:58: `cleaned` is declared pure and is not: src/tags.ts:3:3: changes its argument `tags`. Declare it `pure: false`, or change it so it changes only what it allocates
 
-1 contract in 1 file: laws none; 1 not verified
+! 1 not verified
+  1 contract in 1 file · 0.7 s
 ```
 
 It refuses an effect (`await`, `yield`, `this`, the clock, `Math.random`, the console, a module's `let`, a function it was

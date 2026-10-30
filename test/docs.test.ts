@@ -55,10 +55,11 @@ const stepsOf = (page: string): Array<Step> =>
     return { kind: "run", args: args[1]?.split(" ") ?? [], out: out.join("\n"), exits: Number(exits ?? 0), line }
   })
 
-/** What a run prints, its timings and the spaces ending a line set aside. */
+/** What a run prints, its timings (a law's, a contract's, the run's) and the spaces ending a line set aside. */
 const normal = (s: string) =>
   s
     .replace(/(\(|, )\d+ ms\)/g, "$1N ms)")
+    .replace(/ · \d+\.\d s$/gm, " · N s")
     .split("\n")
     .map((l) => l.trimEnd())
     .join("\n")

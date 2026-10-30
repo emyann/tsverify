@@ -85,10 +85,10 @@ export const rename: Implementation<RenameSpec> = Effect.fn("rename")(function* 
 <!-- run -->
 ```text
 $ npx tsverify src/rename.ts rename
-rename
-  proved          readsTheUserFirst  (94 ms)
-  proved          failsAsNotFoundWhenMissing  (69 ms)
-  proved          writesTheUserItReadRenamed  (12 ms)
+✓ rename  3 laws  (270 ms)
+  ✓ readsTheUserFirst  (93 ms)
+  ✓ failsAsNotFoundWhenMissing  (71 ms)
+  ✓ writesTheUserItReadRenamed  (7 ms)
   reaches: Success, Failure NotFound, Failure StoreDown
   assumed:
     - The code throws only where it says so (a `throw`, a failure): an exception from anywhere else, a call or a binding never read, is not seen.
@@ -151,13 +151,15 @@ export const looseAmountOf: Implementation<LooseAmountSpec> = (text) => Effect.t
 ```text
 $ npx tsverify src/amount.ts
 src/amount.ts
-  amountOf
-    proved          namesTheText  (140 ms)
-  looseAmountOf
-    unsupported     failsWithSomething  (0 ms)
-                    src/amount.contract.ts:14:67: `===` of a value of type `unknown` is not modeled: such a value is carried and never read; give it a type where it is made (for an error, a `catch` that builds a typed one)
+  ✓ amountOf       1 law  (183 ms)
+    ✓ namesTheText  (139 ms)
+  ! looseAmountOf  1 unsupported  (12 ms)
+    ! failsWithSomething  (0 ms)
+      src/amount.contract.ts:14:67: `===` of a value of type `unknown` is not modeled: such a value is carried and never read; give it a type where it is made (for an error, a `catch` that builds a typed one)
 
-2 contracts in 1 file: laws 1 proved, 1 unsupported
+! 1 unsupported
+✓ 1 law proved
+  2 contracts in 1 file · 1.3 s
 ```
 
 Build a typed error in `catch`, as `amountOf` does. A program whose errors are typed can be specified; one that carries
@@ -217,9 +219,11 @@ export const renameAll: Implementation<RenameAllSpec> = Effect.fn("renameAll")(f
 ```text
 $ npx tsverify src/renameAll.ts
 src/renameAll.ts
-  renameAll: not verified — src/renameAll.ts:8:10: `Effect.forEach` is not read: write a `for (const x of xs)` loop of `yield*` steps in the generator
+  ! renameAll  not verified
+    src/renameAll.ts:8:10: `Effect.forEach` is not read: write a `for (const x of xs)` loop of `yield*` steps in the generator
 
-1 contract in 1 file: laws none; 1 not verified
+! 1 not verified
+  1 contract in 1 file · 1.1 s
 ```
 
 Beside `forEach`, it suggests what to write for `all`, `mapError`, `as`, `asVoid`, `andThen`, `tap` and `orElseSucceed`.
@@ -250,11 +254,12 @@ export const renameAll: Implementation<RenameAllSpec> = Effect.fn("renameAll")(f
 ```text
 $ npx tsverify src/renameAll.ts
 src/renameAll.ts
-  renameAll
-    bounded         readsBeforeWriting  (111 ms)
-                    proved only of the inputs that run no loop longer: the proof side runs a loop in a computation at most 4 times (src/renameAll.ts:8:3); no counterexample with arrays of at most 4 elements
+  ~ renameAll  1 bounded  (220 ms)
+    ~ readsBeforeWriting  (108 ms)
+      proved only of the inputs that run no loop longer: the proof side runs a loop in a computation at most 4 times (src/renameAll.ts:8:3); no counterexample with arrays of at most 4 elements
 
-1 contract in 1 file: laws 1 bounded
+~ 1 bounded
+  1 contract in 1 file · 1.3 s
 ```
 
 It is read, and the law holds of every run with up to 4 ids, which is all the verifier can say today. A loop of steps over

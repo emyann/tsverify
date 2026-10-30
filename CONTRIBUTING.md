@@ -3,8 +3,8 @@
 ## Run it
 
 ```sh
-npm test            # 277 tests, ~55 s, the documentation's examples among them
-npm run verify      # every contract below here, a line per law, then a total
+npm test            # 278 tests, ~55 s, the documentation's examples among them
+npm run verify      # every contract below here, a line each, the laws that need a look under it, then the totals
 npm run verify -- examples/account                                   # one folder, or one file
 npm run verify -- examples/account/withdraw.ts withdraw              # one contract, with all it knows
 npm run verify -- examples/hono                                      # a Hono API built twice, basic and with Effect

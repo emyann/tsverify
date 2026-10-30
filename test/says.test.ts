@@ -71,8 +71,8 @@ describe("a law that says what it means", () => {
 
   it("the command prints the sentence, then the name; `--json` keeps both", () => {
     const text = cli("fixtures/says.ts")
-    assert.match(text.stdout, /\n {4}counterexample  An order of 50 or more ships free {2}\(freeFrom50, \d+ ms\)\n {20}e\.g\. \(50\)\n/)
-    assert.match(text.stdout, /\n {4}proved {10}notNegative {2}\(\d+ ms\)\n/)
+    assert.match(text.stdout, /\n {4}✗ An order of 50 or more ships free {2}\(freeFrom50, \d+ ms\)\n {6}e\.g\. \(50\)\n/)
+    assert.match(text.stdout, /\n {4}✓ notNegative {2}\(\d+ ms\)\n/)
     const json = JSON.parse(cli("fixtures/says.ts", "--json").stdout) as {
       contracts: ReadonlyArray<{ contract: string; laws: ReadonlyArray<{ name: string; says?: string }> }>
     }

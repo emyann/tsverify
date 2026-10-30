@@ -58,6 +58,8 @@
     "coverage": "node --conditions=tsverify-source bench/coverage.ts"
   },
   "dependencies": {
+    "ink": "8.0.0",
+    "react": "19.3.1",
     "typescript": "6.0.3",
     "z3-solver": "5.3.2"
   },
@@ -76,6 +78,7 @@
   "devDependencies": {
     "@types/lodash-es": "4.17.12",
     "@types/node": "24.19.2",
+    "@types/react": "19.3.0",
     "effect": "4.0.6",
     "hono": "4.13.13",
     "lodash-es": "4.18.1",

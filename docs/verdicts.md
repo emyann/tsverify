@@ -4,7 +4,7 @@
 that one contract, with everything the verification knows of it. Each file is verified as a program of its own, through
 the nearest `tsconfig.json` above it (or `--project`).
 
-## A line per law
+## A line per contract
 
 Four small specs, one law of each kind:
 
@@ -99,43 +99,52 @@ export const score: Implementation<ScoreSpec> = (points) => Math.max(points, 0)
 ```text
 $ npx tsverify
 src/cap.ts
-  cap
-    proved          withinTheLimit  (90 ms)
-    counterexample  neverNegative  (11 ms)
-                    e.g. (-1n, 0n)
-    vacuous         limitNotNegative  (6 ms)
-                    no result breaks it, whatever the function returns: it says nothing of the function
+  ✗ cap  1 counterexample, 1 vacuous, 1 proved  (141 ms)
+    ✗ neverNegative  (10 ms)
+      e.g. (-1n, 0n)
+    ○ limitNotNegative  (5 ms)
+      no result breaks it, whatever the function returns: it says nothing of the function
 src/label.ts
-  label
-    proved          neverEmpty  (10 ms)
-    unsupported     unnamedWhenEmpty  (0 ms)
-                    src/label.contract.ts:6:61: operator == is not modeled: write `===` (and `x === null || x === undefined` for a nullish check)
+  ! label  1 unsupported, 1 proved  (25 ms)
+    ! unnamedWhenEmpty  (0 ms)
+      src/label.contract.ts:6:61: operator == is not modeled: write `===` (and `x === null || x === undefined` for a nullish check)
 src/largest.ts
-  largest
-    proved          noneLarger  (22 ms)
-    bounded         oneOfThem  (50 ms)
-                    not proved: the loop at src/largest.ts:6:3 is read through its invariants alone, and none rules this run out: write one that does, first in its body (`invariant((i) => ...)`); no counterexample with arrays of at most 4 elements
-    proof code:
-      proved          invariant on entry: noneLarger, of the elements gone through  (src/largest.ts:6:3)
-      proved          invariant kept by each iteration: noneLarger, of the elements gone through  (src/largest.ts:6:3)
+  ~ largest  1 bounded, 1 proved · 2 obligations  (769 ms)
+    ~ oneOfThem  (51 ms)
+      not proved: the loop at src/largest.ts:6:3 is read through its invariants alone, and none rules this run out: write one that does, first in its body (`invariant((i) => ...)`); no counterexample with arrays of at most 4 elements
 src/score.ts
-  score: not verified — src/score.ts:4:61: `Math` is a binding the verifier cannot see (a `let` or a global): read it from a `const` or an argument, or move it into a function the spec declares with `assume`
+  ! score  not verified
+    src/score.ts:4:61: `Math` is a binding the verifier cannot see (a `let` or a global): read it from a `const` or an argument, or move it into a function the spec declares with `assume`
 
-4 contracts in 4 files: laws 3 proved, 1 counterexample, 1 vacuous, 1 unsupported, 1 bounded; obligations 2 proved; 1 not verified
+✗ 1 counterexample · ! 1 unsupported · ~ 1 bounded · ○ 1 vacuous · ! 1 not verified
+✓ 3 laws, 2 obligations proved
+  4 contracts in 4 files · 2.4 s
 ```
 
-Each file, then each contract in it, then a line per law: its verdict, its name and how long it took, and, first, what
-it says when it is written `{ says, holds }`. A line under a law says why, or gives an input. The last line counts them all.
+Each file, then a line per contract: its verdict's mark (the worst of its laws'), its name, how many laws it holds and
+how long it took. Under a contract with something to look at, a line per law that needs a look: its mark, its name, how
+long it took, and, first, what it says when it is written `{ says, holds }`. A line under a law says why, or gives an
+input. A law proved is counted, not listed, so what needs a look is what you read. A run of one file lists every law,
+and `--verbose` every law of every file. The last lines count what needs a look, by verdict, then what was proved.
+
+| Mark | Verdict |
+| --- | --- |
+| ✓ | `proved` |
+| ✗ | `counterexample` |
+| ○ | `vacuous` |
+| ~ | `bounded` |
+| ? | `unknown` |
+| ! | `unsupported`, `not verified` or `inconsistent` |
 
 ## Each verdict, and what to do
 
-### `proved`
+### ✓ `proved`
 
 No input the spec allows breaks the law: not of the inputs tried, of every one. Arrays of any length, every string, every
 bigint. A proof is checked again on the exact side ([How it works](how-it-works.md)), and one that side breaks is
 reported `inconsistent`, never `proved`.
 
-### `counterexample`
+### ✗ `counterexample`
 
 An input the spec allows breaks the law, and `e.g.` gives it, as the arguments of a call: `cap(-1n, 0n)` is `-1n`. The
 counterexample is real: the verifier takes one only from a model of JavaScript that is exact, and running the code on it
@@ -148,14 +157,14 @@ Then one of three things is wrong, and a person decides which:
 - **the law**: `neverNegative` may not be what `cap` is for;
 - **`requires`**: callers may promise more, `value >= 0n`, and the spec should say so.
 
-### `vacuous`
+### ○ `vacuous`
 
 Proved, and no result of the function could break it: the law says nothing of the function. `limitNotNegative` reads
 only the inputs, which `requires` already settles. The verifier asks it of every law it proves, by giving the law any
 value of the result's type in place of the function's. Rewrite the law to constrain the result, or drop it. A vacuous law
 fails the command, as a law that says nothing should.
 
-### `bounded`
+### ~ `bounded`
 
 Not proved, and no input with arrays of up to 4 elements breaks it (`--bound` sets the length). The reason says what
 stands in the way:
@@ -169,25 +178,25 @@ stands in the way:
 - **a `number`**, any real on the proof side, where only the search side keeps to doubles;
 - **the proof side's time**, run out before a proof, the search side finding nothing.
 
-### `unsupported`
+### ! `unsupported`
 
 The law uses something the verifier does not read, at the place given, and the reason says what to write instead.
 `==` converts its operands before it compares them, which is not modeled; `label === "(unnamed)"` asks what
 `unnamedWhenEmpty` means. [What it reads](reads.md) lists every refusal and its fix.
 
-### `not verified`
+### ! `not verified`
 
 The contract could not be read at all, so no law of it was checked: the code, or its `requires`, uses something the
 verifier does not read. Here `Math.max` is a global. Write it as the verifier reads it (`points > 0 ? points : 0`), or move
 it into a function the spec declares with `assume`, whose laws are then trusted.
 
-### `unknown`
+### ? `unknown`
 
 Neither side answered: the solver gave up on each, out of time or on a query it cannot decide (quantifiers and
 non-linear arithmetic can do that). The reason gives each side's. `--timeout` raises the time per query (10 s by
 default); splitting a law into smaller ones, or a lemma, often helps more.
 
-### `inconsistent`
+### ! `inconsistent`
 
 The proof side proved the law, and the search side, which is exact, found an input that breaks it. One of the two is
 wrong, which is a bug of tsverify, not a verdict on the code. The input is given; please report it.
@@ -218,12 +227,12 @@ Given a file and a name, the command prints everything it knows of that contract
 <!-- run, exits 1 -->
 ```text
 $ npx tsverify src/cap.ts cap
-cap
-  proved          withinTheLimit  (89 ms)
-  counterexample  neverNegative  (10 ms)
-                  e.g. (-1n, 0n)
-  vacuous         limitNotNegative  (5 ms)
-                  no result breaks it, whatever the function returns: it says nothing of the function
+✗ cap  1 counterexample, 1 vacuous, 1 proved  (138 ms)
+  ✓ withinTheLimit  (90 ms)
+  ✗ neverNegative  (10 ms)
+    e.g. (-1n, 0n)
+  ○ limitNotNegative  (5 ms)
+    no result breaks it, whatever the function returns: it says nothing of the function
   assumed:
     - The code throws only where it says so (a `throw`, a failure): an exception from anywhere else, a call or a binding never read, is not seen.
     - Each argument has its TypeScript type; the code's own casts, `any` and `!` are refused.
@@ -248,7 +257,7 @@ tsverify <file.ts> <export> [--json] [--watch]
 | `--project` | the `tsconfig.json` every file is read through, instead of the nearest one above it |
 | `--bound` | the longest array the search side tries, 4 by default |
 | `--timeout` | the time each query may take, in milliseconds, 10,000 by default |
-| `--verbose` | everything of every contract, as the one-contract form prints it |
+| `--verbose` | every law and every obligation of every contract, with what each trusted and assumed, as the one-contract form prints them |
 | `--json` | one JSON document instead of the text, and nothing else on stdout |
 | `--watch` | the same again on every change to the project's TypeScript, until stopped (below) |
 
@@ -259,8 +268,10 @@ tsverify <file.ts> <export> [--json] [--watch]
 | 2 | a usage error: a path that is not there, no file or no contract to verify, no `tsconfig.json` |
 | 3 | the verifier itself failed, which says nothing of the code |
 
-In a terminal the report is in colour: green `proved`, red `counterexample`, yellow for a verdict that is neither,
-magenta for what was not read. Piped, as CI and coding agents read it, or with `NO_COLOR` set, it is plain text.
+In a terminal the report is drawn live: each contract verified stays above a line naming the one being verified and how
+far the run is, and a long line wraps to the window under its own first word. It is in colour: green for `proved`, red
+for `counterexample`, yellow for a verdict that is neither, magenta for what was not read. Piped, as CI and coding agents
+read it, or with `NO_COLOR` set, it is plain text, each line whole.
 
 ### `--watch`
 
@@ -271,13 +282,14 @@ proved. Each run is a process of its own, as a single run is, and a run a newer 
 ```text
 tsverify --watch · 8:07:10 PM · src/shipping.ts changed
 src/shipping.ts
-  shipping
-    proved          An order of 50 or more ships free  (freeFrom50, 114 ms)
-    proved          smallOrdersPay  (15 ms)
+  ✓ shipping  2 laws  (131 ms)
+    ✓ An order of 50 or more ships free  (freeFrom50, 114 ms)
+    ✓ smallOrdersPay  (15 ms)
 
-1 contract in 1 file: laws 2 proved
+✓ 2 laws proved
+  1 contract in 1 file · 1.1 s
 
-all proved in 1.1 s · waiting for a change (Ctrl+C to stop)
+all proved · waiting for a change (Ctrl+C to stop)
 ```
 
 In a terminal the screen is redrawn for each run. Piped, each run's report follows the last one's under its own first

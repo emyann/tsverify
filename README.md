@@ -58,11 +58,12 @@ export const shipping: Implementation<ShippingSpec> = (total) => (total >= 50 ? 
 ```text
 $ npx tsverify
 src/shipping.ts
-  shipping
-    proved          An order of 50 or more ships free  (freeFrom50, 98 ms)
-    proved          smallOrdersPay  (13 ms)
+  ✓ shipping  2 laws  (210 ms)
+    ✓ An order of 50 or more ships free  (freeFrom50, 155 ms)
+    ✓ smallOrdersPay  (16 ms)
 
-1 contract in 1 file: laws 2 proved
+✓ 2 laws proved
+  1 contract in 1 file · 1.2 s
 ```
 
 Proved means for *every* total, not for a sample: 49.99, 50, 10 billion, and every other number the promise allows.
@@ -82,12 +83,14 @@ export const shipping: Implementation<ShippingSpec> = (total) => (total > 50 ? 0
 ```text
 $ npx tsverify
 src/shipping.ts
-  shipping
-    counterexample  An order of 50 or more ships free  (freeFrom50, 93 ms)
-                    e.g. (50)
-    proved          smallOrdersPay  (14 ms)
+  ✗ shipping  1 counterexample, 1 proved  (177 ms)
+    ✗ An order of 50 or more ships free  (freeFrom50, 99 ms)
+      e.g. (50)
+    ✓ smallOrdersPay  (40 ms)
 
-1 contract in 1 file: laws 1 counterexample, 1 proved
+✗ 1 counterexample
+✓ 1 law proved
+  1 contract in 1 file · 1.0 s
 ```
 
 `shipping(50)` returns `5`: an order of exactly 50 pays for shipping. A counterexample is never a false alarm: it is
@@ -165,12 +168,13 @@ export const rename: Implementation<RenameSpec> = async (names, id, name) => {
 ```text
 $ npx tsverify src/rename.ts
 src/rename.ts
-  rename
-    counterexample  emptyNameTouchesNothing  (94 ms)
-                    e.g. ({}, "", "")
-                    where names.get gave ""
+  ✗ rename  1 counterexample  (165 ms)
+    ✗ emptyNameTouchesNothing  (95 ms)
+      e.g. ({}, "", "")
+      where names.get gave ""
 
-1 contract in 1 file: laws 1 counterexample
+✗ 1 counterexample
+  1 contract in 1 file · 0.9 s
 ```
 
 With an empty name, the code still read the store before it said no. Check the name first, and the law is proved:
@@ -196,10 +200,11 @@ export const rename: Implementation<RenameSpec> = async (names, id, name) => {
 ```text
 $ npx tsverify src/rename.ts
 src/rename.ts
-  rename
-    proved          emptyNameTouchesNothing  (142 ms)
+  ✓ rename  1 law  (205 ms)
+    ✓ emptyNameTouchesNothing  (136 ms)
 
-1 contract in 1 file: laws 1 proved
+✓ 1 law proved
+  1 contract in 1 file · 0.9 s
 ```
 
 </details>

@@ -1,5 +1,6 @@
 // The command: every contract of a folder, found by its file's import of
-// tsverify, a total and the exit code; one
+// tsverify, a line each, the totals and the exit code; every law of a run of
+// one file, and of several only those that need a look, unless --verbose; one
 // contract by name, with everything known of it; the same as one JSON
 // document; a path that is not there; colour in a terminal and plain text
 // otherwise; and --watch, a run again on each change, until stopped.
@@ -45,22 +46,40 @@ const clamp = (body: string) =>
 it("verifies every contract under a folder, and exits 1 on a vacuous law", () => {
   const r = cli("fixtures/vacuous")
   assert.equal(r.code, 1, r.err)
-  assert.match(r.out, /^fixtures\/vacuous\/sign\.contract\.ts\n  signed\n/)
-  assert.match(r.out, /\n {4}vacuous +squareNotNegative /)
-  assert.match(r.out, /\n2 contracts in 1 file: laws 2 proved, 3 vacuous\n$/)
+  assert.match(r.out, /^fixtures\/vacuous\/sign\.contract\.ts\n {2}○ signed +2 vacuous, 1 proved {2}\(\d+ ms\)\n/)
+  assert.match(r.out, /\n {4}○ squareNotNegative {2}\(\d+ ms\)\n {6}no result breaks it/)
+  assert.match(r.out, /\n○ 3 vacuous\n✓ 2 laws proved\n {2}2 contracts in 1 file · \d+\.\d s\n$/)
 })
 
 it("exits 0 when every law and every obligation is proved", () => {
   const r = cli(...["account.contract", "withdraw", "withdraw.async", "effects.contract"].map((f) => `examples/account/${f}.ts`))
   assert.equal(r.code, 0, r.out + r.err)
-  assert.match(r.out, /\n7 contracts in 4 files: laws 28 proved; obligations 10 proved\n$/)
+  assert.match(r.out, /\n✓ 28 laws, 10 obligations proved\n {2}7 contracts in 4 files · \d+\.\d s\n$/)
+  // Over several files, a contract whose laws all hold is its one line: no law under it.
+  assert.doesNotMatch(r.out, /^ {4}/m)
+})
+
+it("over several files lists only the laws that need a look, and every law with --verbose", () => {
+  const r = cli("examples/charge", "examples/lodash")
+  assert.equal(r.code, 1, r.out + r.err)
+  assert.match(r.out, /^examples\/charge\/charge\.ts\n {2}✓ charge {2}2 laws {2}\(\d+ ms\)\nexamples\/lodash\/labels\.contract\.ts\n/)
+  assert.match(
+    r.out,
+    /\n {2}✗ labels +1 counterexample, 1 proved · trusts uniq \(lodash-es\) {2}\(\d+ ms\)\n {4}✗ severalOnlyWithTwoDifferent {2}\(/,
+  )
+  assert.ok(!r.out.includes("noneExactlyWhenEmpty"), r.out)
+  assert.match(r.out, /\n✗ 1 counterexample\n✓ 6 laws proved\n {2}3 contracts in 2 files · /)
+  const verbose = cli("examples/charge", "examples/lodash", "--verbose")
+  assert.match(verbose.out, /\n {4}✓ noneExactlyWhenEmpty {2}\(/)
+  assert.match(verbose.out, /\n {4}assumed:\n/)
 })
 
 it("finds a spec's implementation in a folder, the spec file holding none", () => {
   const r = cli("examples/charge")
   assert.equal(r.code, 0, r.out + r.err)
-  assert.match(r.out, /^examples\/charge\/charge\.ts\n {2}charge\n/)
-  assert.match(r.out, /\n1 contract in 1 file: laws 2 proved\n$/)
+  // The folder holds two files, and one contract: a run of one file's contracts lists every law.
+  assert.match(r.out, /^examples\/charge\/charge\.ts\n {2}✓ charge {2}2 laws {2}\(\d+ ms\)\n {4}✓ neverNegative {2}\(/)
+  assert.match(r.out, /\n✓ 2 laws proved\n {2}1 contract in 1 file · \d+\.\d s\n$/)
 })
 
 it("finds a contract by its file's import of tsverify, whatever the file's name", () => {
@@ -68,8 +87,8 @@ it("finds a contract by its file's import of tsverify, whatever the file's name"
   try {
     const r = spawnSync(process.execPath, [path.join(root, "src/cli.ts")], { cwd: dir, env: plain, encoding: "utf8", timeout: 300_000 })
     assert.equal(r.status, 0, r.stdout + r.stderr)
-    assert.match(r.stdout, /^src\/clamp\.ts\n {2}clampNeverNegative\n/)
-    assert.match(r.stdout, /\n1 contract in 1 file: laws 1 proved\n$/)
+    assert.match(r.stdout, /^src\/clamp\.ts\n {2}✓ clampNeverNegative {2}1 law {2}\(\d+ ms\)\n/)
+    assert.match(r.stdout, /\n✓ 1 law proved\n {2}1 contract in 1 file · \d+\.\d s\n$/)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
@@ -78,13 +97,13 @@ it("finds a contract by its file's import of tsverify, whatever the file's name"
 it("exits 1 when a law is only bounded: a loop of steps over an array of unknown length", () => {
   const r = cli("examples/account/imports.contract.ts")
   assert.equal(r.code, 1, r.out + r.err)
-  assert.match(r.out, /\n5 contracts in 1 file: laws 11 proved, 8 bounded\n$/)
+  assert.match(r.out, /\n~ 8 bounded\n✓ 11 laws proved\n {2}5 contracts in 1 file · \d+\.\d s\n$/)
 })
 
 it("verifies one contract by name, with what it reaches, trusted and assumed", () => {
   const r = cli("examples/account/withdraw.ts", "withdraw")
   assert.equal(r.code, 0, r.out + r.err)
-  assert.match(r.out, /^withdraw\n/)
+  assert.match(r.out, /^✓ withdraw {2}5 laws {2}\(\d+ ms\)\n/)
   assert.match(r.out, /\n {2}reaches: /)
   assert.match(r.out, /\n {2}trusted \(declared, not proved\):\n {4}- accountOf: pure, checked from source/)
   assert.match(r.out, /\n {2}assumed:\n/)
@@ -155,9 +174,9 @@ it("colours the report in a terminal, and never --json", () => {
       encoding: "utf8",
       timeout: 300_000,
     }).stdout
-  // ESC [ 32 m: green, around the verdict.
+  // ESC [ 32 m: green, around a law's mark.
   const ESC = "\u001b["
-  assert.ok(coloured("examples/charge").includes(`${ESC}32mproved`))
+  assert.ok(coloured("examples/charge").includes(`${ESC}32m✓`))
   assert.ok(!coloured("examples/charge", "--json").includes(ESC))
   assert.ok(!cli("examples/charge").out.includes(ESC))
 })
@@ -178,12 +197,12 @@ it("--watch runs again on each change until stopped: piped, each run's report af
   try {
     await until(() => out.includes("waiting for a change"), "the first run")
     assert.match(out, /tsverify --watch · .* · started\n/)
-    assert.match(out, /counterexample +notNegative/)
-    assert.match(out, /\nnot all proved in \d+\.\d s · waiting for a change/)
+    assert.match(out, /\n {4}✗ notNegative {2}\(/)
+    assert.match(out, /\nnot all proved · waiting for a change/)
     writeFileSync(path.join(dir, "src/clamp.ts"), clamp("(n < 0n ? 0n : n)"))
     await until(() => out.split("waiting for a change").length > 2, "the run after the change")
     assert.match(out, /tsverify --watch · .* · src[\\/]clamp\.ts changed\n/)
-    assert.match(out, /\nall proved in \d+\.\d s · waiting for a change/)
+    assert.match(out, /\nall proved · waiting for a change/)
   } finally {
     watcher.kill("SIGTERM")
     assert.equal(await ended, 143)
