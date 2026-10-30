@@ -61,12 +61,12 @@ const units1 = ["", "a", "ab", "abcd", "😀", "\uD83D", "\uDE00\uD83D", "a😀b
 export const cases: Readonly<Record<string, Case>> = {
   prefixSuffix: {
     source: "https://microsoft.github.io/z3guide/docs/theories/Strings#strprefixof-a-b-strsuffixof-a-b---prefix-and-suffix-checks",
-    laws: { whole: ["valid", "refused"] },
+    laws: { whole: "valid" },
     samples: [["ab", "a", "b"], ["aa", "a", "a"], ["😀", "\uD83D", "\uDE00"], ["abc", "", "abc"], ["a", "a", "a"]],
   },
   prefixSuffixAnyLength: {
     source: "https://microsoft.github.io/z3guide/docs/theories/Strings#strprefixof-a-b-strsuffixof-a-b---prefix-and-suffix-checks",
-    laws: { whole: ["invalid", "refused"] },
+    laws: { whole: "invalid" },
     samples: [],
     witnesses: { whole: ["a", "a", "a"] },
   },
@@ -94,7 +94,7 @@ export const cases: Readonly<Record<string, Case>> = {
   },
   atAgainstSmt: {
     source: "https://microsoft.github.io/z3guide/docs/theories/Strings#strat-s-offset---character-substring-at-offset",
-    laws: { likeAt: ["invalid", "refused"], likeCharAt: ["valid", "refused"] },
+    laws: { likeAt: "invalid", likeCharAt: "valid" },
     samples: units1.flatMap((s) => [-2, -1, 0, 1, 3, 4, 10].map((i) => [s, i])),
     witnesses: { likeAt: ["abcd", -1] },
   },

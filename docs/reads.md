@@ -25,7 +25,9 @@ part as a harmless one.
   dividend's sign. A division by `0n` throws, so each divisor is proved other than `0n` on the branch where its division
   runs (*Divisions*, below);
 - property access and optional chains, object and array literals, spreads;
-- a string's `.length`, in UTF-16 code units, as JavaScript counts them;
+- a string's `.length`, in UTF-16 code units, as JavaScript counts them, and its `startsWith`, `endsWith`, `includes`
+  and `indexOf` of one string, `charAt(i)`, `at(i)`, `s[i]` (under `noUncheckedIndexedAccess`) and `slice`, each with
+  JavaScript's positions: truncated, counted from the end where `at` and `slice` count so, `""` or `undefined` outside;
 - on arrays: `.length`, an element at any index, `xs[i]` and `.at(i)` (*Indexes*, below), `.some`, `.every`, `.includes`
   (of a string, a boolean, a bigint or a count), `.find`, `.slice` and `.filter(p).length`;
 - calls of the program's functions, read from source and inlined, by name or through a namespace import
@@ -101,6 +103,7 @@ Each refusal names the place, `file:line:column`, and the reason.
 | a bigint `/` or `%` inside `.some`, `.every`, `.find` or `.filter` | the element is any index's, read or not | the division in a `for…of` over the elements, or outside the callback |
 | `==`, `!=` | not modeled | `===`, `!==`, and `x === null \|\| x === undefined` for a nullish check |
 | a `let` of the module, a global (`Date`, `Math.sqrt`) | a binding the verifier cannot see | a `const` or an argument, or a function declared with `assume` |
+| a string's other methods (`split`, `replace`, `toUpperCase`, `trim`), its spread `[...s]`, `indexOf(t, from)` | not modeled | the methods it reads, or a function declared with `assume` |
 | `xs[i]` on an array, without `noUncheckedIndexedAccess` | its type says the element is there, which may be false | `noUncheckedIndexedAccess` turned on, or `xs.at(i)`, whose type says it may be missing |
 | `.includes(x)` of a `number` | it finds `NaN`, which `===` does not | `.some((y) => y === x)` |
 | a member of a value the type checker has not shown present | it may be missing | a check first, or `?.` |

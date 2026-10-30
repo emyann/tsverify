@@ -512,7 +512,7 @@ const template = (L: Lowering, e: ts.TemplateExpression, env: Env): Val => {
   return v
 }
 
-/** `xs[i]` on an array at any index, missing outside it; `t[k]` for a whole-number literal k on a tuple (or any record), its field `k`. */
+/** `xs[i]` on an array or a string at any index, missing outside it; `t[k]` for a whole-number literal k on a tuple (or any record), its field `k`. */
 const elementAccess = (L: Lowering, e: ts.ElementAccessExpression, env: Env): Val => {
   const k = literalIndex(e.argumentExpression)
   const obj = lowerExpr(L, e.expression, env)
@@ -537,6 +537,26 @@ const elementAccess = (L: Lowering, e: ts.ElementAccessExpression, env: Env): Va
         isNull: z3.Bool.val(false),
         isUndefined: z3.Not(z3.And(whole, term.ge(0), term.lt(v.length))),
         value: v.elem(term),
+      }
+    }
+    if (v.kind === "str") {
+      // A code unit, as an array's element is read: missing wherever the index is no whole number inside the string.
+      const t = L.checker.getTypeAtLocation(e)
+      if (!(t.isUnion() ? t.types : [t]).some((m) => m.flags & ts.TypeFlags.Undefined))
+        throw new Unsupported(
+          `\`${e.getText()}\` on a string is read where its type says it may be missing: turn on \`noUncheckedIndexedAccess\`, or write \`${e.expression.getText()}.charAt(${e.argumentExpression.getText()})\``,
+          e,
+        )
+      const z3 = L.u.z3
+      const { term, whole } =
+        k !== undefined && k >= 0n
+          ? { term: z3.Int.val(Number(k)), whole: z3.Bool.val(true) }
+          : indexOf(L, lowerExpr(L, e.argumentExpression, env), e.argumentExpression)
+      return {
+        kind: "maybe",
+        isNull: z3.Bool.val(false),
+        isUndefined: z3.Not(z3.And(whole, term.ge(0), term.lt(v.term.length()))),
+        value: { kind: "str", term: v.term.at(term) },
       }
     }
     if (k === undefined || k < 0n) throw new Unsupported(`an element at a computed index of a ${v.kind} is not read`, e)
@@ -707,6 +727,7 @@ const call = (L: Lowering, e: ts.CallExpression, env: Env): Val => {
     const receiver = lowerExpr(L, callee.expression, env)
     return optionally(L, receiver, callee, callee.expression, (r) => {
       if (r.kind === "array") return arrayMethod(L, r, callee.name.text, e, env)
+      if (r.kind === "str") return stringMethod(L, r, callee.name.text, e, env)
       if (r.kind === "record") return callValue(L, member(L, r, callee.name.text, callee), e, env)
       throw new Unsupported(`method \`${callee.name.text}\` of a ${r.kind} is not modeled`, e)
     })
@@ -918,26 +939,112 @@ export const indexOf = (L: Lowering, v: Val, at: ts.Node): { readonly term: Arit
 }
 
 /**
- * The element `.at(v)` names, as JavaScript finds it: `v` made an integer (NaN is 0, a fraction truncated toward 0), a
- * negative one counted from the end; missing outside the array, at either infinity among them.
+ * `v`, an argument, where the type checker has shown it neither `null` nor `undefined` (`out === undefined ||
+ * s.endsWith(out)`): what it holds, since no run reaches here with it missing.
  */
+const shown = (L: Lowering, v: Val, e: ts.Expression): Val => {
+  if (v.kind !== "maybe" || v.value === undefined) return v
+  const t = L.checker.getTypeAtLocation(e)
+  const parts = t.isUnion() ? t.types : [t]
+  return parts.some((m) => m.flags & (ts.TypeFlags.Null | ts.TypeFlags.Undefined | ts.TypeFlags.Void)) ? v : v.value
+}
+
+/**
+ * The integer JavaScript makes of a position (`ToIntegerOrInfinity`): a count as it is, a `number` truncated toward 0,
+ * NaN as 0, and either infinity said apart, where `t` is 0.
+ */
+const positionOf = (
+  L: Lowering,
+  v: Val,
+  what: string,
+  at: ts.Node,
+): { readonly t: Arith; readonly posInf: Bool; readonly negInf: Bool } => {
+  const z3 = L.u.z3
+  if (v.kind === "int" && v.origin === "count") return { t: v.term, posInf: z3.Bool.val(false), negInf: z3.Bool.val(false) }
+  if (v.kind !== "num") throw new Unsupported(`${what} of a ${v.kind}`, at)
+  const truncated = z3.If(isWhole(L.u, v), intOf(L.u, v), z3.If(v.real.ge(0), z3.ToInt(v.real), z3.ToInt(v.real.neg()).neg()))
+  return { t: z3.If(v.cls.eq(NUM.finite), truncated, z3.Int.val(0)), posInf: v.cls.eq(NUM.posInf), negInf: v.cls.eq(NUM.negInf) }
+}
+
+/**
+ * The element `.at(v)` names of something `length` long, as JavaScript finds it: `v` made an integer (NaN is 0, a
+ * fraction truncated toward 0), a negative one counted from the end; missing outside, at either infinity among them.
+ */
+const atPosition = (L: Lowering, length: Arith, v: Val, at: ts.Node): { readonly index: Arith; readonly isUndefined: Bool } => {
+  const z3 = L.u.z3
+  const p = positionOf(L, v, "`.at`", at)
+  const index = z3.If(p.t.lt(0), length.add(p.t), p.t)
+  return { index, isUndefined: z3.Or(p.posInf, p.negInf, index.lt(0), index.ge(length)) }
+}
+
+/** The element `.at(v)` names in `arr` (`atPosition`). */
 export const atIndex = (
   L: Lowering,
   arr: Extract<Val, { kind: "array" }>,
   v: Val,
   at: ts.Node,
-): { readonly index: Arith; readonly isUndefined: Bool } => {
+): { readonly index: Arith; readonly isUndefined: Bool } => atPosition(L, arr.length, v, at)
+
+/**
+ * A string's method, on its UTF-16 code units, as Z3 holds them (`jsString`): `startsWith`, `endsWith` and `includes`
+ * of one string; `indexOf` of one, -1 where it is not there and 0 for `""`; `charAt` and `at` at a position, `""` and
+ * `undefined` outside it; and `slice`, its positions counted from the end where negative, and kept inside.
+ */
+const stringMethod = (L: Lowering, s: Extract<Val, { kind: "str" }>, name: string, e: ts.CallExpression, env: Env): Val => {
   const z3 = L.u.z3
-  let t: Arith
-  let infinite: Bool = z3.Bool.val(false)
-  if (v.kind === "int" && v.origin === "count") t = v.term
-  else if (v.kind === "num") {
-    const truncated = z3.If(isWhole(L.u, v), intOf(L.u, v), z3.If(v.real.ge(0), z3.ToInt(v.real), z3.ToInt(v.real.neg()).neg()))
-    t = z3.If(v.cls.eq(NUM.finite), truncated, z3.Int.val(0))
-    infinite = z3.Or(v.cls.eq(NUM.posInf), v.cls.eq(NUM.negInf))
-  } else throw new Unsupported(`\`.at\` of a ${v.kind}`, at)
-  const index = z3.If(t.lt(0), arr.length.add(t), t)
-  return { index, isUndefined: z3.Or(infinite, index.lt(0), index.ge(arr.length)) }
+  const args = e.arguments.map((a) => shown(L, lowerExpr(L, a, env), a))
+  const taking = (n: number, said: string): void => {
+    if (e.arguments.length !== n) throw new Unsupported(`\`.${name}\` is modeled with ${said}`, e)
+  }
+  const text = (k: number): Extract<Val, { kind: "str" }>["term"] => {
+    const v = args[k]!
+    if (v.kind !== "str") throw new Unsupported(`\`.${name}\` of a ${v.kind}`, e.arguments[k])
+    return v.term
+  }
+  const length = s.term.length()
+  const str = (term: unknown): Val => ({ kind: "str", term: term as Extract<Val, { kind: "str" }>["term"] })
+  switch (name) {
+    case "startsWith":
+      taking(1, "one argument, the prefix")
+      return bool(text(0).prefixOf(s.term))
+    case "endsWith":
+      taking(1, "one argument, the suffix")
+      return bool(text(0).suffixOf(s.term))
+    case "includes":
+      taking(1, "one argument, what to find")
+      return bool(s.term.contains(text(0)))
+    case "indexOf":
+      taking(1, "one argument, what to find")
+      return countAsNum(L.u, s.term.indexOf(text(0), 0))
+    case "charAt": {
+      taking(1, "one argument, the position")
+      const p = positionOf(L, args[0]!, "`.charAt`", e.arguments[0]!)
+      return str(z3.If(z3.Or(p.posInf, p.negInf), jsString(z3, ""), s.term.at(p.t)))
+    }
+    case "at": {
+      taking(1, "one argument, the position")
+      const { index, isUndefined } = atPosition(L, length, args[0]!, e.arguments[0]!)
+      return { kind: "maybe", isNull: z3.Bool.val(false), isUndefined, value: str(s.term.at(index)) }
+    }
+    case "slice": {
+      if (args.length > 2) throw new Unsupported("`.slice` takes a start and an end", e)
+      // A position counted from the end where negative, then kept between 0 and the length.
+      const relative = (k: number): Arith => {
+        const p = positionOf(L, args[k]!, "`.slice`", e.arguments[k]!)
+        const counted = z3.If(p.t.lt(0), length.add(p.t), p.t)
+        const kept = z3.If(counted.lt(0), z3.Int.val(0), z3.If(counted.gt(length), length, counted))
+        return z3.If(p.negInf, z3.Int.val(0), z3.If(p.posInf, length, kept))
+      }
+      const from = args[0] === undefined ? z3.Int.val(0) : relative(0)
+      const to = args[1] === undefined ? length : relative(1)
+      return str(s.term.extract(from, z3.If(to.gt(from), to.sub(from), z3.Int.val(0))))
+    }
+    default:
+      throw new Unsupported(
+        `method \`${name}\` of a string is not modeled: \`startsWith\`, \`endsWith\`, \`includes\`, \`indexOf\`, \`charAt\`, \`at\` and \`slice\` are`,
+        e,
+      )
+  }
 }
 
 /** A whole-number literal argument, such as the -1 of `.at(-1)`. */
@@ -1161,12 +1268,15 @@ export const arithmetic = (L: Lowering, op: ts.SyntaxKind, l: Val, r: Val, e: ts
   const b = asNumber(L, r)
   if (a !== undefined && b !== undefined) {
     if (op === K.PercentToken) throw new Unsupported("`%` on `number` is not modeled: `bigint` where the values are whole", e.operatorToken)
+    // A count plus or minus a count or a small whole literal (`b.length + c.length`, `i - 1`) is exact whatever the
+    // input, a whole number below 2^34: nothing to oblige.
+    const small = (x: ts.Expression, v: Val) =>
+      (v.kind === "int" && v.origin === "count") || (ts.isNumericLiteral(x) && /^\d{1,9}$/.test(x.text))
+    const known = (op === K.PlusToken || op === K.MinusToken) && small(e.left, l) && small(e.right, r)
     if (L.mode === "spec") {
-      // Spec code has no runs to hold an obligation: it reads only what is exact whatever the input, a count plus or
-      // minus a count or a small whole literal (`i - 1`).
-      const small = (x: ts.Expression, v: Val) =>
-        (v.kind === "int" && v.origin === "count") || (ts.isNumericLiteral(x) && /^\d{1,9}$/.test(x.text))
-      if ((op === K.PlusToken || op === K.MinusToken) && small(e.left, l) && small(e.right, r)) return exactly(L, op, a, b, e)
+      // Spec code has no runs to hold an obligation: elsewhere than a law, a `requires` or proof code it reads only
+      // what is exact whatever the input.
+      if (known) return exactly(L, op, a, b, e, true)
       // A law, a `requires` and proof code say where it is exact as part of what they say (`exactSpec`).
       if (L.exact !== undefined) return exactly(L, op, a, b, e)
       throw new Unsupported(
@@ -1174,7 +1284,7 @@ export const arithmetic = (L: Lowering, op: ts.SyntaxKind, l: Val, r: Val, e: ts
         e.operatorToken,
       )
     }
-    return exactly(L, op, a, b, e)
+    return exactly(L, op, a, b, e, known)
   }
   if (op === K.PlusToken && l.kind === "str" && r.kind === "str") return { kind: "str", term: l.term.concat(r.term) }
   throw new Unsupported(`${ts.tokenToString(op)} between a ${l.kind} and a ${r.kind} is not modeled`, e)
@@ -1191,7 +1301,7 @@ const TWO_53 = 9007199254740992
  * a half within 2^53, which a double holds. A double operation rounds its exact result, so there it gives that result.
  * Elsewhere it may round, which the model does not see: each operation is an obligation that it is exact, proved, or
  * broken by an input where it may not be. A law is judged on the runs where every operation is exact, and is proved
- * only once each is (`MODELS`).
+ * only once each is (`MODELS`). Where it is `known` exact whatever the input (a count plus a count), it obliges nothing.
  */
 export const exactly = (
   L: Lowering,
@@ -1199,6 +1309,7 @@ export const exactly = (
   a: Extract<Val, { kind: "num" }>,
   b: Extract<Val, { kind: "num" }>,
   at: ts.Node,
+  known = false,
 ): Val => {
   const z3 = L.u.z3
   const r =
@@ -1225,7 +1336,9 @@ export const exactly = (
   const bounded = (x: Arith) => z3.And(x.le(TWO_53), x.ge(-TWO_53))
   const finite = z3.And(a.cls.eq(NUM.finite), b.cls.eq(NUM.finite), op === K.SlashToken ? z3.Not(b.real.eq(0)) : z3.Bool.val(true))
   const goal = z3.And(finite, z3.Or(z3.And(whole, bounded(r)), z3.And(twiceWhole, bounded(r.mul(2)))))
-  if (L.mode === "spec") L.exact?.push(z3.Implies(L.guard, goal))
+  if (known) {
+    // Exact by construction: no condition to say, nor to oblige.
+  } else if (L.mode === "spec") L.exact?.push(z3.Implies(L.guard, goal))
   else {
     const where = locate(at)
     L.obligations.push({
