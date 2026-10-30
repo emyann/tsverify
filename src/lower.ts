@@ -1126,6 +1126,19 @@ const positionOf = (
 }
 
 /**
+ * A position `.slice` takes in something `length` long (`v`, or `given` where it is missing or `undefined`): made an
+ * integer, counted from the end where negative, then kept between 0 and the length.
+ */
+const relativePosition = (L: Lowering, length: Arith, v: Val | undefined, given: Arith, at: ts.Node): Arith => {
+  const z3 = L.u.z3
+  if (v === undefined || (v.kind === "nullish" && v.which === "undefined")) return given
+  const p = positionOf(L, v, "`.slice`", at)
+  const counted = z3.If(p.t.lt(0), length.add(p.t), p.t)
+  const kept = z3.If(counted.lt(0), z3.Int.val(0), z3.If(counted.gt(length), length, counted))
+  return z3.If(p.negInf, z3.Int.val(0), z3.If(p.posInf, length, kept))
+}
+
+/**
  * The element `.at(v)` names of something `length` long, as JavaScript finds it: `v` made an integer (NaN is 0, a
  * fraction truncated toward 0), a negative one counted from the end; missing outside, at either infinity among them.
  */
@@ -1187,15 +1200,8 @@ const stringMethod = (L: Lowering, s: Extract<Val, { kind: "str" }>, name: strin
     }
     case "slice": {
       if (args.length > 2) throw new Unsupported("`.slice` takes a start and an end", e)
-      // A position counted from the end where negative, then kept between 0 and the length.
-      const relative = (k: number): Arith => {
-        const p = positionOf(L, args[k]!, "`.slice`", e.arguments[k]!)
-        const counted = z3.If(p.t.lt(0), length.add(p.t), p.t)
-        const kept = z3.If(counted.lt(0), z3.Int.val(0), z3.If(counted.gt(length), length, counted))
-        return z3.If(p.negInf, z3.Int.val(0), z3.If(p.posInf, length, kept))
-      }
-      const from = args[0] === undefined ? z3.Int.val(0) : relative(0)
-      const to = args[1] === undefined ? length : relative(1)
+      const from = relativePosition(L, length, args[0], z3.Int.val(0), e.arguments[0] ?? e)
+      const to = relativePosition(L, length, args[1], length, e.arguments[1] ?? e)
       return str(s.term.extract(from, z3.If(to.gt(from), to.sub(from), z3.Int.val(0))))
     }
     default:
@@ -1349,11 +1355,30 @@ const arrayMethod = (L: Lowering, arr: Extract<Val, { kind: "array" }>, name: st
       const { found, k } = firstIndex(L, arr, predicate(), e)
       return { kind: "maybe", isNull: z3.Bool.val(false), isUndefined: z3.Not(found), value: arr.elem(k) }
     }
+    case "toReversed":
+    case "reverse": {
+      // `reverse` turns the array it is called on around and returns it: read where nothing else holds that array, a
+      // copy made where it is called (`[...xs].reverse()`), so that no other name sees the change.
+      if (e.arguments.length > 0) throw new Unsupported(`\`.${name}\` takes no argument`, e)
+      if (name === "reverse" && !fresh(e))
+        throw new Unsupported(
+          "`.reverse()` changes the array it is called on, which is read only of a copy made there: write `[...xs].reverse()` or `xs.toReversed()`",
+          e,
+        )
+      const last = arr.length.sub(1)
+      return {
+        kind: "array",
+        length: arr.length,
+        elem: memoElems((i) => arr.elem(last.sub(i))),
+        ...(arr.size === undefined ? {} : { size: arr.size }),
+        ...(arr.maxSize === undefined ? {} : { maxSize: arr.maxSize }),
+      }
+    }
     case "slice":
       return slice(
         L,
         arr,
-        e.arguments.map((a) => lowerExpr(L, a, env)),
+        e.arguments.map((a) => shown(L, lowerExpr(L, a, env), a)),
         e,
       )
     case "some":
@@ -1364,11 +1389,15 @@ const arrayMethod = (L: Lowering, arr: Extract<Val, { kind: "array" }>, name: st
       if (e.arguments.length !== 1) throw new Unsupported("`.includes(x, from)` is not modeled", e)
       const x = lowerExpr(L, arg(0), env)
       // `includes` compares as `===` does but for NaN, which only a `number` can be: bigints and counts are whole.
-      if (x.kind !== "str" && x.kind !== "bool" && x.kind !== "int")
+      // A value that may be missing is compared as `===` compares it: `undefined` is no string.
+      const present = x.kind === "maybe" ? x.value : x
+      if (present?.kind === "num")
         throw new Unsupported(
           "`.includes` of a `number` finds NaN, which `===` does not, and is not modeled: write `.some((y) => y === x)`",
           e,
         )
+      if (present !== undefined && present.kind !== "str" && present.kind !== "bool" && present.kind !== "int")
+        throw new Unsupported(`\`.includes\` of a ${x.kind} is not modeled: of a string, a boolean or a bigint it is`, e)
       return bool(quantify("exists", (i) => strictEq(u, arr.elem(i), x, e)))
     }
     case "map": {
@@ -1457,34 +1486,59 @@ const arrayMethod = (L: Lowering, arr: Extract<Val, { kind: "array" }>, name: st
       return out
     }
     case "filter": {
-      // The kept elements' count; their identities are not modeled. On the search side the count is
-      // exact (a sum over the bounded elements); on the proof side it is only "none or some", which
-      // admits every real count, so a proof stands and a model there proves nothing.
+      // The kept elements, in order. Written out (the search side, and an array of known bound), exactly: element k is
+      // kept where it is in range and the predicate holds there, and the j-th kept is the k with j kept before it. On
+      // the proof side, a count that is only "none or some", and the j-th kept element an element at an index where
+      // the predicate holds, the indices rising with j: every real filter is one of these, so a proof stands, and a
+      // model there proves nothing.
       if (u.depth > 0) throw new Unsupported("`.filter` inside a quantifier (`.some`, `.every`, another `.filter`) is not modeled", e)
       const p = predicate()
-      let count: Arith
+      const bounds = arr.maxSize === undefined ? {} : { maxSize: arr.maxSize }
       if (writtenOut !== undefined) {
-        count = z3.Sum(
-          z3.Int.val(0),
-          ...Array.from({ length: writtenOut }, (_, k) =>
-            z3.If(z3.And(z3.Int.val(k).lt(arr.length), p(z3.Int.val(k))), z3.Int.val(1), z3.Int.val(0)),
+        const kept: Array<Bool> = []
+        const before: Array<Arith> = []
+        let count: Arith = z3.Int.val(0)
+        for (let k = 0; k < writtenOut; k++) {
+          const i = z3.Int.val(k)
+          const { result } = elementwise(L, i, i.lt(arr.length), () => p(i), false)
+          kept.push(z3.And(i.lt(arr.length), result))
+          before.push(count)
+          count = count.add(z3.If(kept[k]!, z3.Int.val(1), z3.Int.val(0)))
+        }
+        return {
+          kind: "array",
+          length: count,
+          ...bounds,
+          elem: memoElems((j) => {
+            if (writtenOut === 0) return arr.elem(j)
+            let v = arr.elem(z3.Int.val(writtenOut - 1))
+            for (let k = writtenOut - 2; k >= 0; k--) v = ite(u, z3.And(kept[k]!, before[k]!.eq(j)), arr.elem(z3.Int.val(k)), v, e)
+            return v
+          }),
+        }
+      }
+      const count = z3.Int.const(u.fresh("filtered"))
+      u.assume(z3.And(count.ge(0), count.le(arr.length), count.ge(1).eq(quantify("exists", p))))
+      const position = z3.Function.declare(u.fresh("kept"), z3.Int.sort(), z3.Int.sort())
+      const positionOf = (j: Arith): Arith => position.call(j)
+      const j = z3.Int.const(u.fresh("j"))
+      const inRange = z3.And(j.ge(0), j.lt(count))
+      // Where the kept indices lie holds of every j in range, whatever is said of the element there; that the predicate
+      // holds there leans on what its elements are (their facts), as any statement of every element does.
+      u.assume(
+        z3.ForAll(
+          [j],
+          z3.Implies(
+            inRange,
+            z3.And(positionOf(j).ge(0), positionOf(j).lt(arr.length), z3.Implies(j.gt(0), positionOf(j.sub(1)).lt(positionOf(j)))),
           ),
-        )
-      } else {
-        count = z3.Int.const(u.fresh("filtered"))
-        u.assume(z3.And(count.ge(0), count.le(arr.length), count.ge(1).eq(quantify("exists", p))))
-        u.abstracted = true
-        u.approximations.add(`\`${e.getText()}\` is counted only as none or some on the proof side`)
-      }
-      u.notes.add("A filtered array is modeled by its length alone; its elements are refused where read.")
-      return {
-        kind: "array",
-        length: count,
-        ...(arr.maxSize === undefined ? {} : { maxSize: arr.maxSize }),
-        elem: () => {
-          throw new Unsupported("an element of a filtered array is not modeled (its length is)", e)
-        },
-      }
+        ),
+      )
+      const { result, facts } = elementwise(L, j, inRange, () => p(positionOf(j)), true)
+      u.assume(z3.ForAll([j], z3.Implies(z3.And(inRange, ...facts), result)))
+      u.abstracted = true
+      u.approximations.add(`\`${e.getText()}\` is known on the proof side as some of the elements its predicate keeps, in order`)
+      return { kind: "array", length: count, ...bounds, elem: memoElems((k) => arr.elem(positionOf(k))) }
     }
     default:
       throw new Unsupported(`array method \`.${name}\` is not modeled`, e)
@@ -1627,6 +1681,19 @@ const constantOf = (e: ts.Expression): number | bigint | undefined => {
     if (typeof a === "bigint" && typeof b === "bigint" && b >= 0n) return a ** b
   }
   return undefined
+}
+
+/** Methods that give a new array, which nothing else holds. */
+const FRESH = new Set(["slice", "map", "filter", "flatMap", "concat", "toReversed", "toSorted"])
+
+/** Whether the receiver of the method `e` calls is an array made right there: a literal, or one a method gave anew. */
+const fresh = (e: ts.CallExpression): boolean => {
+  if (!ts.isPropertyAccessExpression(e.expression)) return false
+  const r = unwrapParens(e.expression.expression)
+  return (
+    ts.isArrayLiteralExpression(r) ||
+    (ts.isCallExpression(r) && ts.isPropertyAccessExpression(r.expression) && FRESH.has(r.expression.name.text))
+  )
 }
 
 const unwrapParens = (e: ts.Expression): ts.Expression => (ts.isParenthesizedExpression(e) ? unwrapParens(e.expression) : e)
@@ -1954,24 +2021,15 @@ export const firstIndex = (
   return { found, k }
 }
 
-/** A count from a value: a count itself, or a whole-number literal. */
-const countOf = (L: Lowering, v: Val, at: ts.Node): Arith => {
-  if (v.kind === "int" && v.origin === "count") return v.term
-  if (v.kind === "num" && L.u.z3.isRealVal(v.real) && L.u.z3.isIntVal(v.cls) && Number(v.cls.value()) === NUM.finite) {
-    const r = v.real.value()
-    if (r.denominator === 1n && r.numerator >= 0n) return L.u.z3.Int.val(r.numerator)
-  }
-  throw new Unsupported("`.slice` is modeled with counts (an index, a length) and non-negative whole-number literals", at)
-}
-
-/** `arr.slice(start?, end?)`: a view of the same elements, from `start`, below `end`, both clamped to the length. */
+/**
+ * `arr.slice(start?, end?)`: a view of the same elements, from `start`, below `end`, each a position as JavaScript
+ * reads one (`relativePosition`): counted from the end where negative, and kept inside the array.
+ */
 export const slice = (L: Lowering, arr: Extract<Val, { kind: "array" }>, args: ReadonlyArray<Val>, at: ts.Node): Val => {
   const z3 = L.u.z3
   if (args.length > 2) throw new Unsupported("`.slice` takes a start and an end", at)
-  const start = args[0] === undefined ? z3.Int.val(0) : countOf(L, args[0], at)
-  const end = args[1] === undefined ? arr.length : countOf(L, args[1], at)
-  const lo = z3.If(start.le(arr.length), start, arr.length)
-  const hi = z3.If(end.le(arr.length), end, arr.length)
+  const lo = relativePosition(L, arr.length, args[0], z3.Int.val(0), at)
+  const hi = relativePosition(L, arr.length, args[1], arr.length, at)
   return {
     kind: "array",
     length: z3.If(hi.ge(lo), hi.sub(lo), z3.Int.val(0)),
