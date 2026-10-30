@@ -33,6 +33,7 @@ import {
   type Lowering,
   arithmetic,
   cond as condOf,
+  defaulted,
   firstIndex,
   inSpec,
   later,
@@ -40,7 +41,8 @@ import {
   lowerExpr,
   member,
   onBranch,
-  propertyKey,
+  patternKeys,
+  restOf,
   under,
 } from "./lower.ts"
 import { isNullish, ite, nullishOr, strictEq, truthy } from "./ops.ts"
@@ -178,12 +180,13 @@ export const runFunction = (
       return
     }
     const now = st
-    const thunk: Thunk =
-      arg !== undefined
-        ? (arg as Extract<Arg, { kind: "value" }>).thunk
-        : p.initializer !== undefined
-          ? later(L, () => lowerExpr(L, p.initializer!, envOf(L, now)), now.cond)
-          : () => UNDEFINED
+    // A default is taken where the argument is `undefined`: left out, or given as one.
+    const thunk: Thunk = defaulted(
+      L,
+      arg !== undefined ? (arg as Extract<Arg, { kind: "value" }>).thunk : () => UNDEFINED,
+      p.initializer === undefined ? undefined : later(L, () => lowerExpr(L, p.initializer!, envOf(L, now)), now.cond),
+      p,
+    )
     st = bindName(L, st, p.name, thunk, arg?.kind === "value" ? arg.owned : false, type)
   })
   const body = fn.body!
@@ -228,20 +231,40 @@ const newCell = (L: Lowering, st: State, name: string, thunk: Thunk, owned: bool
 const bindName = (L: Lowering, st: State, name: ts.BindingName, thunk: Thunk, owned: boolean, type: ts.Type | undefined): State => {
   if (ts.isIdentifier(name)) return newCell(L, st, name.text, thunk, owned, type)
   if (!ts.isObjectBindingPattern(name)) throw new Unsupported("array destructuring is not modeled", name)
+  const { keys, rest } = patternKeys(name)
   let out = st
-  for (const el of name.elements) {
-    if (el.dotDotDotToken !== undefined || el.initializer !== undefined)
-      throw new Unsupported("rest and default values in destructuring are not modeled", el)
-    const key = el.propertyName === undefined ? (el.name as ts.Identifier).text : propertyKey(el.propertyName)
+  for (const { key, el } of keys) {
+    const now = out
     out = bindName(
       L,
       out,
       el.name,
-      later(L, () => member(L, thunk(), key, el, type, L.checker.getTypeAtLocation(el))),
+      defaulted(
+        L,
+        later(L, () => member(L, thunk(), key, el, type, L.checker.getTypeAtLocation(el))),
+        el.initializer === undefined ? undefined : later(L, () => lowerExpr(L, el.initializer!, envOf(L, now)), now.cond),
+        el,
+      ),
       false,
       L.checker.getTypeAtLocation(el),
     )
   }
+  if (rest !== undefined)
+    out = bindName(
+      L,
+      out,
+      rest.name,
+      later(L, () =>
+        restOf(
+          L,
+          thunk(),
+          keys.map((k) => k.key),
+          rest,
+        ),
+      ),
+      owned,
+      L.checker.getTypeAtLocation(rest),
+    )
   return out
 }
 

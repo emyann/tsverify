@@ -37,7 +37,7 @@ import type { Arith, Bool } from "z3-solver"
 import type { Adapter } from "./adapter.ts"
 import { chosen, computationCall } from "./computation.ts"
 import { type LemmaUse, type Obligation, runFunction } from "./exec.ts"
-import { type Order, compare, isNullish, ite, nullishOr, strictEq, truthy } from "./ops.ts"
+import { type Order, compare, isNullish, ite, nullishOr, strictEq, truthy, undefinedOr } from "./ops.ts"
 import { narrowedField } from "./narrow.ts"
 import { type Purity, purityOf } from "./purity.ts"
 import { type Typing, symbolicOf } from "./symbolic.ts"
@@ -238,35 +238,90 @@ export const bindParameters = (L: Lowering, fn: FunctionNode, env: Env, args: Re
   fn.parameters.forEach((p, i) => {
     const given = args[i]
     if (p.dotDotDotToken !== undefined) throw new Unsupported("rest parameters are not modeled", p)
-    const value: Thunk =
-      given !== undefined
-        ? () => given
-        : p.initializer !== undefined
-          ? later(L, () => lowerExpr(L, p.initializer!, scope))
-          : () => ({ kind: "nullish", which: "undefined" })
+    // A default is taken where the argument is `undefined`: left out, or given as one.
+    const value: Thunk = defaulted(
+      L,
+      given !== undefined ? () => given : () => UNDEFINED,
+      p.initializer === undefined ? undefined : later(L, () => lowerExpr(L, p.initializer!, scope)),
+      p,
+    )
     bind(L, p.name, value, scope)
   })
   return scope
 }
 
-/** Binds a name or an object pattern to a value, each name read on first use. */
+/** `value`, or what `fallback` gives where it is `undefined`: a default, of a parameter or of a pattern's name. */
+export const defaulted = (L: Lowering, value: Thunk, fallback: Thunk | undefined, at: ts.Node): Thunk =>
+  fallback === undefined ? value : later(L, () => undefinedOr(L.u, value(), fallback, at))
+
+/**
+ * What an object pattern's rest holds: every property of `v` but the keys the pattern named before it. As a spread,
+ * it copies what the value's type says it holds, the value taken to be plain data.
+ */
+export const restOf = (L: Lowering, v: Val, named: ReadonlyArray<string>, at: ts.Node): Val => {
+  const obj = v.kind === "maybe" ? (v.value ?? v) : v
+  if (obj.kind !== "record") throw new Unsupported(`the rest of a ${obj.kind} is not modeled`, at)
+  L.u.notes.add(
+    "An object rest copies each property but those named before it: the value is taken to be plain data, its properties its own, none a getter.",
+  )
+  const left = new Set(named)
+  // The keys named are known absent, whatever the value held: a spread of the rest never brings them back.
+  return lazyRecord(
+    (n) => (left.has(n) ? undefined : obj.field(n)),
+    undefined,
+    (n) => (left.has(n) ? L.u.z3.Bool.val(false) : obj.has?.(n)),
+  )
+}
+
+/** The keys an object pattern names, each with its element, and its rest, if it has one. */
+export const patternKeys = (
+  pattern: ts.ObjectBindingPattern,
+): { readonly keys: ReadonlyArray<{ readonly key: string; readonly el: ts.BindingElement }>; readonly rest?: ts.BindingElement } => {
+  const keys: Array<{ key: string; el: ts.BindingElement }> = []
+  let rest: ts.BindingElement | undefined
+  for (const el of pattern.elements) {
+    if (el.dotDotDotToken !== undefined) rest = el
+    else keys.push({ key: el.propertyName === undefined ? (el.name as ts.Identifier).text : propertyKey(el.propertyName), el })
+  }
+  return rest === undefined ? { keys } : { keys, rest }
+}
+
+/** Binds a name or an object pattern to a value, each name read on first use; a default where its value is `undefined`. */
 export const bind = (L: Lowering, name: ts.BindingName, value: Thunk, scope: Map<string, Thunk>): void => {
   if (ts.isIdentifier(name)) {
     scope.set(name.text, value)
     return
   }
   if (!ts.isObjectBindingPattern(name)) throw new Unsupported("array destructuring is not modeled", name)
-  for (const el of name.elements) {
-    if (el.dotDotDotToken !== undefined || el.initializer !== undefined)
-      throw new Unsupported("rest and default values in destructuring are not modeled", el)
-    const key = el.propertyName === undefined ? (el.name as ts.Identifier).text : propertyKey(el.propertyName)
+  const { keys, rest } = patternKeys(name)
+  // Each name read at its type, as a property access is: a path where the object lacks the key reads `undefined` there.
+  const objType = L.checker.getTypeAtLocation(name)
+  for (const { key, el } of keys)
     bind(
       L,
       el.name,
-      later(L, () => member(L, value(), key, el)),
+      defaulted(
+        L,
+        later(L, () => member(L, value(), key, el, objType, L.checker.getTypeAtLocation(el))),
+        el.initializer === undefined ? undefined : later(L, () => lowerExpr(L, el.initializer!, scope)),
+        el,
+      ),
       scope,
     )
-  }
+  if (rest !== undefined)
+    bind(
+      L,
+      rest.name,
+      later(L, () =>
+        restOf(
+          L,
+          value(),
+          keys.map((k) => k.key),
+          rest,
+        ),
+      ),
+      scope,
+    )
 }
 
 export const propertyKey = (name: ts.PropertyName): string => {

@@ -173,7 +173,10 @@ export const lowerSide = (
   const unguessable = new Set<string>()
   const symbolicArgs = (fn: FunctionNode) => {
     const params = fn.parameters.map((p, i) => (ts.isIdentifier(p.name) ? p.name.text : `arg${i}`))
-    return { params, args: fn.parameters.map((p, i) => symbolicOf(L, project.checker.getTypeAtLocation(p), [params[i]!], [], p)) }
+    // A parameter with a default is one a caller may leave out, or give as `undefined`: drawn as maybe `undefined`.
+    const drawn = (p: ts.ParameterDeclaration, i: number) =>
+      symbolicOf(L, project.checker.getTypeAtLocation(p), [params[i]!], [], p, p.initializer !== undefined)
+    return { params, args: fn.parameters.map(drawn) }
   }
   const preOf = (args: ReadonlyArray<Val>) =>
     source.requires === undefined

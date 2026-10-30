@@ -148,6 +148,18 @@ export const nullishOr = (u: Universe, a: Val, b: () => Val, at: ts.Node): Val =
   return a.value === undefined ? rest : ite(u, isNullish(u, a), rest, a.value, at)
 }
 
+/** `a`, or `b()` where `a` is `undefined`: a default value, which `null` does not take, as JavaScript reads one. */
+export const undefinedOr = (u: Universe, a: Val, b: () => Val, at: ts.Node): Val => {
+  if (a.kind === "opaque") return refuseOpaque("a default value", at)
+  if (a.kind === "nullish") return a.which === "undefined" ? b() : a
+  if (a.kind !== "maybe" || u.z3.isFalse(a.isUndefined)) return a
+  const kept: Val =
+    u.z3.isFalse(a.isNull) && a.value !== undefined
+      ? a.value
+      : { kind: "maybe", isNull: a.isNull, isUndefined: u.z3.Bool.val(false), value: a.value }
+  return ite(u, a.isUndefined, b(), kept, at)
+}
+
 /** The value `c ? a : b`. */
 export const ite = (u: Universe, c: Bool, a: Val, b: Val, at: ts.Node): Val => {
   const z3 = u.z3

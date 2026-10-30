@@ -3,7 +3,7 @@
 In rough order:
 
 - The next Effect forms, by how often they stop real code: `Effect.exit`, `mapError`, `catchCause`, `suspend`;
-  destructuring with rest or defaults; `let` in a computation's body.
+  `let` in a computation's body.
 - A loop of steps read through invariants over the trace, as a fold's loop is read through its own, so a law of such a
   contract can be proved and not only bounded.
 - Contracts on operations, assumed by every caller and proved by each implementation (a layer, a class).
