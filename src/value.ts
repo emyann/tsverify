@@ -39,10 +39,10 @@ export type Val =
   /** An exact integer: a `bigint`, or a `number` known to be a whole count (an array's length). The two never mix. */
   | { readonly kind: "int"; readonly origin: "bigint" | "count"; readonly term: Arith }
   /**
-   * A `number`, for comparison: its class (`NUM.finite`, `NUM.nan`, `NUM.posInf`,
-   * `NUM.negInf`) and, when finite, its value as a real. Every double is such a
-   * value, so a law proved over them holds of every double; arithmetic, whose
-   * rounding this does not see, is refused.
+   * A `number`: its class (`NUM.finite`, `NUM.nan`, `NUM.posInf`, `NUM.negInf`)
+   * and, when finite, its value as a real, and whether it is `-0`. Every double is
+   * such a value, so a law proved over them holds of every double; arithmetic is
+   * read where it is exact (`exactly`).
    */
   | {
       readonly kind: "num"
@@ -56,6 +56,12 @@ export type Val =
       readonly whole?: Bool
       /** Where set: the integer the value is, wherever it is whole. An index is read as it, never as `ToInt` of the real. */
       readonly int?: Arith
+      /**
+       * Where set, true exactly where the value is `-0`, which only `Object.is` tells from `0` of what the model reads;
+       * where not, it is never `-0`. Whatever makes a number that may be `-0` says so: an input, a literal, a unary
+       * minus, arithmetic, rounding (`isNegZero`, in `ops.ts`).
+       */
+      readonly negZero?: Bool
     }
   | { readonly kind: "bool"; readonly term: Bool }
   | { readonly kind: "str"; readonly term: Seq }

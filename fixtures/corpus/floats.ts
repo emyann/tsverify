@@ -129,13 +129,13 @@ export const cases: Readonly<Record<string, Case>> = {
   },
   maxOfTwo: {
     source: "https://smt-lib.org/theories-FloatingPoint.shtml",
-    laws: { upper: ["invalid", "refused"], picks: ["invalid", "refused"] },
+    laws: { upper: "invalid", picks: "invalid" },
     samples: [],
     witnesses: { upper: [NaN, 0], picks: [NaN, 0] },
   },
   equalIsSameValue: {
     source: "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Object/is",
-    laws: { sameAsIs: ["invalid", "refused"] },
+    laws: { sameAsIs: "invalid" },
     samples: [],
     witnesses: { sameAsIs: [0, -0] },
   },
@@ -147,7 +147,7 @@ export const cases: Readonly<Record<string, Case>> = {
   },
   minOfZeros: {
     source: "https://smt-lib.org/theories-FloatingPoint.shtml",
-    laws: { negZeroWins: ["valid", "refused"], isPlusZero: ["invalid", "refused"] },
+    laws: { negZeroWins: "valid", isPlusZero: "invalid" },
     samples: pairs,
     witnesses: { isPlusZero: [0, -0] },
   },

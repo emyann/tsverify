@@ -92,7 +92,7 @@ export type ScoreSpec = typeof scoreSpec
 import type { Implementation } from "tsverify"
 import type { ScoreSpec } from "./score.contract.ts"
 
-export const score: Implementation<ScoreSpec> = (points) => Math.max(points, 0)
+export const score: Implementation<ScoreSpec> = (points) => Math.round(Math.max(points, 0))
 ```
 
 <!-- run, exits 1 -->
@@ -189,8 +189,9 @@ The law uses something the verifier does not read, at the place given, and the r
 ### ! `not verified`
 
 The contract could not be read at all, so no law of it was checked: the code, or its `requires`, uses something the
-verifier does not read. Here `Math.max` is a global. Write it as the verifier reads it (`points > 0 ? points : 0`), or move
-it into a function the spec declares with `assume`, whose laws are then trusted.
+verifier does not read. Here `Math.round` is a global it does not read (it reads `Math.max`, `min`, `abs`, `floor`, `ceil`
+and `trunc`). Write it as the verifier reads it, or move it into a function the spec declares with `assume`, whose laws
+are then trusted.
 
 ### ? `unknown`
 

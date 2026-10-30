@@ -79,13 +79,42 @@ export const intOf = (u: Universe, v: Num): Arith => v.int ?? u.z3.ToInt(v.real)
 /** Whether `v`'s value is a whole number (its class aside): its `whole` where it has one, else `IsInt` of its value. */
 export const isWhole = (u: Universe, v: Num): Bool => v.whole ?? u.z3.IsInt(v.real)
 
-/** `a === b` on numbers: false on NaN, true for -0 and 0, true for one infinity and itself. */
-const numEq = (u: Universe, a: Num, b: Num): Bool => {
+/** Whether `v` is `-0`: its `negZero` where it has one; a number made without one never is. */
+export const isNegZero = (u: Universe, v: Num): Bool => v.negZero ?? u.z3.Bool.val(false)
+
+/**
+ * `Object.is(a, b)` on numbers, SameValue: `===` but that `NaN` is itself, and `-0` is not `0`. Its finite case says,
+ * as `numEq` does, that the two are both whole or both not: a law comparing the two would otherwise ask the solver to
+ * show it, an integer between two reals less than 1 apart, which it searches for without end.
+ */
+export const sameValue = (u: Universe, a: Num, b: Num): Bool => {
+  const z3 = u.z3
+  return z3.Or(
+    z3.And(
+      a.cls.eq(NUM.finite),
+      b.cls.eq(NUM.finite),
+      a.real.eq(b.real),
+      isWhole(u, a).eq(isWhole(u, b)),
+      isNegZero(u, a).eq(isNegZero(u, b)),
+    ),
+    z3.And(a.cls.eq(NUM.nan), b.cls.eq(NUM.nan)),
+    z3.And(a.cls.eq(NUM.posInf), b.cls.eq(NUM.posInf)),
+    z3.And(a.cls.eq(NUM.negInf), b.cls.eq(NUM.negInf)),
+  )
+}
+
+/**
+ * `a === b` on numbers: false on NaN, true for -0 and 0, true for one infinity and itself. `hinted`, the `===` the code
+ * writes says beside that two equal values are both whole or both not; `<=` and `>=`, which compare values, do not.
+ */
+const numEq = (u: Universe, a: Num, b: Num, hinted = true): Bool => {
   const z3 = u.z3
   return z3.Or(
     // Two equal values are both whole or both not, said beside: it is so of every two equal reals, and lets the solver
-    // carry wholeness across an equality (`y === x + 2`) without searching for it.
-    z3.And(a.cls.eq(NUM.finite), b.cls.eq(NUM.finite), a.real.eq(b.real), isWhole(u, a).eq(isWhole(u, b))),
+    // carry wholeness across an equality (`y === x + 2`) without searching for it. Said of `a >= b` too, it would ask the
+    // solver to show it wherever `>=` holds by equality (`Math.max`), an integer between two reals less than 1 apart,
+    // which it searches for without end.
+    z3.And(a.cls.eq(NUM.finite), b.cls.eq(NUM.finite), a.real.eq(b.real), hinted ? isWhole(u, a).eq(isWhole(u, b)) : z3.Bool.val(true)),
     z3.And(a.cls.eq(NUM.posInf), b.cls.eq(NUM.posInf)),
     z3.And(a.cls.eq(NUM.negInf), b.cls.eq(NUM.negInf)),
   )
@@ -112,8 +141,8 @@ const numCmp = (u: Universe, a: Num, b: Num, op: Order): Bool =>
     : op === ">"
       ? numLt(u, b, a)
       : op === "<="
-        ? u.z3.Or(numLt(u, a, b), numEq(u, a, b))
-        : u.z3.Or(numLt(u, b, a), numEq(u, a, b))
+        ? u.z3.Or(numLt(u, a, b), numEq(u, a, b, false))
+        : u.z3.Or(numLt(u, b, a), numEq(u, a, b, false))
 
 /** `a === b`. Objects compare by identity, which the verifier does not model. */
 export const strictEq = (u: Universe, a: Val, b: Val, at: ts.Node): Bool => {
@@ -202,6 +231,7 @@ export const ite = (u: Universe, c: Bool, a: Val, b: Val, at: ts.Node): Val => {
       real: z3.If(c, a.real, b.real),
       ...(a.whole === undefined && b.whole === undefined ? {} : { whole: z3.If(c, isWhole(u, a), isWhole(u, b)) }),
       ...(a.int === undefined && b.int === undefined ? {} : { int: z3.If(c, intOf(u, a), intOf(u, b)) }),
+      ...(a.negZero === undefined && b.negZero === undefined ? {} : { negZero: z3.If(c, isNegZero(u, a), isNegZero(u, b)) }),
     }
   if (a.kind === "int" && b.kind === "int" && a.origin === b.origin)
     return { kind: "int", origin: a.origin, term: z3.If(c, a.term, b.term) }

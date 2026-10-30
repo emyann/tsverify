@@ -148,9 +148,12 @@ const present = (
       }
     }
     u.assume(real.eq(value), indices)
+    // Whether it is `-0`, a flag of its own: a zero, which only `Object.is` tells apart.
+    const negZero = u.leaf([...segments, "~neg0"], "bool", indices) as never as Bool
+    u.assume(z3.Implies(negZero, z3.And(cls.eq(NUM.finite), value.eq(0))), indices)
     if (members.every((m) => m.isNumberLiteral()))
       u.assume(z3.And(cls.eq(NUM.finite), z3.Or(...members.map((m) => value.eq(z3.Real.val(exactRational(m.value)))))), indices)
-    return { kind: "num", cls, real: value, whole, int }
+    return { kind: "num", cls, real: value, whole, int, negZero }
   }
   if (all(F.BigIntLike)) {
     const term = u.leaf(leaf, "int", indices, "bigint") as never as ReturnType<typeof z3.Int.val>

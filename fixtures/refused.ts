@@ -18,4 +18,4 @@ function countdown(n: bigint): bigint {
 export const recursion = contract(countdown, { ensures: { holds } })
 
 
-export const global = contract((x: number) => Math.max(x, 0) > 0, { ensures: { holds } })
+export const global = contract((x: number) => Math.hypot(x, 0) > 0, { ensures: { holds } })

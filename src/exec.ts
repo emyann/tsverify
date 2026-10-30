@@ -1272,7 +1272,16 @@ const counterFacts = (
   for (const [name] of counters) {
     const b = st.vars.get(name)
     const v = b?.kind === "cell" ? present(envOf(L, st).get(name)!()) : undefined
-    if (b?.kind === "cell" && v?.kind === "num" && v.cls.eqIdentity(z3.Int.val(NUM.finite)) && v.whole !== undefined && z3.isTrue(v.whole))
+    // Not `-0`, which an integer does not hold: `let i = -0` is no counter.
+    const signless = v?.kind === "num" && (v.negZero === undefined || z3.isFalse(v.negZero))
+    if (
+      b?.kind === "cell" &&
+      v?.kind === "num" &&
+      signless &&
+      v.cls.eqIdentity(z3.Int.val(NUM.finite)) &&
+      v.whole !== undefined &&
+      z3.isTrue(v.whole)
+    )
       wholeCells.add(b.cell)
   }
   const facts = (x: State) =>

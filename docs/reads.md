@@ -19,8 +19,9 @@ part as a harmless one.
 **Expressions.**
 - `===`, `!==`, `<`, `<=`, `>`, `>=`, `!`, `&&`, `||`, `??`, `?:`, as JavaScript defines them, `NaN` and `-0` included;
 - `+`, `-` and `*` on bigints, `+` on strings, and template strings (an unknown string of their parts);
-- `+`, `-`, `*` and `/` on `number`, where they are exact, each an obligation that it is (*Numbers*, below), and
-  `Math.floor`, `Math.ceil`, `Math.trunc`, `Number.isInteger`, `Number.isSafeInteger`, `Number.isFinite`, `Number.isNaN`;
+- `+`, `-`, `*` and `/` on `number`, where they are exact, each an obligation that it is (*Numbers*, below);
+  `Math.floor`, `Math.ceil`, `Math.trunc`, `Math.abs`, `Math.max`, `Math.min`, `Number.isInteger`, `Number.isSafeInteger`,
+  `Number.isFinite`, `Number.isNaN`, and `Object.is`, which tells `-0` from `0`;
 - `/` and `%` on bigints, as JavaScript computes them: the quotient truncated toward zero, the remainder with the
   dividend's sign. A division by `0n` throws, so each divisor is proved other than `0n` on the branch where its division
   runs (*Divisions*, below);
@@ -44,8 +45,11 @@ to what the function allocated, read as Rust's borrow checker would ([Loops and 
 
 ### Numbers
 
-A `number` is a class (finite, `NaN`, `+∞` or `−∞`) and a real value. Comparisons, `===` and truthiness follow IEEE 754
-exactly, and every double is such a value, so a proof covers every double. A bigint is an integer of any size, exact.
+A `number` is a class (finite, `NaN`, `+∞` or `−∞`), a real value, and whether it is `-0`. Comparisons, `===` and
+truthiness follow IEEE 754 exactly, and every double is such a value, so a proof covers every double. `-0` is `0` to all
+of them; `Object.is` tells it apart, and the model gives it where IEEE 754 does: `-0 + -0`, `-0 - 0`, a product or a
+quotient that is 0 of one negative operand, `-x` of `0`, `Math.ceil` and `Math.trunc` of a fraction above −1, and
+`Math.min` of two zeros. A bigint is an integer of any size, exact.
 
 Arithmetic on `number` is read where it is exact: `+`, `-`, `*` and `/` (and `++`, `--`, `+=`, `-=`) of two finite
 operands whose exact result a double holds, a whole number or a half within 2^53. There the double is the exact result,
@@ -59,8 +63,9 @@ where its arithmetic is exact, and a `requires` is read as allowing an input whe
 as ruling it out, for a counterexample. In other spec code (a declaration's laws, a guessed invariant), arithmetic on
 `number` is read on counts and small whole literals alone, `i - 1`.
 
-`Math.floor`, `Math.ceil` and `Math.trunc` give the integral double JavaScript gives; the `Number` checks read the class
-and the value. `%` on `number`, and `Math`'s other functions, are refused.
+`Math.floor`, `Math.ceil` and `Math.trunc` give the integral double JavaScript gives; `Math.max` and `Math.min` are `NaN`
+where an argument is, of any number of arguments; the `Number` checks read the class and the value. `%` on `number`,
+`**`, and `Math`'s other functions are refused.
 
 ### Indexes
 
@@ -102,8 +107,9 @@ Each refusal names the place, `file:line:column`, and the reason.
 | arithmetic on `number` in a declaration's laws or a guessed invariant, but on counts and small whole literals | its rounding is not modeled | the value computed in the program, or `bigint` |
 | a bigint `/` or `%` inside `.some`, `.every`, `.find` or `.filter` | the element is any index's, read or not | the division in a `for…of` over the elements, or outside the callback |
 | `==`, `!=` | not modeled | `===`, `!==`, and `x === null \|\| x === undefined` for a nullish check |
-| a `let` of the module, a global (`Date`, `Math.sqrt`) | a binding the verifier cannot see | a `const` or an argument, or a function declared with `assume` |
+| a `let` of the module, a global (`Date`, `Math.sqrt`, `Math.round`) | a binding the verifier cannot see | a `const` or an argument, or a function declared with `assume` |
 | a string's other methods (`split`, `replace`, `toUpperCase`, `trim`), its spread `[...s]`, `indexOf(t, from)` | not modeled | the methods it reads, or a function declared with `assume` |
+| `Object.is` of an object | it compares identity, which is not modeled | a field of each |
 | `xs[i]` on an array, without `noUncheckedIndexedAccess` | its type says the element is there, which may be false | `noUncheckedIndexedAccess` turned on, or `xs.at(i)`, whose type says it may be missing |
 | `.includes(x)` of a `number` | it finds `NaN`, which `===` does not | `.some((y) => y === x)` |
 | a member of a value the type checker has not shown present | it may be missing | a check first, or `?.` |

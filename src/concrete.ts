@@ -68,9 +68,12 @@ const read = (u: Universe, model: Model, n: Node, indices: ReadonlyArray<number>
           const x = model.eval(term(u, n.children.get(seg)!.leaf!, indices), true)
           return z3.isIntVal(x) ? x.value() : BigInt(x.sexpr())
         }
-        if (n.children.has("~m")) return Number(intOf("~m")) / 1024
+        // `-0` where its flag says so and its value is 0: the value is read through its parts, as the code reads it.
+        const signed = (x: number): number =>
+          x === 0 && n.children.has("~neg0") && z3.isTrue(model.eval(term(u, n.children.get("~neg0")!.leaf!, indices), true)) ? -0 : x
+        if (n.children.has("~m")) return signed(Number(intOf("~m")) / 1024)
         if (n.children.has("~whole")) {
-          if (z3.isTrue(model.eval(term(u, n.children.get("~whole")!.leaf!, indices), true))) return Number(intOf("~k"))
+          if (z3.isTrue(model.eval(term(u, n.children.get("~whole")!.leaf!, indices), true))) return signed(Number(intOf("~k")))
           const d = rational(model.eval(term(u, n.children.get("~d")!.leaf!, indices), true))
           return Number(intOf("~j")) + Number(d.numerator) / Number(d.denominator)
         }
@@ -126,6 +129,8 @@ const write = (u: Universe, n: Node, indices: ReadonlyArray<number>, value: unkn
       const x = value as number
       const cls = Number.isNaN(x) ? NUM.nan : x === Infinity ? NUM.posInf : x === -Infinity ? NUM.negInf : NUM.finite
       out.push((term(u, n.children.get("~cls")!.leaf!, indices) as Arith).eq(cls))
+      const neg0 = n.children.get("~neg0")?.leaf
+      if (neg0 !== undefined) out.push((term(u, neg0, indices) as Bool).eq(z3.Bool.val(Object.is(x, -0))))
       if (cls === NUM.finite) {
         out.push((t as Arith).eq(z3.Real.val(exactRational(x))))
         // And its whole parts, which are what the code reads (`symbolicOf`).

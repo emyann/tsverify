@@ -37,7 +37,21 @@ import type { Arith, Bool } from "z3-solver"
 import type { Adapter } from "./adapter.ts"
 import { chosen, computationCall } from "./computation.ts"
 import { type LemmaUse, type Obligation, runFunction } from "./exec.ts"
-import { type Order, compare, countAsNum, intOf, isNullish, isWhole, ite, nullishOr, strictEq, truthy, undefinedOr } from "./ops.ts"
+import {
+  type Order,
+  compare,
+  countAsNum,
+  intOf,
+  isNegZero,
+  isNullish,
+  isWhole,
+  ite,
+  nullishOr,
+  sameValue,
+  strictEq,
+  truthy,
+  undefinedOr,
+} from "./ops.ts"
 import { narrowedField } from "./narrow.ts"
 import { type Purity, isLib, purityOf } from "./purity.ts"
 import { type Typing, symbolicOf } from "./symbolic.ts"
@@ -474,6 +488,8 @@ export const lowerExpr = (L: Lowering, e: ts.Expression, env: Env): Val => {
           real: n.real.neg(),
           ...(n.whole === undefined ? {} : { whole: n.whole }),
           ...(n.int === undefined ? {} : { int: n.int.neg() }),
+          // `-0` of `0`, and `0` of `-0`.
+          negZero: z3.And(n.cls.eq(NUM.finite), n.real.eq(0), z3.Not(isNegZero(L.u, n))),
         }
       throw new Unsupported(`unary - on a ${v.kind}`, e)
     }
@@ -577,6 +593,7 @@ export const num = (z3: Lowering["u"]["z3"], n: number): Val => ({
   real: z3.Real.val(Number.isFinite(n) ? exactRational(n) : 0),
   whole: z3.Bool.val(!Number.isFinite(n) || Number.isInteger(n)),
   ...(Number.isInteger(n) ? { int: z3.Int.val(n) } : {}),
+  ...(Object.is(n, -0) ? { negZero: z3.Bool.val(true) } : {}),
 })
 
 const identifier = (L: Lowering, e: ts.Identifier, env: Env): Val => {
@@ -736,12 +753,14 @@ const call = (L: Lowering, e: ts.CallExpression, env: Env): Val => {
 }
 
 /**
- * A function of JavaScript's own `Math` or `Number` the model reads: what a double makes of it, exactly. `floor`,
- * `trunc` and `ceil` give an integral double, which the double holds; the `Number` checks read the class and the value.
+ * A function of JavaScript's own `Math`, `Number` or `Object` the model reads: what a double makes of it, exactly.
+ * `floor`, `trunc` and `ceil` give an integral double, which the double holds, `-0` where JavaScript gives it; `max` and
+ * `min` are `NaN` where an argument is, and tell `-0` from `0`; the `Number` checks read the class and the value; and
+ * `Object.is` is SameValue.
  */
 const standard = (L: Lowering, callee: ts.PropertyAccessExpression): Val | undefined => {
   const o = callee.expression
-  if (!ts.isIdentifier(o) || (o.text !== "Math" && o.text !== "Number") || !isLib(L.checker, o)) return undefined
+  if (!ts.isIdentifier(o) || (o.text !== "Math" && o.text !== "Number" && o.text !== "Object") || !isLib(L.checker, o)) return undefined
   const z3 = L.u.z3
   const name = `${o.text}.${callee.name.text}`
   const one = (f: (v: Val, at: ts.Node) => Val): Val => ({
@@ -752,7 +771,14 @@ const standard = (L: Lowering, callee: ts.PropertyAccessExpression): Val | undef
       return f(v, at)
     },
   })
-  const rounded = (f: (r: Arith) => Arith) =>
+  type Num = Extract<Val, { kind: "num" }>
+  const asNum = (v: Val, at: ts.Node): Num => {
+    const n = asNumber(L, v)
+    if (n === undefined) throw new Unsupported(`\`${name}\` of a ${v.kind}`, at)
+    return n
+  }
+  /** `f` of a fraction; and `towardZero` where a fraction between -1 and 0 rounds to `-0`, as `ceil` and `trunc` do. */
+  const rounded = (f: (r: Arith) => Arith, towardZero = false) =>
     one((v, at) => {
       if (v.kind === "int" && v.origin === "count") return v
       if (v.kind !== "num") throw new Unsupported(`\`${name}\` of a ${v.kind}`, at)
@@ -765,8 +791,29 @@ const standard = (L: Lowering, callee: ts.PropertyAccessExpression): Val | undef
         real: z3.If(finite, z3.ToReal(r), v.real),
         whole: z3.If(finite, z3.Bool.val(true), isWhole(L.u, v)),
         int: z3.If(finite, r, intOf(L.u, v)),
+        negZero: towardZero
+          ? z3.Or(isNegZero(L.u, v), z3.And(finite, z3.Not(isWhole(L.u, v)), v.real.gt(-1), v.real.lt(0)))
+          : isNegZero(L.u, v),
       }
     })
+  /** `Math.max` (`largest`) or `Math.min` of any number of numbers: `NaN` where one is; of two zeros, `0` and `-0`. */
+  const extreme = (largest: boolean): Val => ({
+    kind: "builtin",
+    name,
+    call: (args, at) => {
+      const ns = args.map((v) => asNum(v, at))
+      const nan = num(z3, Number.NaN) as Num
+      const pair = (a: Num, b: Num): Num => {
+        const picked = ite(L.u, compare(L.u, b, a, largest ? ">" : "<", at), b, a, at) as Num
+        const zeros = z3.And(a.cls.eq(NUM.finite), b.cls.eq(NUM.finite), a.real.eq(0), b.real.eq(0))
+        const sign = largest ? z3.And(isNegZero(L.u, a), isNegZero(L.u, b)) : z3.Or(isNegZero(L.u, a), isNegZero(L.u, b))
+        const signed: Num = { ...picked, negZero: z3.If(zeros, sign, isNegZero(L.u, picked)) }
+        return ite(L.u, z3.Or(a.cls.eq(NUM.nan), b.cls.eq(NUM.nan)), nan, signed, at) as Num
+      }
+      const [first, ...rest] = ns
+      return first === undefined ? num(z3, largest ? -Infinity : Infinity) : rest.reduce(pair, first)
+    },
+  })
   const check = (f: (v: Extract<Val, { kind: "num" }>) => Bool) =>
     one((v) =>
       v.kind === "num"
@@ -780,9 +827,46 @@ const standard = (L: Lowering, callee: ts.PropertyAccessExpression): Val | undef
     case "Math.floor":
       return rounded((r) => z3.ToInt(r))
     case "Math.ceil":
-      return rounded((r) => z3.ToInt(r.neg()).neg())
+      return rounded((r) => z3.ToInt(r.neg()).neg(), true)
     case "Math.trunc":
-      return rounded((r) => z3.If(r.ge(0), z3.ToInt(r), z3.ToInt(r.neg()).neg()))
+      return rounded((r) => z3.If(r.ge(0), z3.ToInt(r), z3.ToInt(r.neg()).neg()), true)
+    case "Math.max":
+      return extreme(true)
+    case "Math.min":
+      return extreme(false)
+    case "Math.abs":
+      return one((v, at) => {
+        if (v.kind === "int" && v.origin === "count") return v
+        const n = asNum(v, at)
+        const negative = n.real.lt(0)
+        return {
+          kind: "num",
+          cls: z3.If(n.cls.eq(NUM.negInf), z3.Int.val(NUM.posInf), n.cls),
+          real: z3.If(negative, n.real.neg(), n.real),
+          ...(n.whole === undefined ? {} : { whole: n.whole }),
+          ...(n.int === undefined ? {} : { int: z3.If(n.int.lt(0), n.int.neg(), n.int) }),
+        }
+      })
+    case "Object.is":
+      return {
+        kind: "builtin",
+        name,
+        call: (args, at) => {
+          const [a, b] = args
+          if (args.length !== 2 || a === undefined || b === undefined) throw new Unsupported("`Object.is` of other than two values", at)
+          const na = asNumber(L, a)
+          const nb = asNumber(L, b)
+          if (na !== undefined && nb !== undefined) return bool(sameValue(L.u, na, nb))
+          // Of two values neither a number nor an object, SameValue is `===`.
+          const plain = (v: Val) =>
+            v.kind === "str" || v.kind === "bool" || v.kind === "nullish" || (v.kind === "int" && v.origin === "bigint")
+          if (plain(a) && plain(b)) return bool(strictEq(L.u, a, b, at))
+          throw new Unsupported(
+            "`Object.is` is modeled of two numbers, or of two values neither of which is a number or an object: an object's identity is not",
+            at,
+          )
+        },
+      }
     case "Number.isInteger":
       return check(whole)
     case "Number.isSafeInteger":
@@ -1352,7 +1436,16 @@ export const exactly = (
       hints: L.hints.length,
     })
   }
-  return { kind: "num", cls: z3.Int.val(NUM.finite), real: r, whole, int: intOfResult }
+  // Its sign where it is 0, as IEEE 754 gives it: `-0 + -0` and `-0 - 0` are `-0`, any other sum or difference that is 0
+  // is `0`; a product or quotient that is 0 is `-0` where exactly one operand is negative, `-0` among them.
+  const negative = (v: Extract<Val, { kind: "num" }>) => z3.Or(v.real.lt(0), isNegZero(L.u, v))
+  const negZero =
+    op === K.PlusToken
+      ? z3.And(isNegZero(L.u, a), isNegZero(L.u, b))
+      : op === K.MinusToken
+        ? z3.And(isNegZero(L.u, a), b.real.eq(0), z3.Not(isNegZero(L.u, b)))
+        : z3.And(r.eq(0), z3.Not(negative(a).eq(negative(b))))
+  return { kind: "num", cls: z3.Int.val(NUM.finite), real: r, whole, int: intOfResult, ...(known ? {} : { negZero }) }
 }
 
 /**
