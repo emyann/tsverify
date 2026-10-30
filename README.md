@@ -227,6 +227,7 @@ tsverify is not on npm yet. Build a tarball from this repository and install it 
 npm pack                                          # here: builds the package, writes tsverify-0.0.0.tgz
 npm install --save-dev <path>/tsverify-0.0.0.tgz  # in your project; add `effect` for Effect programs
 npx tsverify                                      # every contract under the current folder
+npx tsverify --watch                              # again on every save, until all is proved
 ```
 
 It needs Node 24.16 or later, and brings its own `typescript` and `z3-solver`. It reads every file that imports

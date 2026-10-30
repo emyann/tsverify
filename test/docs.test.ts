@@ -64,7 +64,8 @@ const normal = (s: string) =>
     .join("\n")
     .trim()
 
-const { NODE_OPTIONS: _, ...env } = process.env
+// Without this run's `NODE_OPTIONS`, and without `FORCE_COLOR`: a page shows the report as plain text.
+const { NODE_OPTIONS: _, FORCE_COLOR: __, ...env } = process.env
 const ran = (args: ReadonlyArray<string>, cwd: string): Promise<{ code: number | null; out: string; err: string }> =>
   new Promise((resolve, reject) => {
     const child = spawn(process.execPath, args, { cwd, env })

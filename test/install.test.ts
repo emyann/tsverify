@@ -52,8 +52,11 @@ const [balance, amount] = (JSON.parse(process.argv[2]!) as Array<string>).map((x
 console.log(JSON.stringify(holds(chargeSpec.ensures.neverNegative!)(balance, amount, overdraw(balance, amount))))
 `
 
-/** The environment without a `NODE_OPTIONS` of this run's: what runs in the project runs as it would there. */
-const { NODE_OPTIONS: _, ...env } = process.env
+/**
+ * The environment without a `NODE_OPTIONS` of this run's, so what runs in the project runs as it would there, and
+ * without `FORCE_COLOR`, so the reports compared are plain text.
+ */
+const { NODE_OPTIONS: _, FORCE_COLOR: __, ...env } = process.env
 const ran = (cmd: string, args: ReadonlyArray<string>, cwd: string): Promise<{ code: number | null; out: string; err: string }> =>
   new Promise((resolve, reject) => {
     const child = spawn(cmd, args, { cwd, env })

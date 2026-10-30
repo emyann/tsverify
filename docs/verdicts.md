@@ -239,8 +239,8 @@ cap
 ## The command
 
 ```text
-tsverify [<file or folder>...] [--project tsconfig.json] [--bound N] [--timeout MS] [--verbose] [--json]
-tsverify <file.ts> <export> [--json]
+tsverify [<file or folder>...] [--project tsconfig.json] [--bound N] [--timeout MS] [--verbose] [--json] [--watch]
+tsverify <file.ts> <export> [--json] [--watch]
 ```
 
 | Flag | |
@@ -250,6 +250,7 @@ tsverify <file.ts> <export> [--json]
 | `--timeout` | the time each query may take, in milliseconds, 10,000 by default |
 | `--verbose` | everything of every contract, as the one-contract form prints it |
 | `--json` | one JSON document instead of the text, and nothing else on stdout |
+| `--watch` | the same again on every change to the project's TypeScript, until stopped (below) |
 
 | Exit | |
 | --- | --- |
@@ -257,6 +258,31 @@ tsverify <file.ts> <export> [--json]
 | 1 | one is not: a counterexample, or a law bounded, vacuous, unsupported, unknown or inconsistent, or a contract not verified |
 | 2 | a usage error: a path that is not there, no file or no contract to verify, no `tsconfig.json` |
 | 3 | the verifier itself failed, which says nothing of the code |
+
+In a terminal the report is in colour: green `proved`, red `counterexample`, yellow for a verdict that is neither,
+magenta for what was not read. Piped, as CI and coding agents read it, or with `NO_COLOR` set, it is plain text.
+
+### `--watch`
+
+Verify while you write, as a test runner watches: `npx tsverify --watch` runs again each time a TypeScript file of the
+project, its `tsconfig.json` or its `package.json` changes, until you stop it, and each run ends with whether all is
+proved. Each run is a process of its own, as a single run is, and a run a newer change makes stale is stopped.
+
+```text
+tsverify --watch · 8:07:10 PM · src/shipping.ts changed
+src/shipping.ts
+  shipping
+    proved          An order of 50 or more ships free  (freeFrom50, 114 ms)
+    proved          smallOrdersPay  (15 ms)
+
+1 contract in 1 file: laws 2 proved
+
+all proved in 1.1 s · waiting for a change (Ctrl+C to stop)
+```
+
+In a terminal the screen is redrawn for each run. Piped, each run's report follows the last one's under its own first
+line, so a coding agent that runs it in the background edits, then reads the newest report, until all is proved. With
+`--json`, each run is one line of JSON, the document `--json` prints.
 
 ## `--json`
 

@@ -17,9 +17,11 @@ const root = path.resolve(import.meta.dirname, "..")
 const file = path.join(root, "fixtures/says.ts")
 const project = loadProject([file], path.join(root, "tsconfig.json"))
 const read = (v: Verification) => Object.fromEntries(v.laws.map((l) => [l.name, [l.status, l.says]]))
+const { FORCE_COLOR: _, ...plain } = process.env
 const cli = (...args: Array<string>) =>
   spawnSync(process.execPath, ["--conditions=tsverify-source", path.join(root, "src/cli.ts"), ...args], {
     cwd: root,
+    env: plain,
     encoding: "utf8",
     timeout: 300_000,
   })

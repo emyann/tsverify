@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// tsverify [<file or folder>...] [--project tsconfig.json] [--bound 4] [--timeout 10000] [--verbose] [--json]
+// tsverify [<file or folder>...] [--project tsconfig.json] [--bound 4] [--timeout 10000] [--verbose] [--json] [--watch]
 //   Verifies every contract each file exports: every implementation of a spec (`const f: Implementation<S>`),
 //   and every `contract`, computation and lemma, in each file that imports tsverify under each folder (the current one
 //   by default), a line per law, then a total. Exits 1 unless every law is proved and says something of its function, and every
@@ -8,9 +8,15 @@
 //   Verifies one contract, with everything the verification knows: the states its result reaches, what it trusted
 //   and what it assumed.
 // --json prints one JSON document instead, of every verdict in full (`Report`), and the same exit code.
+// --watch runs it again on every change to the project's TypeScript, until stopped: each run in a process of its own,
+//   the screen redrawn in a terminal, each run's report after the last one otherwise (with --json, a line per run).
 // Exits 0 when everything is proved, 1 when something is not, 2 on a usage error, 3 when the verifier itself fails.
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs"
+// In a terminal the report is in colour; piped, or with NO_COLOR set, it is plain text.
+import { type ChildProcess, spawn } from "node:child_process"
+import { existsSync, readdirSync, readFileSync, statSync, watch as watchFiles } from "node:fs"
 import path from "node:path"
+import { fileURLToPath } from "node:url"
+import { styleText } from "node:util"
 import ts from "typescript"
 import { contractsIn, loadProject } from "./project.ts"
 import type { Ctx } from "./value.ts"
@@ -23,7 +29,7 @@ process.on("uncaughtException", (e) => {
 })
 
 const USAGE =
-  "usage: tsverify [<file or folder>...] [--project tsconfig.json] [--bound N] [--timeout MS] [--verbose] [--json]\n       tsverify <file.ts> <export> [--json]"
+  "usage: tsverify [<file or folder>...] [--project tsconfig.json] [--bound N] [--timeout MS] [--verbose] [--json] [--watch]\n       tsverify <file.ts> <export> [--json] [--watch]"
 const argv = process.argv.slice(2)
 const VALUED = new Set(["--project", "--bound", "--timeout"])
 const positional = argv.filter((a, i) => !a.startsWith("--") && !VALUED.has(argv[i - 1] ?? ""))
@@ -36,6 +42,21 @@ const json = argv.includes("--json")
 const bound = flag("--bound") === undefined ? undefined : Number(flag("--bound"))
 const timeoutMs = flag("--timeout") === undefined ? undefined : Number(flag("--timeout"))
 const opts: Options = { ...(bound ? { bound } : {}), ...(timeoutMs ? { timeoutMs } : {}) }
+
+/** Text styled for a terminal; `styleText` leaves it plain when stdout is not one, or `NO_COLOR` is set. */
+const paint = (style: Parameters<typeof styleText>[0], text: string): string => (json ? text : styleText(style, text))
+/** Each verdict's colour: green proved, red broken, yellow for what is neither, magenta for what is not read. */
+const STATUS_STYLE: Readonly<Record<string, Parameters<typeof styleText>[0]>> = {
+  proved: "green",
+  counterexample: ["red", "bold"],
+  vacuous: "yellow",
+  bounded: "yellow",
+  unknown: "yellow",
+  unsupported: "magenta",
+  inconsistent: ["magenta", "bold", "inverse"],
+}
+/** A verdict, padded to its column and coloured. */
+const verdict = (status: string): string => paint(STATUS_STYLE[status] ?? "reset", status.padEnd(15))
 
 /** The `tsconfig.json` a file is checked by: `--project`, or the nearest one above it. */
 const tsconfigOf = (file: string): string => {
@@ -153,9 +174,11 @@ const report = (v: Verification, pad: string, full: boolean): Array<string> => {
   for (const l of v.laws) {
     // A law that says what it means leads with its sentence, and its name, as the code spells it, follows.
     const ms = `${Math.round(l.ms)} ms`
-    out.push(`${pad}${l.status.padEnd(15)} ${l.says === undefined ? `${l.name}  (${ms})` : `${l.says}  (${l.name}, ${ms})`}`)
-    if (l.args !== undefined) out.push(`${under}e.g. ${show(l.args)}`)
-    if (l.world !== undefined && Object.keys(l.world).length > 0) out.push(`${under}where ${given(l.world)}`)
+    out.push(
+      `${pad}${verdict(l.status)} ${l.says === undefined ? `${paint("bold", l.name)}  ${paint("dim", `(${ms})`)}` : `${paint("bold", l.says)}  ${paint("dim", `(${l.name}, ${ms})`)}`}`,
+    )
+    if (l.args !== undefined) out.push(`${under}${paint("dim", "e.g.")} ${paint("cyan", show(l.args))}`)
+    if (l.world !== undefined && Object.keys(l.world).length > 0) out.push(`${under}${paint("dim", "where")} ${given(l.world)}`)
     if (l.abstract !== undefined)
       out.push(`${under}leans on what is declared of ${l.abstract.join(", ")}: true of them as declared, maybe not as they are`)
     if (l.reason !== undefined) out.push(`${under}${l.reason}`)
@@ -166,7 +189,7 @@ const report = (v: Verification, pad: string, full: boolean): Array<string> => {
     ["divisions", v.obligations.filter((o) => o.kind === "division")],
   ] as const) {
     if (os.length === 0) continue
-    out.push(`${pad}${heading}:`)
+    out.push(paint("dim", `${pad}${heading}:`))
     for (const o of os) {
       const what =
         o.kind === "invariant"
@@ -176,9 +199,10 @@ const report = (v: Verification, pad: string, full: boolean): Array<string> => {
             : o.kind === "division"
               ? "divisor not 0n"
               : o.kind
-      out.push(`${pad}  ${o.status.padEnd(15)} ${what}: ${o.text}  (${rel(o.at)})`)
-      if (o.args !== undefined) out.push(`${pad}  ${"".padEnd(15)} e.g. ${show(o.args)}`)
-      if (o.world !== undefined && Object.keys(o.world).length > 0) out.push(`${pad}  ${"".padEnd(15)} where ${given(o.world)}`)
+      out.push(`${pad}  ${verdict(o.status)} ${what}: ${o.text}  ${paint("dim", `(${rel(o.at)})`)}`)
+      if (o.args !== undefined) out.push(`${pad}  ${"".padEnd(15)} ${paint("dim", "e.g.")} ${paint("cyan", show(o.args))}`)
+      if (o.world !== undefined && Object.keys(o.world).length > 0)
+        out.push(`${pad}  ${"".padEnd(15)} ${paint("dim", "where")} ${given(o.world)}`)
       if (o.reason !== undefined) out.push(`${pad}  ${"".padEnd(15)} ${o.reason}`)
     }
   }
@@ -214,8 +238,8 @@ const passed = (v: Verification) =>
 const one = async (z3: Ctx, file: string, name: string, pad: string, full: boolean): Promise<Verification> => {
   const v = relative(await verify(z3, loadProject([file], tsconfigOf(file)), file, name, opts))
   if (json) return v
-  if (v.unsupported !== undefined) console.log(`${pad}${name}: not verified — ${v.unsupported}`)
-  else console.log([`${pad}${name}`, ...report(v, `${pad}  `, full)].join("\n"))
+  if (v.unsupported !== undefined) console.log(`${pad}${paint("bold", name)}: ${paint("magenta", "not verified")} — ${v.unsupported}`)
+  else console.log([`${pad}${paint("bold", name)}`, ...report(v, `${pad}  `, full)].join("\n"))
   return v
 }
 
@@ -266,6 +290,90 @@ const printReport = (verdicts: ReadonlyArray<{ readonly file: string; readonly v
   console.log(JSON.stringify(out, null, 2))
 }
 
+/** A change the verdicts may follow: the project's TypeScript or its configuration, outside `node_modules` and dot folders. */
+const relevant = (name: string): boolean => {
+  const parts = name.split(/[\\/]/)
+  if (parts.some((p) => p === "node_modules" || p.startsWith("."))) return false
+  const base = parts.at(-1) ?? ""
+  return (/\.[cm]?tsx?$/.test(base) && !base.endsWith(".d.ts")) || base === "tsconfig.json" || base === "package.json"
+}
+
+/**
+ * `--watch`: the same command again on every change, until stopped. Each run is a process of its own, so a run starts
+ * fresh, as a single run does, and one a newer change makes stale is stopped. In a terminal the screen is redrawn; piped,
+ * each run's report follows the last one's under a line saying when and why it ran, and with `--json` each run is one
+ * line of JSON.
+ */
+const watching = (): Promise<never> => {
+  const args = argv.filter((a) => a !== "--watch")
+  const tty = process.stdout.isTTY === true
+  const start = path.resolve(positional[0] ?? ".")
+  const config =
+    flag("--project") ??
+    ts.findConfigFile(statSync(start, { throwIfNoEntry: false })?.isDirectory() ? start : path.dirname(start), (f) => ts.sys.fileExists(f))
+  const root = config === undefined ? process.cwd() : path.dirname(path.resolve(config))
+  let child: ChildProcess | undefined
+  let pending: string | undefined
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const run = (why: string): void => {
+    if (child !== undefined) {
+      pending = why
+      child.kill()
+      return
+    }
+    const at = new Date().toLocaleTimeString()
+    if (tty) process.stdout.write("\x1b[2J\x1b[3J\x1b[H")
+    else if (!json) console.log("")
+    if (!json) console.log(paint("dim", `tsverify --watch · ${at} · ${why}`))
+    const started = performance.now()
+    let out = ""
+    const c = spawn(process.execPath, [...process.execArgv, fileURLToPath(import.meta.url), ...args], {
+      stdio: ["ignore", json ? "pipe" : "inherit", "inherit"],
+    })
+    c.stdout?.on("data", (d: Buffer) => (out += d.toString()))
+    child = c
+    c.on("exit", (code, signal) => {
+      child = undefined
+      if (pending !== undefined) {
+        const next = pending
+        pending = undefined
+        run(next)
+        return
+      }
+      if (signal !== null) return
+      if (json) {
+        // One line per run, so a reader takes each run as it comes.
+        try {
+          console.log(JSON.stringify(JSON.parse(out)))
+        } catch {
+          process.stdout.write(out)
+        }
+        return
+      }
+      const seconds = ((performance.now() - started) / 1000).toFixed(1)
+      const state =
+        code === 0 ? paint("green", "all proved") : code === 1 ? paint("red", "not all proved") : paint("magenta", `exit ${code}`)
+      console.log(`\n${state}${paint("dim", ` in ${seconds} s · waiting for a change (Ctrl+C to stop)`)}`)
+    })
+  }
+  watchFiles(root, { recursive: true }, (_event, name) => {
+    if (name === null || !relevant(name)) return
+    clearTimeout(timer)
+    // An editor saves in several writes: run once they are done.
+    timer = setTimeout(() => run(`${name} changed`), 150)
+  })
+  const stop = (code: number) => () => {
+    child?.kill()
+    process.exit(code)
+  }
+  process.on("SIGINT", stop(130))
+  process.on("SIGTERM", stop(143))
+  process.on("SIGHUP", stop(129))
+  run("started")
+  return new Promise<never>(() => {})
+}
+if (argv.includes("--watch")) await watching()
+
 // One contract, named: everything about it.
 const [first, second] = positional
 if (positional.length === 2 && first !== undefined && second !== undefined && !existsSync(second)) {
@@ -296,7 +404,7 @@ await withZ3(async (z3) => {
     const names = contractsIn(loadProject([file], tsconfigOf(file)), file)
     if (names.length === 0) continue
     filesRead++
-    if (!json) console.log(rel(file))
+    if (!json) console.log(paint("underline", rel(file)))
     for (const name of names) found.push({ file, v: await one(z3, file, name, "  ", verbose) })
   }
 })
@@ -314,7 +422,7 @@ if (json) {
 
 const count = <A>(xs: ReadonlyArray<A>, key: (x: A) => string) =>
   Object.entries(tally(xs, key))
-    .map(([k, n]) => `${n} ${k}`)
+    .map(([k, n]) => paint(STATUS_STYLE[k] ?? "reset", `${n} ${k}`))
     .join(", ")
 const laws = verdicts.flatMap((v) => v.laws)
 const obligations = verdicts.flatMap((v) => v.obligations)
@@ -322,6 +430,6 @@ const unread = verdicts.filter((v) => v.unsupported !== undefined).length
 console.log(
   `\n${plural(verdicts.length, "contract")} in ${plural(filesRead, "file")}: laws ${count(laws, (l) => l.status) || "none"}` +
     (obligations.length > 0 ? `; obligations ${count(obligations, (o) => o.status)}` : "") +
-    (unread > 0 ? `; ${unread} not verified` : ""),
+    (unread > 0 ? `; ${paint("magenta", `${unread} not verified`)}` : ""),
 )
 process.exit(verdicts.every(passed) ? 0 : 1)
