@@ -1011,15 +1011,15 @@ const divided = (L: Lowering, op: ts.SyntaxKind, l: Val & { kind: "int" }, r: Va
       hints: L.hints.length,
     })
   }
+  // JavaScript truncates: the quotient rounds toward 0, and the remainder takes the dividend's sign. Each is a fresh
+  // integer, defined where the divisor is not 0n by what the two are together: the dividend is the divisor times the
+  // quotient plus the remainder, which is smaller than the divisor and has the dividend's sign, or is 0n. That is one
+  // pair, so the two are exact; and a law as plain as `a === b * (a / b) + a % b` is a fact, not a search.
   const abs = (t: Arith): Arith => z3.If(t.ge(0), t, t.neg())
-  const a = abs(l.term)
-  const b = abs(r.term)
-  if (op === K.SlashToken) {
-    const q = a.div(b)
-    return { ...l, term: z3.If(l.term.ge(0).eq(r.term.gt(0)), q, q.neg()) }
-  }
-  const m = a.mod(b)
-  return { ...l, term: z3.If(l.term.ge(0), m, m.neg()) }
+  const q = z3.Int.const(L.u.fresh("div.q"))
+  const m = z3.Int.const(L.u.fresh("div.r"))
+  L.u.assume(z3.Implies(nonZero, z3.And(l.term.eq(r.term.mul(q).add(m)), abs(m).lt(abs(r.term)), z3.Or(m.eq(0), m.lt(0).eq(l.term.lt(0))))))
+  return { ...l, term: op === K.SlashToken ? q : m }
 }
 
 export const emptyEnv = EMPTY
