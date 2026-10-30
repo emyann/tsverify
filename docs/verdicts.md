@@ -249,9 +249,11 @@ $ npx tsverify src/cap.ts cap
     - Each argument has its TypeScript type; the code's own casts, `any` and `!` are refused.
 ```
 
-- `reaches:` the ends the code can come to, each with a witness: every value of a result that is a union of strings, and
-  for a computation `Success` and each `Failure` tag its type allows. One the verifier proves out of reach is marked
-  `unreachable`.
+- `reaches:` the ends the code can come to, each with a witness: every value of a result that is a union of strings,
+  every tag of one that is a union of records told apart by a field of string literals (`type: "READY"`), and for a
+  computation `Success` and each `Failure` tag its type allows. One the verifier proves out of reach is marked
+  `unreachable`: an end the code never makes, or one a `requires` rules out, which leaves every law about it holding of
+  nothing.
 - `trusted:` each function a declaration covers, which the result leans on without proof: its purity, whether the purity
   was checked from source, its laws, and where it is declared ([What it reads](reads.md), *What it takes on trust*).
 - `assumed:` what the model of JavaScript took for granted on the way, each kind once.

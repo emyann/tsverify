@@ -26,6 +26,7 @@ import {
   lowerCall,
   lowerExpr,
   lowering,
+  member,
   num,
   slice,
   type Trust,
@@ -132,6 +133,8 @@ export interface Options {
   readonly progress?: (line: string) => void
   /** The lemmas being verified, outermost first: a lemma that leans on itself is refused. */
   readonly within?: ReadonlyArray<string>
+  /** Decide these laws alone, and ask no cover: the check of one law, as a test of a planted bug asks it. */
+  readonly only?: ReadonlyArray<string>
 }
 
 /** One side's lowering: the universe, the arguments and result, the precondition. */
@@ -491,6 +494,7 @@ export const judge = async (
   const searchable = new Map<string, Bool>()
   for (const r0 of read) {
     const { law } = r0
+    if (opts.only !== undefined && !opts.only.includes(law.name)) continue
     const started = performance.now()
     if (r0.unsupported !== undefined) {
       laws.push({ name: law.name, ...saying(law), status: "unsupported", reason: r0.unsupported, ms: 0 })
@@ -565,7 +569,7 @@ export const judge = async (
   }
 
   const cover: Array<CoverResult> = []
-  for (const { value, onProof, onSearch } of ends) {
+  for (const { value, onProof, onSearch } of opts.only === undefined ? ends : []) {
     const found = await solve(search, [search.pre, searchRuns, onSearch], opts)
     let c: CoverResult
     if (found.status === "sat") c = { value, status: "reachable", ...found.witness }
@@ -603,11 +607,29 @@ const endsOf = (
 ): Array<{ readonly value: string; readonly onProof: Bool; readonly onSearch: Bool }> => {
   if (source.kind === "computation")
     return outcomesOf(project, proof).map(([value, goal]) => ({ value, onProof: goal(proof), onSearch: goal(search) }))
-  const returns = project.checker.getReturnTypeOfSignature(project.checker.getSignatureFromDeclaration(proof.fn)!)
-  const literals = (returns.isUnion() ? returns.types : [returns]).filter((t) => t.isStringLiteral())
-  if (source.kind !== "function" || proof.result.kind !== "str") return []
-  const is = (side: Lowered, value: string) => strictEq(side.u, side.result, { kind: "str", term: jsString(side.u.z3, value) }, side.fn)
-  return literals.map((t) => ({ value: t.value, onProof: is(proof, t.value), onSearch: is(search, t.value) }))
+  const checker = project.checker
+  const returns = checker.getReturnTypeOfSignature(checker.getSignatureFromDeclaration(proof.fn)!)
+  const members = returns.isUnion() ? returns.types : [returns]
+  if (source.kind !== "function") return []
+  const str = (side: Lowered, value: string): Val => ({ kind: "str", term: jsString(side.u.z3, value) })
+  if (proof.result.kind === "str") {
+    const is = (side: Lowered, value: string) => strictEq(side.u, side.result, str(side, value), side.fn)
+    return members
+      .filter((t) => t.isStringLiteral())
+      .map((t) => ({ value: t.value, onProof: is(proof, t.value), onSearch: is(search, t.value) }))
+  }
+  // A union of records told apart by a field of string literals (`type`, `kind`, `do`): each of its values.
+  if (proof.result.kind !== "record" || members.length < 2) return []
+  const literalOf = (m: ts.Type, name: string): string | undefined => {
+    const p = checker.getPropertyOfType(m, name)
+    const t = p === undefined ? undefined : checker.getTypeOfSymbol(p)
+    return t?.isStringLiteral() ? t.value : undefined
+  }
+  const tag = checker.getPropertiesOfType(members[0]!).find((p) => members.every((m) => literalOf(m, p.name) !== undefined))?.name
+  if (tag === undefined) return []
+  const values = [...new Set(members.map((m) => literalOf(m, tag)!))]
+  const is = (side: Lowered, value: string) => strictEq(side.u, member(side.L, side.result, tag, side.fn), str(side, value), side.fn)
+  return values.map((value) => ({ value: `${tag}: ${JSON.stringify(value)}`, onProof: is(proof, value), onSearch: is(search, value) }))
 }
 
 /**
