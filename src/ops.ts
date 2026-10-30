@@ -65,13 +65,27 @@ export const truthy = (u: Universe, v: Val): Bool => {
 type Num = Extract<Val, { kind: "num" }>
 
 /** A count as a number: finite, and exactly representable (at most 2^32 - 1). */
-const countAsNum = (u: Universe, n: Arith): Num => ({ kind: "num", cls: u.z3.Int.val(NUM.finite), real: u.z3.ToReal(n) })
+export const countAsNum = (u: Universe, n: Arith): Num => ({
+  kind: "num",
+  cls: u.z3.Int.val(NUM.finite),
+  real: u.z3.ToReal(n),
+  whole: u.z3.Bool.val(true),
+  int: n,
+})
+
+/** The integer `v` is wherever it is whole: its `int` where it has one, else the real rounded down. */
+export const intOf = (u: Universe, v: Num): Arith => v.int ?? u.z3.ToInt(v.real)
+
+/** Whether `v`'s value is a whole number (its class aside): its `whole` where it has one, else `IsInt` of its value. */
+export const isWhole = (u: Universe, v: Num): Bool => v.whole ?? u.z3.IsInt(v.real)
 
 /** `a === b` on numbers: false on NaN, true for -0 and 0, true for one infinity and itself. */
 const numEq = (u: Universe, a: Num, b: Num): Bool => {
   const z3 = u.z3
   return z3.Or(
-    z3.And(a.cls.eq(NUM.finite), b.cls.eq(NUM.finite), a.real.eq(b.real)),
+    // Two equal values are both whole or both not, said beside: it is so of every two equal reals, and lets the solver
+    // carry wholeness across an equality (`y === x + 2`) without searching for it.
+    z3.And(a.cls.eq(NUM.finite), b.cls.eq(NUM.finite), a.real.eq(b.real), isWhole(u, a).eq(isWhole(u, b))),
     z3.And(a.cls.eq(NUM.posInf), b.cls.eq(NUM.posInf)),
     z3.And(a.cls.eq(NUM.negInf), b.cls.eq(NUM.negInf)),
   )
@@ -181,9 +195,19 @@ export const ite = (u: Universe, c: Bool, a: Val, b: Val, at: ts.Node): Val => {
   }
   if (a.kind === "str" && b.kind === "str") return { kind: "str", term: z3.If(c, a.term, b.term) }
   if (a.kind === "bool" && b.kind === "bool") return { kind: "bool", term: z3.If(c, a.term, b.term) }
-  if (a.kind === "num" && b.kind === "num") return { kind: "num", cls: z3.If(c, a.cls, b.cls), real: z3.If(c, a.real, b.real) }
+  if (a.kind === "num" && b.kind === "num")
+    return {
+      kind: "num",
+      cls: z3.If(c, a.cls, b.cls),
+      real: z3.If(c, a.real, b.real),
+      ...(a.whole === undefined && b.whole === undefined ? {} : { whole: z3.If(c, isWhole(u, a), isWhole(u, b)) }),
+      ...(a.int === undefined && b.int === undefined ? {} : { int: z3.If(c, intOf(u, a), intOf(u, b)) }),
+    }
   if (a.kind === "int" && b.kind === "int" && a.origin === b.origin)
     return { kind: "int", origin: a.origin, term: z3.If(c, a.term, b.term) }
+  // A count where the other path has a number (`let high = xs.length`, later `high = mid`): a number, which holds it.
+  if (a.kind === "int" && a.origin === "count" && b.kind === "num") return ite(u, c, countAsNum(u, a.term), b, at)
+  if (a.kind === "num" && b.kind === "int" && b.origin === "count") return ite(u, c, a, countAsNum(u, b.term), at)
   if (a.kind === "record" && b.kind === "record") {
     // A field one side lacks belongs to a variant the other is not: the type checker lets it be read only where it
     // exists. A read it has narrowed further takes each side apart (`narrowedField`).

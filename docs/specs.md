@@ -289,7 +289,7 @@ code may:
 
 - use what the code may use ([what it reads](reads.md)): comparisons, `&&`, `?:`, optional chains, `.at`, `.some`,
   `.every`, `.includes`, `.filter(p).length`, `.slice`, and `/` and `%` on bigints, where a division by `0n` makes the law
-  throw, so not hold (guard it, `b === 0n || …`);
+  throw, so not hold (guard it, `b === 0n || …`), and arithmetic on `number`, where a law holds only if it is exact;
 - call the program's own pure functions, read from source, as the code would;
 - call a function the spec declares with `assume`, whose laws are then assumed of it.
 

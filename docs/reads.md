@@ -19,20 +19,22 @@ part as a harmless one.
 **Expressions.**
 - `===`, `!==`, `<`, `<=`, `>`, `>=`, `!`, `&&`, `||`, `??`, `?:`, as JavaScript defines them, `NaN` and `-0` included;
 - `+`, `-` and `*` on bigints, `+` on strings, and template strings (an unknown string of their parts);
+- `+`, `-`, `*` and `/` on `number`, where they are exact, each an obligation that it is (*Numbers*, below), and
+  `Math.floor`, `Math.ceil`, `Math.trunc`, `Number.isInteger`, `Number.isSafeInteger`, `Number.isFinite`, `Number.isNaN`;
 - `/` and `%` on bigints, as JavaScript computes them: the quotient truncated toward zero, the remainder with the
   dividend's sign. A division by `0n` throws, so each divisor is proved other than `0n` on the branch where its division
   runs (*Divisions*, below);
 - property access and optional chains, object and array literals, spreads;
 - a string's `.length`, in UTF-16 code units, as JavaScript counts them;
-- on arrays: `.length`, `.at(k)`, `.some`, `.every`, `.includes` (of a string, a boolean, a bigint or a count), `.find`,
-  `.slice`, `.filter(p).length`, and a literal index on a tuple;
+- on arrays: `.length`, an element at any index, `xs[i]` and `.at(i)` (*Indexes*, below), `.some`, `.every`, `.includes`
+  (of a string, a boolean, a bigint or a count), `.find`, `.slice` and `.filter(p).length`;
 - calls of the program's functions, read from source and inlined, by name or through a namespace import
   (`laws.readsFirst`, from `import * as laws`), and of functions a declaration covers;
 - a tuple's element at a literal index, a call's `args[0]` among them.
 
 **Statements.** `const` and `let`, assignment and compound assignment, `if` with early returns, `switch` with
-fallthrough, `for…of`, `for` and `while`, `delete`, `push`, and changes to what the function allocated, read as Rust's
-borrow checker would ([Loops and proof code](proofs.md), *State*).
+fallthrough, `for…of`, `for` and `while`, `delete`, `push`, an element written at any index (`b[i] = v`), and changes
+to what the function allocated, read as Rust's borrow checker would ([Loops and proof code](proofs.md), *State*).
 
 **Computations.** An async function's or an Effect program's body: `const`, `if`, `return`, `throw` (async), blocks,
 `for (const x of xs)`, and steps anywhere inside an expression, in JavaScript's order. Effect's forms are in
@@ -41,8 +43,33 @@ borrow checker would ([Loops and proof code](proofs.md), *State*).
 ### Numbers
 
 A `number` is a class (finite, `NaN`, `+∞` or `−∞`) and a real value. Comparisons, `===` and truthiness follow IEEE 754
-exactly, and every double is such a value, so a proof covers every double. Arithmetic on `number` is refused: its rounding
-is not modeled. A bigint is an integer of any size, exact.
+exactly, and every double is such a value, so a proof covers every double. A bigint is an integer of any size, exact.
+
+Arithmetic on `number` is read where it is exact: `+`, `-`, `*` and `/` (and `++`, `--`, `+=`, `-=`) of two finite
+operands whose exact result a double holds, a whole number or a half within 2^53. There the double is the exact result,
+and the model reads it so. Elsewhere a double rounds, which is not modeled, so each operation the code runs is an
+obligation that it is exact where it runs, listed under `arithmetic:`: proved, or broken by an input on which it may
+round or meets `NaN` or `±∞`. A law is judged on the runs where every operation is exact, and is proved only once each
+is. `i + 1` is proved exact for a safe integer short of `2^53 − 1`, and refuted at `NaN` for any `number`.
+
+In a law, a `requires` and proof code, arithmetic is part of what is said: a law, an invariant or an `assert` holds only
+where its arithmetic is exact, and a `requires` is read as allowing an input where its own may round, for a proof, and
+as ruling it out, for a counterexample. In other spec code (a declaration's laws, a guessed invariant), arithmetic on
+`number` is read on counts and small whole literals alone, `i - 1`.
+
+`Math.floor`, `Math.ceil` and `Math.trunc` give the integral double JavaScript gives; the `Number` checks read the class
+and the value. `%` on `number`, and `Math`'s other functions, are refused.
+
+### Indexes
+
+`xs[i]` and `xs.at(i)` read the element at an index the code computes, `undefined` outside the array, as JavaScript does:
+`xs[i]` is an element only where `i` is a whole number in range, and `.at(i)` truncates `i` (`NaN` is 0) and counts a
+negative one from the end. `xs[i]` is read only under `noUncheckedIndexedAccess`, whose type says the element may be
+missing; without it, the type says the element is there, and the read is refused.
+
+An element written at a computed index, `b[i] = v`, is an obligation that `i` is a whole number inside the array, listed
+under `element writes:`: elsewhere JavaScript grows the array, or adds a property no element holds. A law is judged on
+the runs where every write lands inside, and is proved only once each does.
 
 ### Divisions
 
@@ -69,19 +96,19 @@ Each refusal names the place, `file:line:column`, and the reason.
 | Written | Refused because | Write instead |
 | --- | --- | --- |
 | `x as T`, `x!`, `any` | each is a claim the verifier would have to trust | a check whose result the type follows: `===`, `x !== undefined`, a `_tag` |
-| `+ - * /` on `number` | its rounding is not modeled | `bigint` where the values are whole, or a function declared with `assume` |
+| `%` on `number` | not modeled | `bigint` where the values are whole |
+| arithmetic on `number` in a declaration's laws or a guessed invariant, but on counts and small whole literals | its rounding is not modeled | the value computed in the program, or `bigint` |
 | a bigint `/` or `%` inside `.some`, `.every`, `.find` or `.filter` | the element is any index's, read or not | the division in a `for…of` over the elements, or outside the callback |
 | `==`, `!=` | not modeled | `===`, `!==`, and `x === null \|\| x === undefined` for a nullish check |
-| a `let` of the module, a global (`Math`) | a binding the verifier cannot see | a `const` or an argument, or a function declared with `assume` |
-| `xs[k]` on an array | its type says the element is there, which may be false | `xs.at(k)`, with a literal `k`, whose type says it may be missing |
-| an element at a computed index, `xs[i]` or `xs.at(i)` | not modeled | `.find`, `.some`, `.every`, or a `for…of` over the elements |
+| a `let` of the module, a global (`Date`, `Math.sqrt`) | a binding the verifier cannot see | a `const` or an argument, or a function declared with `assume` |
+| `xs[i]` on an array, without `noUncheckedIndexedAccess` | its type says the element is there, which may be false | `noUncheckedIndexedAccess` turned on, or `xs.at(i)`, whose type says it may be missing |
 | `.includes(x)` of a `number` | it finds `NaN`, which `===` does not | `.some((y) => y === x)` |
 | a member of a value the type checker has not shown present | it may be missing | a check first, or `?.` |
 | a field of a union whose kind differs by member, read before its tag is checked | it is no one value | a check of the tag first: `ev.type === "add" && ev.n > 0n` |
 | recursion | not modeled | `assume(f, { pure: true, ensures })` |
 | a package's function | the verifier does not read packages | `assume`, in the spec or a pack |
 | a change to an argument, a second name for part of an object, a moved value, a change while borrowed | aliasing is kept out of the solver | build a new value and return it |
-| `break` or `continue` to a label, `do…while`, `for…in`, `var`, `a[i] = …` with a computed index, array methods that change the array but `push` | not modeled | `for…of`, `push`, a new array |
+| `break` or `continue` to a label, `do…while`, `for…in`, `var`, array methods that change the array but `push` | not modeled | `for…of`, `push`, a new array |
 | a step after `?.` | it runs only when what is before it is present | an `if` |
 | a field read through a spread, where the spread value may lack it | its type does not say whether it is there | the field written after the spread, or a required one |
 | in a computation's body: `let`, `try`, `switch`, `for`, `while`, `break` | not modeled yet | `const`, `if`, `for…of`, steps |

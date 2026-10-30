@@ -22,10 +22,10 @@ export const everyScorePositive = contract((words: ReadonlyArray<string>) => wor
   ensures: { always: (_words, out) => out },
 })
 
-/** A function the verifier cannot read (it adds numbers, which round) and nobody declared. */
+/** A function the verifier cannot read (it takes square roots, which round) and nobody declared. */
 export function total(xs: ReadonlyArray<number>): number {
   let t = 0
-  for (const x of xs) t += x
+  for (const x of xs) t += Math.sqrt(x)
   return t
 }
 export const undeclared = contract((xs: ReadonlyArray<number>) => total(xs), { ensures: { always } })

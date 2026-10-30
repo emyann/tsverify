@@ -44,7 +44,19 @@ export type Val =
    * value, so a law proved over them holds of every double; arithmetic, whose
    * rounding this does not see, is refused.
    */
-  | { readonly kind: "num"; readonly cls: Arith; readonly real: Arith }
+  | {
+      readonly kind: "num"
+      readonly cls: Arith
+      readonly real: Arith
+      /**
+       * Where set, true exactly where `real` is a whole number, said in terms the solver reasons with: whether an input is
+       * whole is a flag of its own, and a sum of two whole numbers is whole. Z3 does not prove that from `IsInt` of reals
+       * (`isWhole`, in `ops.ts`).
+       */
+      readonly whole?: Bool
+      /** Where set: the integer the value is, wherever it is whole. An index is read as it, never as `ToInt` of the real. */
+      readonly int?: Arith
+    }
   | { readonly kind: "bool"; readonly term: Bool }
   | { readonly kind: "str"; readonly term: Seq }
   | { readonly kind: "nullish"; readonly which: "null" | "undefined" }

@@ -72,10 +72,9 @@ describe("a refused construct leaves its contract unverified", () => {
   const cases: ReadonlyArray<readonly [string, RegExp]> = [
     ["cast", /a cast is a claim the verifier would have to trust: check the value instead/],
     ["nonNull", /`!` is a claim the verifier would have to trust: check the value/],
-    ["numberArithmetic", /arithmetic on `number` rounds.*: use `bigint` where the values are whole/],
+    ["numberRemainder", /`%` on `number` is not modeled: `bigint` where the values are whole/],
     ["looseEquality", /operator == is not modeled: write `===`/],
     ["letCapture", /`limit` is a binding the verifier cannot see .*: read it from a `const` or an argument/],
-    ["elementAccess", /`xs\[0\]` on an array is not read: write `xs\.at\(0\)`/],
     ["global", /`Math` is a binding the verifier cannot see/],
   ]
   it("recursion: the recursive call is refused, saying what to declare instead", async () => {

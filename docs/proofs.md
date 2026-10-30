@@ -122,6 +122,9 @@ src/largest.ts
   that one pass keeps them, and knows them after the loop, on the paths that reach its end. A loop left early, by a
   `return` or a `break`, is left by an iteration of the solver's choosing that keeps the invariants, and what holds at the
   end is not known there.
+- Besides its invariants, the proof side keeps what the body's own text settles, so an invariant need not say it: a
+  variable the body only counts up (`++`, `+= 1`) stays whole if it starts whole and never falls below where it started,
+  one only counted down never rises above, and an array the body changes only through its elements keeps its length.
 
 A loop is taken to end. An invariant proves what holds *if* the loop ends; a `for…of` over an array always does, and a
 `while` loop's ending is not proved.
@@ -129,8 +132,8 @@ A loop is taken to end. An invariant proves what holds *if* the loop ends; a `fo
 ### State
 
 A loop is only useful if the code changes something, so the verifier reads `let`, assignment, compound operators (`+=`,
-`??=`, `||=`, `&&=`), `++` and `--` on bigints, `delete`, `push`, `switch` with fallthrough, and writes through fields,
-elements and what `.find` or `.at` found. It reads them as Rust's borrow checker would, which keeps aliasing out of the
+`??=`, `||=`, `&&=`), `++` and `--` on bigints and numbers, `delete`, `push`, `switch` with fallthrough, and writes
+through fields, elements at any index and what `.find` or `.at` found. It reads them as Rust's borrow checker would, which keeps aliasing out of the
 solver:
 
 - a variable owns what it allocated, and only what is owned changes;

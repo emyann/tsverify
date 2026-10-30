@@ -8,7 +8,7 @@
 // have it: `any`, casts and non-null assertions in the code under verification
 // are refused where the lowering meets them, and the report names the reliance.
 import ts from "typescript"
-import type { Arith } from "z3-solver"
+import type { Arith, Bool } from "z3-solver"
 import { operation } from "./computation.ts"
 import { ite } from "./ops.ts"
 import type { Lowering } from "./lower.ts"
@@ -117,17 +117,40 @@ const present = (
     const real = u.leaf(leaf, "num", indices) as never as ReturnType<typeof z3.Real.val>
     const cls = u.leaf([...segments, "~cls"], "int", indices) as never as ReturnType<typeof z3.Int.val>
     u.assume(z3.And(cls.ge(NUM.finite), cls.le(NUM.negInf)), indices)
-    // The search side keeps to values a double holds exactly (multiples of 2^-10 below 2^40), so every
-    // model it finds is a real input; the proof side keeps every real, a superset of the doubles.
-    if (u.bound !== undefined) u.assume(z3.And(z3.IsInt(real.mul(1024)), real.ge(-(2 ** 40)), real.le(2 ** 40)), indices)
-    // A real no double holds is no input: a model there is not a counterexample, and the search side is asked instead.
-    else if (!members.every((m) => m.isNumberLiteral())) {
-      u.abstracted = true
-      u.approximations.add("a `number` is any real on the proof side, a double or not")
+    // Its value is written in whole parts, and the value the code reads is that expression, not the leaf: the solver
+    // reasons with a sum of whole numbers, never with `IsInt` of a real, from which it cannot even show the sum of two
+    // whole inputs whole. Whether it is whole is a flag of its own. The leaf equals it, for a counterexample to read.
+    let value: Arith
+    let whole: Bool
+    let int: Arith
+    if (u.bound !== undefined) {
+      // The search side keeps to values a double holds exactly (multiples of 2^-10 below 2^40), so every model it finds
+      // is a real input.
+      const m = u.leaf([...segments, "~m"], "int", indices) as never as Arith
+      u.assume(z3.And(m.ge(-(2 ** 50)), m.le(2 ** 50)), indices)
+      value = z3.ToReal(m).div(1024)
+      whole = m.mod(1024).eq(0)
+      int = m.div(1024)
+    } else {
+      // The proof side keeps every real, a superset of the doubles: a whole one, or one between two whole ones.
+      const w = u.leaf([...segments, "~whole"], "bool", indices) as never as Bool
+      const k = u.leaf([...segments, "~k"], "int", indices) as never as Arith
+      const j = u.leaf([...segments, "~j"], "int", indices) as never as Arith
+      const d = u.leaf([...segments, "~d"], "num", indices) as never as Arith
+      u.assume(z3.And(d.gt(0), d.lt(1)), indices)
+      value = z3.If(w, z3.ToReal(k), z3.ToReal(j).add(d))
+      whole = w
+      int = k
+      // A real no double holds is no input: a model there is not a counterexample, and the search side is asked instead.
+      if (!members.every((m) => m.isNumberLiteral())) {
+        u.abstracted = true
+        u.approximations.add("a `number` is any real on the proof side, a double or not")
+      }
     }
+    u.assume(real.eq(value), indices)
     if (members.every((m) => m.isNumberLiteral()))
-      u.assume(z3.And(cls.eq(NUM.finite), z3.Or(...members.map((m) => real.eq(z3.Real.val(exactRational(m.value)))))), indices)
-    return { kind: "num", cls, real }
+      u.assume(z3.And(cls.eq(NUM.finite), z3.Or(...members.map((m) => value.eq(z3.Real.val(exactRational(m.value)))))), indices)
+    return { kind: "num", cls, real: value, whole, int }
   }
   if (all(F.BigIntLike)) {
     const term = u.leaf(leaf, "int", indices, "bigint") as never as ReturnType<typeof z3.Int.val>

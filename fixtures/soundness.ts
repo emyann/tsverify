@@ -21,3 +21,20 @@ export const same = (x: number): number => x
 export const noneBetween = contract(same, {
   ensures: { notBetweenTwoDoubles: (_x, r) => !(1 < r && r < 1.0000000000000002) },
 })
+
+/** A copy of `a` with 1n set at index 3. */
+export function grow(a: ReadonlyArray<bigint>): Array<bigint> {
+  const b = [...a]
+  b[3] = 1n
+  return b
+}
+/** Once proved: a write past the end was read as keeping the length, where JavaScript grows the array. */
+export const growKeepsLength = contract(grow, { ensures: { sameLength: (a, out) => out.length === a.length } })
+
+/** The second element's `v`, when there is one. */
+export function second(a: ReadonlyArray<{ readonly v: bigint }>): bigint | undefined {
+  const x = a[1]
+  return x === undefined ? undefined : x.v
+}
+/** Once proved: an element borrowed at a literal index was read as there, past the end too. */
+export const secondAlwaysThere = contract(second, { ensures: { always: (_a, out) => out !== undefined } })

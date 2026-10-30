@@ -32,9 +32,14 @@ import type { Arith, Bool } from "z3-solver"
 import {
   type Lowering,
   arithmetic,
+  asNumber,
+  atIndex,
   cond as condOf,
   defaulted,
+  exactSpec,
+  exactly,
   firstIndex,
+  indexOf,
   inSpec,
   later,
   lowerCall,
@@ -45,10 +50,22 @@ import {
   restOf,
   under,
 } from "./lower.ts"
-import { isNullish, ite, nullishOr, strictEq, truthy } from "./ops.ts"
+import { countAsNum, isNullish, isWhole, ite, nullishOr, strictEq, truthy } from "./ops.ts"
 import { CONTRACT_MODULE, declared, functionOf, ownModule, unwrap } from "./project.ts"
 import { symbolicOf } from "./symbolic.ts"
-import { type Env, type FunctionNode, type Thunk, UNDEFINED, Unsupported, type Val, lazy, lazyRecord, locate, memoElems } from "./value.ts"
+import {
+  type Env,
+  type FunctionNode,
+  NUM,
+  type Thunk,
+  UNDEFINED,
+  Unsupported,
+  type Val,
+  lazy,
+  lazyRecord,
+  locate,
+  memoElems,
+} from "./value.ts"
 
 const K = ts.SyntaxKind
 
@@ -56,7 +73,12 @@ const K = ts.SyntaxKind
 export interface Obligation {
   /** The same obligation on both sides and in every instance (a loop inlined twice): kind, place and phase. */
   readonly key: string
-  readonly kind: "invariant" | "assert" | "requires" | "division"
+  /**
+   * Proof code's (`invariant`, `assert`, a lemma's `requires`), or the model's: a `division` whose divisor is not 0n, a
+   * `write` that lands inside its array, `exact` arithmetic on `number`. A law is judged on the runs where the model's
+   * hold; a write and arithmetic are leaned on besides, since the runs where they fail go on, with a value not modeled.
+   */
+  readonly kind: "invariant" | "assert" | "requires" | "division" | "write" | "exact"
   /** The claim as written. */
   readonly text: string
   /** `file:line:col`. */
@@ -70,6 +92,9 @@ export interface Obligation {
   /** For an invariant the verifier guessed, the law it restates. */
   readonly guessed?: string
 }
+
+/** The obligations of the model, which say what runs it reads exactly, rather than what the proof code asked. */
+export const MODELS: ReadonlySet<string> = new Set<Obligation["kind"]>(["division", "write", "exact"])
 
 /** A lemma the proof code called: proved apart, as a contract is. */
 export interface LemmaUse {
@@ -382,11 +407,26 @@ const placeOf = (L: Lowering, st: State, e: ts.Expression): { readonly place: Pl
     const base = placeOf(L, st, x.expression)
     return base === undefined ? undefined : { place: extend(base.place, { kind: "field", name: x.name.text }, x.getText()) }
   }
-  if (ts.isElementAccessExpression(x) && ts.isNumericLiteral(x.argumentExpression) && /^\d+$/.test(x.argumentExpression.text)) {
+  if (ts.isElementAccessExpression(x)) {
     const base = placeOf(L, st, x.expression)
-    return base === undefined
-      ? undefined
-      : { place: extend(base.place, { kind: "index", index: z3.Int.val(Number(x.argumentExpression.text)) }, x.getText()) }
+    if (base === undefined) return undefined
+    const literal = ts.isNumericLiteral(x.argumentExpression) && /^\d+$/.test(x.argumentExpression.text)
+    // A tuple's element at a literal index: its field, which its type says is there. Told apart from an array by its
+    // type, before its value is read: a call's `args`, read only once its `op` narrows it.
+    if (!isArrayTyped(L, x.expression))
+      return literal
+        ? { place: extend(base.place, { kind: "index", index: z3.Int.val(Number(x.argumentExpression.text)) }, x.getText()) }
+        : undefined
+    const container = present(readPlace(L, st, base.place))
+    if (container.kind !== "array") return undefined
+    // An array's element: missing wherever the index is no whole number inside the array. A literal stays one.
+    const { term, whole } = literal
+      ? { term: z3.Int.val(Number(x.argumentExpression.text)), whole: z3.Bool.val(true) }
+      : indexOf(L, lowerExpr(L, x.argumentExpression, envOf(L, st)), x.argumentExpression)
+    return {
+      place: extend(base.place, { kind: "index", index: term }, x.getText()),
+      isUndefined: z3.Not(z3.And(whole, term.ge(0), term.lt(container.length))),
+    }
   }
   if (ts.isCallExpression(x) && ts.isPropertyAccessExpression(x.expression) && x.arguments.length === 1) {
     const method = x.expression.name.text
@@ -402,9 +442,13 @@ const placeOf = (L: Lowering, st: State, e: ts.Expression): { readonly place: Pl
         : ts.isPrefixUnaryExpression(a) && a.operator === K.MinusToken && ts.isNumericLiteral(a.operand)
           ? -BigInt(a.operand.text)
           : undefined
-      if (k === undefined) return undefined
-      const index = k < 0n ? arr.length.add(z3.Int.val(k)) : z3.Int.val(k)
-      return { place: extend(base.place, { kind: "index", index }, x.getText()), isUndefined: z3.Or(index.lt(0), index.ge(arr.length)) }
+      // A literal index stays a literal, which reads that one element exactly (a call of the trace, as it was made).
+      if (k !== undefined) {
+        const index = k < 0n ? arr.length.add(z3.Int.val(k)) : z3.Int.val(k)
+        return { place: extend(base.place, { kind: "index", index }, x.getText()), isUndefined: z3.Or(index.lt(0), index.ge(arr.length)) }
+      }
+      const { index, isUndefined } = atIndex(L, arr, lowerExpr(L, a, envOf(L, st)), a)
+      return { place: extend(base.place, { kind: "index", index }, x.getText()), isUndefined }
     }
     const f = lowerExpr(L, x.arguments[0]!, envOf(L, st))
     if (f.kind !== "fn") return undefined
@@ -420,6 +464,12 @@ const placeOf = (L: Lowering, st: State, e: ts.Expression): { readonly place: Pl
 }
 
 const extend = (p: Place, s: Step, text: string): Place => ({ cell: p.cell, steps: [...p.steps, s], text })
+
+/** Whether `e`'s type is an array's (`T[]`, `ReadonlyArray<T>`), and not a tuple's or a record's. */
+const isArrayTyped = (L: Lowering, e: ts.Expression): boolean => {
+  const t = L.checker.getNonNullableType(L.checker.getTypeAtLocation(e))
+  return (t.isUnion() ? t.types : [t]).every((m) => L.checker.isArrayType(m))
+}
 
 /** Whether an object-typed value is read here: a borrow is made only of one, a primitive is copied. */
 const isObjectTyped = (L: Lowering, e: ts.Node): boolean => {
@@ -795,6 +845,9 @@ const expressionStatement = (L: Lowering, e: ts.Expression, st: State): State =>
       x.operand,
       (old) => {
         if (old.kind === "int" && old.origin === "bigint") return { ...old, term: op === K.PlusToken ? old.term.add(1) : old.term.sub(1) }
+        const n = old.kind === "num" ? old : old.kind === "int" && old.origin === "count" ? countAsNum(u, old.term) : undefined
+        if (n !== undefined)
+          return exactly(L, op, n, { kind: "num", cls: u.z3.Int.val(NUM.finite), real: u.z3.Real.val(1), whole: u.z3.Bool.val(true) }, x)
         throw new Unsupported(
           `\`${ts.tokenToString(x.operator)}\` on a ${old.kind}: arithmetic on \`number\` rounds, which the model of numbers does not see: use \`bigint\` where the values are whole, or move it into a function the spec declares with \`assume\``,
           x,
@@ -851,17 +904,36 @@ const assign = (
   const base = placeOf(L, st, t.expression)
   if (base === undefined)
     throw new Unsupported(`changes \`${t.expression.getText()}\`, which is no variable of this function nor part of one`, at)
-  const step: Step = ts.isPropertyAccessExpression(t)
-    ? { kind: "field", name: t.name.text }
-    : ts.isNumericLiteral(t.argumentExpression) && /^\d+$/.test(t.argumentExpression.text)
-      ? { kind: "index", index: L.u.z3.Int.val(Number(t.argumentExpression.text)) }
-      : (() => {
-          throw new Unsupported("an element set `a[i] = …` is modeled for a literal index", at)
-        })()
+  const step: Step = ts.isPropertyAccessExpression(t) ? { kind: "field", name: t.name.text } : elementStep(L, st, base.place, t)
   const place = extend(base.place, step, t.getText())
   changeable(L, st, place, true, at)
   const next = rhs === undefined ? st : storing(L, st, rhs, place, `\`${t.getText()}\``, at)
   return writePlace(L, next, place, compute, at, deleting)
+}
+
+/**
+ * The element `t` sets, `a[i] = …`: one inside the array. JavaScript grows the array to reach one past its end, with
+ * holes between, which the model does not hold: each write is an obligation that its index is a whole number within
+ * the array's length.
+ */
+const elementStep = (L: Lowering, st: State, base: Place, t: ts.ElementAccessExpression): Step => {
+  const z3 = L.u.z3
+  if (!isArrayTyped(L, t.expression)) throw new Unsupported("an element set on what is no array", t)
+  const container = present(readPlace(L, st, base))
+  if (container.kind !== "array") throw new Unsupported(`an element set on a ${container.kind}`, t)
+  const { term, whole } = indexOf(L, lowerExpr(L, t.argumentExpression, envOf(L, st)), t.argumentExpression)
+  const at = locate(t)
+  L.obligations.push({
+    key: `write@${at}#here`,
+    kind: "write",
+    text: t.getText(),
+    at,
+    phase: "here",
+    cond: st.cond,
+    goal: z3.And(whole, term.ge(0), term.lt(container.length)),
+    hints: L.hints.length,
+  })
+  return { kind: "index", index: term }
 }
 
 /** A call made for what it does: a hint, a `push`, or one of the program's functions run on this state. */
@@ -872,10 +944,9 @@ const callStatement = (L: Lowering, e: ts.CallExpression, st: State): State => {
   if (declared(L.checker, callee, CONTRACT_MODULE, "invariant"))
     throw new Unsupported("an invariant goes first in a loop's body, before any other statement", e)
   if (declared(L.checker, callee, CONTRACT_MODULE, "assert")) {
-    const goal = claim(L, st, e, undefined)
-    obligate(L, "assert", e, "here", st.cond, goal)
+    obligate(L, "assert", e, "here", st.cond, claim(L, st, e, undefined, "asserted"))
     // Proof code is for proofs: the search side, which runs the code exactly, checks a hint and never leans on it.
-    if (u.bound === undefined) L.hints.push(z3.Implies(st.cond, goal))
+    if (u.bound === undefined) L.hints.push(z3.Implies(st.cond, claim(L, st, e, undefined, "assumed")))
     return st
   }
   const lem = lemmaOf(L, callee)
@@ -1014,15 +1085,20 @@ const invariantsOf = (
 }
 
 /** An invariant's, or an assert's, claim in a state: the callback written in place, run as spec code. */
-const claim = (L: Lowering, st: State, call: ts.CallExpression, i: Arith | undefined): Bool => {
+const claim = (L: Lowering, st: State, call: ts.CallExpression, i: Arith | undefined, role: "asserted" | "assumed"): Bool => {
   const f = call.arguments[0]
   if (f === undefined || !(ts.isArrowFunction(unwrap(f)) || ts.isFunctionExpression(unwrap(f))))
     throw new Unsupported("a hint takes a function written in place", call)
   const fn = unwrap(f) as ts.ArrowFunction | ts.FunctionExpression
   if (fn.parameters.length > 0 && i === undefined)
     throw new Unsupported("only a `for…of` loop's invariant takes `i`; a `for` or `while` loop's names its own variables", fn)
-  return inSpec(L, () =>
-    truthy(L.u, lowerCall(L, fn, envOf(L, st), i === undefined ? [] : [{ kind: "int", origin: "count", term: i }], call)),
+  return exactSpec(
+    L,
+    () =>
+      inSpec(L, () =>
+        truthy(L.u, lowerCall(L, fn, envOf(L, st), i === undefined ? [] : [{ kind: "int", origin: "count", term: i }], call)),
+      ),
+    role,
   )
 }
 
@@ -1035,14 +1111,14 @@ interface LoopClaim {
   readonly key: string
   readonly at: string
   readonly text: string
-  readonly claim: (st: State, i: Arith) => Bool
+  readonly claim: (st: State, i: Arith, role: "asserted" | "assumed") => Bool
 }
 
 const writtenClaim = (L: Lowering, call: ts.CallExpression): LoopClaim => ({
   key: `invariant@${locate(call)}`,
   at: locate(call),
   text: call.arguments[0]?.getText() ?? call.getText(),
-  claim: (st, i) => claim(L, st, call, i),
+  claim: (st, i, role) => claim(L, st, call, i, role),
 })
 
 const obligateClaim = (L: Lowering, inv: LoopClaim, phase: "entry" | "kept", cond: Bool, goal: Bool): void => {
@@ -1110,15 +1186,140 @@ const changedBy = (L: Lowering, st: State, nodes: ReadonlyArray<ts.Node>, inner:
   return out
 }
 
-/** A state whose `cells` hold any values of their types: what is known of them is what the caller then assumes. */
-const havoc = (L: Lowering, st: State, cells: ReadonlySet<number>, tag: string, at: ts.Node): State => {
+/**
+ * What a loop keeps of each counter it steps, by construction: a `let` of the state before it that the loop changes only
+ * by `++`, `--`, `+= k` or `-= k` (`k` a whole literal), and only one way, stays a whole number where it starts as one,
+ * and never goes below where it started (above, stepping down). It holds of the model's values, which are JavaScript's
+ * wherever every step was exact: an obligation of each step, so on the runs a law is judged on. Dafny knows as much of
+ * an `int`, from its type. A counter that starts at a value whole as written (`let i = 0`) is `whole`, the cells the loop's
+ * states then hold as integers (`havoc`): a fact the solver would have to bring into every quantifier is then no fact.
+ */
+const counterFacts = (
+  L: Lowering,
+  st: State,
+  nodes: ReadonlyArray<ts.Node>,
+  inner: ts.Node,
+): { readonly facts: (x: State) => Bool; readonly whole: ReadonlySet<number> } => {
+  const z3 = L.u.z3
+  const way = new Map<string, "up" | "down" | "no">()
+  // An array the loop changes only through its elements (`b[i] = …`, `b[i].f = …`) keeps its length: each such write
+  // lands inside it, an obligation (`elementStep`). Anything else that changes it says nothing of its length.
+  const lengths = new Map<string, boolean>()
+  const outer = (y: ts.Identifier): boolean => {
+    const decl = L.checker.getSymbolAtLocation(y)?.valueDeclaration
+    return decl === undefined || decl.pos < inner.pos || decl.end > inner.end
+  }
+  const note = (target: ts.Expression, d: "up" | "down" | "no"): void => {
+    const y = unwrap(target)
+    if (!ts.isIdentifier(y)) {
+      let r: ts.Expression = y
+      let first: ts.Expression | undefined
+      while (ts.isPropertyAccessExpression(r) || ts.isElementAccessExpression(r)) {
+        first = r
+        r = unwrap(r.expression)
+      }
+      if (ts.isIdentifier(r) && outer(r))
+        lengths.set(r.text, (lengths.get(r.text) ?? true) && first !== undefined && ts.isElementAccessExpression(first))
+      return
+    }
+    if (!outer(y)) return
+    lengths.set(y.text, false)
+    const prev = way.get(y.text)
+    way.set(y.text, prev === undefined || prev === d ? d : "no")
+  }
+  const changedOtherwise = (x: ts.Expression): void => {
+    let r = unwrap(x)
+    while (ts.isPropertyAccessExpression(r) || ts.isElementAccessExpression(r)) r = unwrap(r.expression)
+    if (ts.isIdentifier(r) && outer(r)) lengths.set(r.text, false)
+  }
+  const wholeLiteral = (x: ts.Expression): boolean => ts.isNumericLiteral(x) && /^\d+$/.test(x.text)
+  const visit = (n: ts.Node): void => {
+    if (ts.isBinaryExpression(n) && n.operatorToken.kind >= K.FirstAssignment && n.operatorToken.kind <= K.LastAssignment) {
+      const op = n.operatorToken.kind
+      note(
+        n.left,
+        op === K.PlusEqualsToken && wholeLiteral(n.right) ? "up" : op === K.MinusEqualsToken && wholeLiteral(n.right) ? "down" : "no",
+      )
+    } else if (
+      (ts.isPrefixUnaryExpression(n) || ts.isPostfixUnaryExpression(n)) &&
+      (n.operator === K.PlusPlusToken || n.operator === K.MinusMinusToken)
+    )
+      note(n.operand, n.operator === K.PlusPlusToken ? "up" : "down")
+    else if (ts.isDeleteExpression(n)) changedOtherwise(n.expression)
+    else if (ts.isCallExpression(n)) {
+      // As `changedBy` reads a call: a method that changes its receiver, or a function of the program lent a value.
+      if (ts.isPropertyAccessExpression(n.expression) && MUTATORS.has(n.expression.name.text)) changedOtherwise(n.expression.expression)
+      if (ts.isIdentifier(n.expression))
+        for (const a of n.arguments) if (!ts.isArrowFunction(a) && !ts.isFunctionExpression(a)) changedOtherwise(a)
+    }
+    ts.forEachChild(n, visit)
+  }
+  for (const n of nodes) visit(n)
+  const counters = [...way].filter(([name, d]) => d !== "no" && st.vars.get(name)?.kind === "cell")
+  const kept = [...lengths].filter(([name, only]) => only && st.vars.get(name)?.kind === "cell").map(([name]) => name)
+  if (counters.length === 0 && kept.length === 0) return { facts: () => z3.Bool.val(true), whole: new Set() }
+  const arrayIn = (x: State, name: string) => {
+    const v = envOf(L, x).get(name)?.()
+    const p = v === undefined ? undefined : present(v)
+    return p?.kind === "array" ? p : undefined
+  }
+  const valueIn = (x: State, name: string) => {
+    const v = envOf(L, x).get(name)?.()
+    return v === undefined ? undefined : asNumber(L, v)
+  }
+  const whole = (v: Extract<Val, { kind: "num" }>) => z3.And(v.cls.eq(NUM.finite), isWhole(L.u, v))
+  const wholeCells = new Set<number>()
+  for (const [name] of counters) {
+    const b = st.vars.get(name)
+    const v = b?.kind === "cell" ? present(envOf(L, st).get(name)!()) : undefined
+    if (b?.kind === "cell" && v?.kind === "num" && v.cls.eqIdentity(z3.Int.val(NUM.finite)) && v.whole !== undefined && z3.isTrue(v.whole))
+      wholeCells.add(b.cell)
+  }
+  const facts = (x: State) =>
+    z3.And(
+      z3.Bool.val(true),
+      ...counters.flatMap(([name, d]) => {
+        const a = valueIn(st, name)
+        const b = valueIn(x, name)
+        if (a === undefined || b === undefined) return []
+        return [z3.Implies(whole(a), z3.And(whole(b), d === "up" ? b.real.ge(a.real) : b.real.le(a.real)))]
+      }),
+      ...kept.flatMap((name) => {
+        const a = arrayIn(st, name)
+        const b = arrayIn(x, name)
+        return a === undefined || b === undefined ? [] : [b.length.eq(a.length)]
+      }),
+    )
+  return { facts, whole: wholeCells }
+}
+
+/**
+ * A state whose `cells` hold any values of their types: what is known of them is what the caller then assumes. A cell
+ * of `whole` holds any integer, a counter's (`counterFacts`).
+ */
+const havoc = (
+  L: Lowering,
+  st: State,
+  cells: ReadonlySet<number>,
+  tag: string,
+  at: ts.Node,
+  whole: ReadonlySet<number> = new Set(),
+): State => {
   if (cells.size === 0) return st
+  const z3 = L.u.z3
   const store = new Map(st.store)
   for (const c of cells) {
     const cell = st.store.get(c)!
     if (cell.type === undefined) throw new Unsupported(`\`${cell.name}\` changes in a loop, and its type is unknown`, at)
     const type = cell.type
-    store.set(c, { ...cell, thunk: lazy(() => symbolicOf(L, type, [L.u.fresh(`${cell.name}@${tag}`)], [], at)) })
+    const integer = (): Val => {
+      const k = z3.Int.const(L.u.fresh(`${cell.name}@${tag}~k`))
+      return { kind: "num", cls: z3.Int.val(NUM.finite), real: z3.ToReal(k), whole: z3.Bool.val(true), int: k }
+    }
+    store.set(c, {
+      ...cell,
+      thunk: lazy(() => (whole.has(c) ? integer() : symbolicOf(L, type, [L.u.fresh(`${cell.name}@${tag}`)], [], at))),
+    })
   }
   L.u.abstracted = true
   L.u.approximations.add(
@@ -1165,7 +1366,7 @@ const forOf = (L: Lowering, s: ts.ForOfStatement, st: State): Exits => {
     let head: State | undefined = st
     for (let k = 0; head !== undefined; k++) {
       const atK: State = head
-      for (const inv of invariants) obligateClaim(L, inv, k === 0 ? "entry" : "kept", atK.cond, inv.claim(atK, z3.Int.val(k)))
+      for (const inv of invariants) obligateClaim(L, inv, k === 0 ? "entry" : "kept", atK.cond, inv.claim(atK, z3.Int.val(k), "asserted"))
       if (k === bound) {
         results.leaving.push(atK)
         break
@@ -1180,17 +1381,18 @@ const forOf = (L: Lowering, s: ts.ForOfStatement, st: State): Exits => {
     return { normal: merge(L, results.leaving, s), returns: results.returns, breaks: [], continues: [] }
   }
   // Proof side, unknown length: through the invariants.
-  for (const inv of invariants) obligateClaim(L, inv, "entry", st.cond, inv.claim(st, z3.Int.val(0)))
+  for (const inv of invariants) obligateClaim(L, inv, "entry", st.cond, inv.claim(st, z3.Int.val(0), "asserted"))
   const i = u.leaf([u.fresh("i"), "$"], "int", [], "count") as never as Arith
-  const step = havoc(L, st, changed, "step", s)
-  const hyp = z3.And(st.cond, i.ge(0), i.lt(arr.length), ...invariants.map((inv) => inv.claim(step, i)))
+  const counted = counterFacts(L, st, [s.statement], s.statement)
+  const step = havoc(L, st, changed, "step", s, counted.whole)
+  const hyp = z3.And(st.cond, i.ge(0), i.lt(arr.length), counted.facts(step), ...invariants.map((inv) => inv.claim(step, i, "assumed")))
   const x = scoped(statements(L, rest, withCond(bindElement(step, i), hyp)), st.vars)
   const next = merge(L, [x.normal, ...x.continues], s)
-  if (next !== undefined) for (const inv of invariants) obligateClaim(L, inv, "kept", next.cond, inv.claim(next, i.add(1)))
-  const after = havoc(L, st, changed, "after", s)
+  if (next !== undefined) for (const inv of invariants) obligateClaim(L, inv, "kept", next.cond, inv.claim(next, i.add(1), "asserted"))
+  const after = havoc(L, st, changed, "after", s, counted.whole)
   if (invariants.length === 0 && changed.size > 0)
     u.notes.add("A loop with no invariant leaves what it changes unknown on the proof side; the search side runs it.")
-  return leave(L, st, x, after, z3.And(z3.Bool.val(true), ...invariants.map((inv) => inv.claim(after, arr.length))), s)
+  return leave(L, st, x, after, z3.And(counted.facts(after), ...invariants.map((inv) => inv.claim(after, arr.length, "assumed"))), s)
 }
 
 /**
@@ -1240,9 +1442,14 @@ const guarded = (L: Lowering, s: ts.ForStatement | ts.WhileStatement, st0: State
   if (ts.isForStatement(s) && s.initializer !== undefined)
     st = ts.isVariableDeclarationList(s.initializer) ? declare(L, s.initializer, st) : expressionStatement(L, s.initializer, st)
   const guardExpr = ts.isForStatement(s) ? s.condition : s.expression
-  const guard = (x: State): Bool => (guardExpr === undefined ? z3.Bool.val(true) : condOf(L, guardExpr, envOf(L, x)))
+  // The guard and the step run under what holds where they run, as a statement does: an obligation of theirs (`i + 1`
+  // exact) is asked there, on the proof side with the loop's hypotheses at its head.
+  const guard = (x: State, where: Bool = x.cond): Bool =>
+    guardExpr === undefined ? z3.Bool.val(true) : under(L, where, () => condOf(L, guardExpr, envOf(L, x)))
   const incr = (x: State | undefined): State | undefined =>
-    x === undefined || !ts.isForStatement(s) || s.incrementor === undefined ? x : expressionStatement(L, s.incrementor, x)
+    x === undefined || !ts.isForStatement(s) || s.incrementor === undefined
+      ? x
+      : under(L, x.cond, () => expressionStatement(L, s.incrementor!, x))
   const { invariants, rest } = invariantsOf(L, s.statement)
   const returns: Array<Exits["returns"][number]> = []
   const leaving: Array<State> = []
@@ -1250,7 +1457,8 @@ const guarded = (L: Lowering, s: ts.ForStatement | ts.WhileStatement, st0: State
     let head: State | undefined = st
     for (let k = 0; head !== undefined; k++) {
       const atK: State = head
-      for (const inv of invariants) obligate(L, "invariant", inv, k === 0 ? "entry" : "kept", atK.cond, claim(L, atK, inv, undefined))
+      for (const inv of invariants)
+        obligate(L, "invariant", inv, k === 0 ? "entry" : "kept", atK.cond, claim(L, atK, inv, undefined, "asserted"))
       const g = guard(atK)
       if (k === UNROLL) {
         // Longer runs are not searched: the search side's inputs are those that leave the loop within the limit.
@@ -1267,22 +1475,40 @@ const guarded = (L: Lowering, s: ts.ForStatement | ts.WhileStatement, st0: State
     }
     return scoped({ normal: merge(L, leaving, s), returns, breaks: [], continues: [] }, st0.vars)
   }
-  for (const inv of invariants) obligate(L, "invariant", inv, "entry", st.cond, claim(L, st, inv, undefined))
+  for (const inv of invariants) obligate(L, "invariant", inv, "entry", st.cond, claim(L, st, inv, undefined, "asserted"))
   const changed = changedBy(
     L,
     st,
     ts.isForStatement(s) && s.incrementor !== undefined ? [s.statement, s.incrementor] : [s.statement],
     s.statement,
   )
-  const step = havoc(L, st, changed, "step", s)
-  const hyp = z3.And(st.cond, guard(step), ...invariants.map((inv) => claim(L, step, inv, undefined)))
+  const counted = counterFacts(
+    L,
+    st,
+    ts.isForStatement(s) && s.incrementor !== undefined ? [s.statement, s.incrementor] : [s.statement],
+    s.statement,
+  )
+  const step = havoc(L, st, changed, "step", s, counted.whole)
+  const head = z3.And(st.cond, counted.facts(step), ...invariants.map((inv) => claim(L, step, inv, undefined, "assumed")))
+  const hyp = z3.And(head, guard(step, head))
   const x = scoped(statements(L, rest, withCond(step, hyp)), st.vars)
   const next = incr(merge(L, [x.normal, ...x.continues], s))
-  if (next !== undefined) for (const inv of invariants) obligate(L, "invariant", inv, "kept", next.cond, claim(L, next, inv, undefined))
-  const after = havoc(L, st, changed, "after", s)
+  if (next !== undefined)
+    for (const inv of invariants) obligate(L, "invariant", inv, "kept", next.cond, claim(L, next, inv, undefined, "asserted"))
+  const after = havoc(L, st, changed, "after", s, counted.whole)
   u.notes.add("A `for` or `while` loop is assumed to end: an invariant proves what holds if it does.")
   return scoped(
-    leave(L, st, x, after, z3.And(z3.Not(guard(after)), ...invariants.map((inv) => claim(L, after, inv, undefined))), s),
+    leave(
+      L,
+      st,
+      x,
+      after,
+      (() => {
+        const atEnd = z3.And(st.cond, counted.facts(after), ...invariants.map((inv) => claim(L, after, inv, undefined, "assumed")))
+        return z3.And(z3.Not(guard(after, atEnd)), atEnd)
+      })(),
+      s,
+    ),
     st0.vars,
   )
 }

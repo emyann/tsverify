@@ -58,7 +58,7 @@ describe("refused, with what to write instead", () => {
   const cases: ReadonlyArray<readonly [string, RegExp]> = [
     [
       "undeclared",
-      /`total` is not read \(arithmetic on `number` rounds.*\): declare what the verifier may assume of it, `assume\(total, \{ pure: true/,
+      /`total` is not read \(`Math` is a binding the verifier cannot see.*\): declare what the verifier may assume of it, `assume\(total, \{ pure: true/,
     ],
     ["stamped", /`stamp` is declared pure and is not: .*changes its argument `log`\. Declare it `pure: false`/],
     [

@@ -176,6 +176,8 @@ stands in the way:
   whole contract is bounded at best ([Effect programs](effect.md), *Loops of steps*).
 - **a filtered array**, `.filter(p).length`, known on the proof side only as none or some;
 - **a `number`**, any real on the proof side, where only the search side keeps to doubles;
+- **an operation on `number` that may not be exact**, or **an element written outside the array**: the law is judged
+  on the runs where neither happens, and its obligation, under `arithmetic:` or `element writes:`, gives the input;
 - **the proof side's time**, run out before a proof, the search side finding nothing.
 
 ### ! `unsupported`
@@ -219,6 +221,14 @@ A law proved through an obligation that is not proved is reported `bounded`, `co
 the branch where the division runs, or a `counterexample`, the input that makes it `0n`, on which the real code throws.
 A law is judged on the runs that return, so a division that can throw leaves the laws as they are, and fails the
 command on its own ([What it reads](reads.md), *Divisions*).
+
+## Arithmetic and element writes
+
+`arithmetic:` lists each operation on `number` the code runs, with the verdict on its exactness: `proved` exact wherever
+it runs, or a `counterexample`, an input on which it may round, or meets `NaN` or `±∞`. `element writes:` lists each
+element written at a computed index, `proved` inside the array, or with the input on which JavaScript grows it. A law is
+judged on the runs where each operation is exact and each write lands inside, and is proved only once every one of
+them is ([What it reads](reads.md), *Numbers* and *Indexes*).
 
 ## One contract, in full
 

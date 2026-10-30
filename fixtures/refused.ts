@@ -6,7 +6,7 @@ const holds = () => true
 
 export const cast = contract((s: string) => (s as "a") === "a", { ensures: { holds } })
 export const nonNull = contract((xs: ReadonlyArray<string>) => xs.at(0)! === "a", { ensures: { holds } })
-export const numberArithmetic = contract((x: number) => x + 1 > 0, { ensures: { holds } })
+export const numberRemainder = contract((x: number) => x % 2 === 0, { ensures: { holds } })
 export const looseEquality = contract((s: string) => s == "a", { ensures: { holds } })
 
 let limit = 10n
@@ -18,5 +18,4 @@ function countdown(n: bigint): bigint {
 export const recursion = contract(countdown, { ensures: { holds } })
 
 
-export const elementAccess = contract((xs: ReadonlyArray<string>) => xs[0] === "a", { ensures: { holds } })
 export const global = contract((x: number) => Math.max(x, 0) > 0, { ensures: { holds } })

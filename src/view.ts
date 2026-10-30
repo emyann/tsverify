@@ -8,6 +8,7 @@ import { styleText } from "node:util"
 import { Box, render, renderToString, Static, type StaticProps, Text, useAnimation } from "ink"
 import { createElement as h, type ReactNode } from "react"
 import type { Trusted } from "./trust.ts"
+import { MODELS } from "./exec.ts"
 import type { LawResult, LawStatus, ObligationResult, Verification } from "./verify.ts"
 
 /** Whether to colour: Node's own answer for stdout, which reads `NO_COLOR`, `FORCE_COLOR` and whether it is a terminal. */
@@ -135,7 +136,11 @@ const asked = (o: ObligationResult): string =>
       ? "lemma's requires"
       : o.kind === "division"
         ? "divisor not 0n"
-        : o.kind
+        : o.kind === "write"
+          ? "inside the array"
+          : o.kind === "exact"
+            ? "exact"
+            : o.kind
 const obligation = (o: ObligationResult): ReactNode =>
   marked(
     o.status,
@@ -148,8 +153,10 @@ const obligation = (o: ObligationResult): ReactNode =>
 const proofCode = (os: ReadonlyArray<ObligationResult>): Array<ReactNode> =>
   (
     [
-      ["proof code:", os.filter((o) => o.kind !== "division")],
+      ["proof code:", os.filter((o) => !MODELS.has(o.kind))],
       ["divisions:", os.filter((o) => o.kind === "division")],
+      ["element writes:", os.filter((o) => o.kind === "write")],
+      ["arithmetic:", os.filter((o) => o.kind === "exact")],
     ] as const
   ).flatMap(([heading, xs]) => (xs.length === 0 ? [] : [styled(DIM, heading), indented(...xs.map(obligation))]))
 
@@ -190,7 +197,7 @@ export interface Shape {
   readonly width: number
 }
 
-/** A contract's summary: its laws, or how many of each verdict; then its proof code's; then, kept short, what it trusts. */
+/** A contract's summary: its laws, or how many of each verdict; then its obligations'; then, kept short, what it trusts. */
 const summary = (v: Verification, trusts: boolean): Array<Piece> => {
   const counts = (xs: ReadonlyArray<LawStatus>): Array<Piece> =>
     tally(xs).map(([s, n], i, all) => [VERDICTS[s].style, `${n} ${s}${i < all.length - 1 ? "," : ""}`] as const)
@@ -200,7 +207,7 @@ const summary = (v: Verification, trusts: boolean): Array<Piece> => {
     laws.every((s) => s === "proved") ? [plural(laws.length, "law")] : counts(laws),
     ...(obligations.length === 0
       ? []
-      : [obligations.every((s) => s === "proved") ? [plural(obligations.length, "obligation")] : ["proof code", ...counts(obligations)]]),
+      : [obligations.every((s) => s === "proved") ? [plural(obligations.length, "obligation")] : ["obligations", ...counts(obligations)]]),
     ...(trusts && v.trusted.length > 0 ? [[`trusts ${v.trusted.map((t) => t.name).join(", ")}`]] : []),
   ]
   return groups.flatMap((g, i) => (i === 0 ? g : [[DIM, "·"] as const, ...g]))
@@ -246,7 +253,7 @@ const totals = (all: ReadonlyArray<Verification>, files: number, seconds: number
       .map(([s, n]) => item(s, `${n} ${s}`)),
     ...tally(obligations)
       .filter(([s]) => s !== "proved")
-      .map(([s, n]) => item(s, `${n} ${s} in proof code`)),
+      .map(([s, n]) => item(s, `${n} ${s} among obligations`)),
     ...(unread > 0 ? [item("unsupported", `${unread} not verified`)] : []),
   ]
   const proved = [

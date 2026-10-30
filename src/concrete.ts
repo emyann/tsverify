@@ -61,7 +61,20 @@ const read = (u: Universe, model: Model, n: Node, indices: ReadonlyArray<number>
         if (cls === NUM.nan) return Number.NaN
         if (cls === NUM.posInf) return Number.POSITIVE_INFINITY
         if (cls === NUM.negInf) return Number.NEGATIVE_INFINITY
-        const { numerator, denominator } = (v as unknown as { value(): { numerator: bigint; denominator: bigint } }).value()
+        // The value the code read: its whole parts (`symbolicOf`), which the leaf equals only where its facts are
+        // asserted, and inside a quantifier's scope they are not always.
+        const rational = (e: unknown) => (e as { value(): { numerator: bigint; denominator: bigint } }).value()
+        const intOf = (seg: string) => {
+          const x = model.eval(term(u, n.children.get(seg)!.leaf!, indices), true)
+          return z3.isIntVal(x) ? x.value() : BigInt(x.sexpr())
+        }
+        if (n.children.has("~m")) return Number(intOf("~m")) / 1024
+        if (n.children.has("~whole")) {
+          if (z3.isTrue(model.eval(term(u, n.children.get("~whole")!.leaf!, indices), true))) return Number(intOf("~k"))
+          const d = rational(model.eval(term(u, n.children.get("~d")!.leaf!, indices), true))
+          return Number(intOf("~j")) + Number(d.numerator) / Number(d.denominator)
+        }
+        const { numerator, denominator } = rational(v)
         return Number(numerator) / Number(denominator)
       }
       case "int":
@@ -113,7 +126,33 @@ const write = (u: Universe, n: Node, indices: ReadonlyArray<number>, value: unkn
       const x = value as number
       const cls = Number.isNaN(x) ? NUM.nan : x === Infinity ? NUM.posInf : x === -Infinity ? NUM.negInf : NUM.finite
       out.push((term(u, n.children.get("~cls")!.leaf!, indices) as Arith).eq(cls))
-      if (cls === NUM.finite) out.push((t as Arith).eq(z3.Real.val(exactRational(x))))
+      if (cls === NUM.finite) {
+        out.push((t as Arith).eq(z3.Real.val(exactRational(x))))
+        // And its whole parts, which are what the code reads (`symbolicOf`).
+        const part = (seg: string) => term(u, n.children.get(seg)!.leaf!, indices) as Arith
+        if (n.children.has("~m")) {
+          const scaled = x * 1024
+          out.push(Number.isInteger(scaled) ? part("~m").eq(z3.Int.val(BigInt(scaled))) : z3.Bool.val(false))
+        } else if (n.children.has("~whole")) {
+          const w = term(u, n.children.get("~whole")!.leaf!, indices) as Bool
+          // Every part is fixed, the ones the value does not use too: a fact about a part left free could be broken by
+          // the solver inside a quantifier's scope, and the element it is read in dropped.
+          if (Number.isInteger(x))
+            out.push(w, part("~k").eq(z3.Int.val(BigInt(x))), part("~j").eq(z3.Int.val(0)), part("~d").eq(z3.Real.val("1/2")))
+          else {
+            const j = Math.floor(x)
+            out.push(
+              z3.Not(w),
+              part("~k").eq(z3.Int.val(0)),
+              part("~j").eq(z3.Int.val(BigInt(j))),
+              z3
+                .ToReal(part("~j"))
+                .add(part("~d"))
+                .eq(z3.Real.val(exactRational(x))),
+            )
+          }
+        }
+      }
     } else out.push(t.eq(literal(u, value)))
     return
   }

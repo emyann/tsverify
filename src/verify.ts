@@ -16,7 +16,7 @@ import { effectAdapter } from "./adapters/effect/index.ts"
 import { tsAdapter } from "./adapters/ts.ts"
 import { emptyTrace, runBody } from "./computation.ts"
 import { TooLong, fromModel, literal, pin } from "./concrete.ts"
-import type { Obligation } from "./exec.ts"
+import { MODELS, type Obligation } from "./exec.ts"
 import {
   emptyEnv,
   type GuessedInvariant,
@@ -181,7 +181,7 @@ export const lowerSide = (
   const preOf = (args: ReadonlyArray<Val>) =>
     source.requires === undefined
       ? z3.Bool.val(true)
-      : definedSpec(L, () => inSpec(L, () => truthy(u, lowerCall(L, source.requires!, emptyEnv, args, source.requires!))))
+      : definedSpec(L, () => inSpec(L, () => truthy(u, lowerCall(L, source.requires!, emptyEnv, args, source.requires!))), "requires")
   if (source.kind === "lemma") {
     const t = source.target as FunctionNode
     const { params, args } = symbolicArgs(t)
@@ -434,12 +434,14 @@ const shown = (w: Witness): { readonly args?: ReadonlyArray<unknown>; readonly w
 })
 
 /**
- * The runs of a side on which no division throws: on each, every division it runs has a divisor other than 0n. A law
- * speaks of what the code returns, so it is judged on these runs, and a division by 0n is reported as its own obligation.
+ * The runs of a side the model reads exactly: no division throws, every element write lands inside its array, and
+ * every `number` operation is exact. A law speaks of what the code returns, so it is judged on these runs, and each
+ * condition is reported as its own obligation. A run that breaks a write or arithmetic goes on, so a law leans on those
+ * too (`judge`); a division by 0n throws, and its run returns nothing a law could speak of.
  */
 const returning = (side: Lowered): Bool => {
   const z3 = side.u.z3
-  const each = side.L.obligations.filter((o) => o.kind === "division").map((o) => z3.Implies(o.cond, o.goal))
+  const each = side.L.obligations.filter((o) => MODELS.has(o.kind)).map((o) => z3.Implies(o.cond, o.goal))
   return each.length === 0 ? z3.Bool.val(true) : z3.And(...each)
 }
 

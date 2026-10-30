@@ -582,7 +582,8 @@ const nameOf = (f: FunctionNode): string =>
   f.name?.getText() ?? (ts.isVariableDeclaration(f.parent) ? f.parent.name.getText() : `the function at ${locate(f)}`)
 
 /** Whether `e` names a global of the TypeScript or Node libraries. */
-const isLib = (checker: ts.TypeChecker, e: ts.Node): boolean => {
+/** Whether `e` names something TypeScript's own library or `@types/node` declares, and nothing of the program. */
+export const isLib = (checker: ts.TypeChecker, e: ts.Node): boolean => {
   const sym = symbolOf(checker, e)
   const decls = sym?.declarations ?? []
   return (

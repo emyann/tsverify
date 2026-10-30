@@ -89,9 +89,16 @@ is reported `inconsistent`, with the input, as a bug of tsverify rather than a v
 second on the account fold.
 
 **Numbers.** A `number` is a class (finite, NaN, +∞ or −∞) plus a real value. `===`, `<` and truthiness follow IEEE-754
-exactly. Every double is such a value, so proofs cover all doubles. Arithmetic on `number` is refused, since its rounding
-isn't modelled. Exact IEEE floats in Z3 were tried first: comparing one with an array length needs `fp.to_real`, which Z3
-handled so poorly that queries timed out at 30 s. With the real-valued model, the same queries take milliseconds.
+exactly. Every double is such a value, so proofs cover all doubles. Exact IEEE floats in Z3 were tried first: comparing
+one with an array length needs `fp.to_real`, which Z3 handled so poorly that queries timed out at 30 s. With the
+real-valued model, the same queries take milliseconds.
+
+Arithmetic is read where it is exact, as Verus reads machine integers: the exact result, with an obligation that the
+double holds it (a whole number or a half within 2^53, from finite operands), so where a double would round, the input
+that makes it round is a counterexample to the obligation, never a wrong verdict on a law. To reason about indexes the
+solver must know when a sum is whole, which Z3 cannot prove of reals from facts about their summands. So each number is
+held in parts: on the proof side, whether it is whole, the integer it is if so, and otherwise an integer and a fraction
+strictly between 0 and 1; on the search side, an integer count of 1/1024. Whole numbers then add as integers do.
 
 **Checked against the code.** The translator is the part everything else trusts, so the tests check it against the real
 function on 300 random inputs, on both sides (`test/order.test.ts`). Every counterexample the benchmark and the tests find
