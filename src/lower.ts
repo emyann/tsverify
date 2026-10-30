@@ -33,7 +33,7 @@
 // a `const` whose evaluation would throw, but whose value is never read, is not
 // seen. The report says so.
 import ts from "typescript"
-import type { Arith, Bool } from "z3-solver"
+import type { Arith, Bool, FuncDecl } from "z3-solver"
 import type { Adapter } from "./adapter.ts"
 import { chosen, computationCall } from "./computation.ts"
 import { type LemmaUse, type Obligation, runFunction } from "./exec.ts"
@@ -54,7 +54,8 @@ import {
 } from "./ops.ts"
 import { narrowedField } from "./narrow.ts"
 import { type Purity, isLib, purityOf } from "./purity.ts"
-import { type Typing, symbolicOf } from "./symbolic.ts"
+import { MAX_TIME, type Typing, symbolicOf } from "./symbolic.ts"
+import type { Universe } from "./universe.ts"
 import { type AssumedFn, type Assumptions, coveringViews } from "./trust.ts"
 import {
   type Env,
@@ -801,7 +802,7 @@ const call = (L: Lowering, e: ts.CallExpression, env: Env): Val => {
   const callee = e.expression
   if (ts.isPropertyAccessExpression(callee)) {
     const std = standard(L, callee)
-    if (std !== undefined) return callValue(L, std, e, env)
+    if (std !== undefined) return roundedQuotient(L, std, e, env) ?? callValue(L, std, e, env)
     // A library function named through its namespace (`Effect.fail`): the adapter's, before any receiver is read.
     for (const a of L.adapters) {
       const f = a.expr?.(L, callee, env)
@@ -830,7 +831,7 @@ const call = (L: Lowering, e: ts.CallExpression, env: Env): Val => {
  */
 const standard = (L: Lowering, callee: ts.PropertyAccessExpression): Val | undefined => {
   const o = callee.expression
-  if (!ts.isIdentifier(o) || (o.text !== "Math" && o.text !== "Number" && o.text !== "Object") || !isLib(L.checker, o)) return undefined
+  if (!ts.isIdentifier(o) || !["Math", "Number", "Object", "Date"].includes(o.text) || !isLib(L.checker, o)) return undefined
   const z3 = L.u.z3
   const name = `${o.text}.${callee.name.text}`
   const one = (f: (v: Val, at: ts.Node) => Val): Val => ({
@@ -847,8 +848,11 @@ const standard = (L: Lowering, callee: ts.PropertyAccessExpression): Val | undef
     if (n === undefined) throw new Unsupported(`\`${name}\` of a ${v.kind}`, at)
     return n
   }
-  /** `f` of a fraction; and `towardZero` where a fraction between -1 and 0 rounds to `-0`, as `ceil` and `trunc` do. */
-  const rounded = (f: (r: Arith) => Arith, towardZero = false) =>
+  /**
+   * `f` of a fraction; and `toZero` where a fraction rounds to `-0`: between -1 and 0 for `ceil` and `trunc`, from -0.5
+   * for `round`.
+   */
+  const rounded = (f: (r: Arith) => Arith, toZero?: (r: Arith) => Bool) =>
     one((v, at) => {
       if (v.kind === "int" && v.origin === "count") return v
       if (v.kind !== "num") throw new Unsupported(`\`${name}\` of a ${v.kind}`, at)
@@ -861,9 +865,10 @@ const standard = (L: Lowering, callee: ts.PropertyAccessExpression): Val | undef
         real: z3.If(finite, z3.ToReal(r), v.real),
         whole: z3.If(finite, z3.Bool.val(true), isWhole(L.u, v)),
         int: z3.If(finite, r, intOf(L.u, v)),
-        negZero: towardZero
-          ? z3.Or(isNegZero(L.u, v), z3.And(finite, z3.Not(isWhole(L.u, v)), v.real.gt(-1), v.real.lt(0)))
-          : isNegZero(L.u, v),
+        negZero:
+          toZero === undefined
+            ? isNegZero(L.u, v)
+            : z3.Or(isNegZero(L.u, v), z3.And(finite, z3.Not(isWhole(L.u, v)), toZero(v.real), v.real.lt(0))),
       }
     })
   /** `Math.max` (`largest`) or `Math.min` of any number of numbers: `NaN` where one is; of two zeros, `0` and `-0`. */
@@ -902,9 +907,21 @@ const standard = (L: Lowering, callee: ts.PropertyAccessExpression): Val | undef
     case "Math.floor":
       return rounded((r) => z3.ToInt(r))
     case "Math.ceil":
-      return rounded((r) => z3.ToInt(r.neg()).neg(), true)
+      return rounded(
+        (r) => z3.ToInt(r.neg()).neg(),
+        (r) => r.gt(-1),
+      )
     case "Math.trunc":
-      return rounded((r) => z3.If(r.ge(0), z3.ToInt(r), z3.ToInt(r.neg()).neg()), true)
+      return rounded(
+        (r) => z3.If(r.ge(0), z3.ToInt(r), z3.ToInt(r.neg()).neg()),
+        (r) => r.gt(-1),
+      )
+    case "Math.round":
+      // Half way rounds up, toward +Infinity: 2.5 to 3, -2.5 to -2, and -0.5 to -0.
+      return rounded(
+        (r) => z3.ToInt(r.add(z3.Real.val("1/2"))),
+        (r) => r.ge(z3.Real.val("-1/2")),
+      )
     case "Math.max":
       return extreme(true)
     case "Math.min":
@@ -942,6 +959,24 @@ const standard = (L: Lowering, callee: ts.PropertyAccessExpression): Val | undef
           )
         },
       }
+    case "Date.parse":
+      // A function of its string the verifier does not compute: the same string, the same time, which is `NaN` or a
+      // whole number of milliseconds within `MAX_TIME` of 1970. A counterexample leans on that and on nothing more.
+      return one((given, at) => {
+        const arg = ts.isCallExpression(at) ? at.arguments[0] : undefined
+        const v = arg === undefined ? given : shown(L, given, arg)
+        if (v.kind !== "str") throw new Unsupported(`\`Date.parse\` of a ${v.kind}: of a string it is read`, at)
+        const f = parsing(L.u)
+        const ms = f.ms.call(v.term) as Arith
+        const cls = f.cls.call(v.term) as Arith
+        // What every string's time is, said of this one: `NaN`, or a whole number of milliseconds within `MAX_TIME`.
+        L.u.assume(z3.And(z3.Or(cls.eq(NUM.nan), cls.eq(NUM.finite)), ms.le(MAX_TIME), ms.ge(-MAX_TIME)), L.u.openBounds())
+        L.u.opaqueCalls.add("Date.parse")
+        L.u.notes.add(
+          "`Date.parse` is read as some function of its string: the same string gives the same time, `NaN` or a whole number of milliseconds; which time, the verifier does not compute.",
+        )
+        return { kind: "num", cls, real: z3.ToReal(ms), whole: z3.Bool.val(true), int: ms }
+      })
     case "Number.isInteger":
       return check(whole)
     case "Number.isSafeInteger":
@@ -953,6 +988,68 @@ const standard = (L: Lowering, callee: ts.PropertyAccessExpression): Val | undef
     default:
       return undefined
   }
+}
+
+const ROUNDING = new Set(["Math.floor", "Math.ceil", "Math.trunc", "Math.round"])
+
+/**
+ * `Math.floor(a / b)`, and `ceil`, `trunc` and `round`, of two whole numbers: the quotient's real value rounded, which
+ * is what JavaScript gives while `a` is within 2^52 of 0. A quotient that is not whole is no exact double, but it lies
+ * at least `1 / |b|` from a whole number and half that from a half, more than the double it rounds to strays from it,
+ * so rounding the double and rounding the real agree. What that needs of `a` and `b` is an obligation, as an exact
+ * operation's is. Undefined where the argument is no quotient of two numbers, which reads as the call does.
+ */
+const roundedQuotient = (L: Lowering, f: Val, e: ts.CallExpression, env: Env): Val | undefined => {
+  const quotient = e.arguments.length === 1 ? unwrapParens(e.arguments[0]!) : undefined
+  if (f.kind !== "builtin" || !ROUNDING.has(f.name) || quotient === undefined || !ts.isBinaryExpression(quotient)) return undefined
+  if (quotient.operatorToken.kind !== K.SlashToken) return undefined
+  const numberTyped = (x: ts.Expression) => (L.checker.getTypeAtLocation(x).flags & ts.TypeFlags.NumberLike) !== 0
+  if (!numberTyped(quotient.left) || !numberTyped(quotient.right)) return undefined
+  const z3 = L.u.z3
+  const a = asNumber(L, lowerExpr(L, quotient.left, env))
+  const b = asNumber(L, lowerExpr(L, quotient.right, env))
+  if (a === undefined || b === undefined) throw new Unsupported("a quotient of values that are no numbers", quotient)
+  const wholeFinite = (v: Extract<Val, { kind: "num" }>) => z3.And(v.cls.eq(NUM.finite), isWhole(L.u, v))
+  const goal = z3.And(wholeFinite(a), wholeFinite(b), z3.Not(b.real.eq(0)), a.real.le(TWO_52), a.real.ge(-TWO_52))
+  if (L.mode === "spec") L.exact?.push(z3.Implies(L.guard, goal))
+  else {
+    const where = locate(quotient)
+    L.obligations.push({
+      key: `exact@${where}#here`,
+      kind: "exact",
+      text: e.getText(),
+      at: where,
+      phase: "here",
+      cond: L.guard,
+      goal,
+      hints: L.hints.length,
+    })
+  }
+  const r = a.real.div(b.real)
+  const negative = (v: Extract<Val, { kind: "num" }>) => z3.Or(v.real.lt(0), isNegZero(L.u, v))
+  const q: Val = {
+    kind: "num",
+    cls: z3.Int.val(NUM.finite),
+    real: r,
+    whole: z3.IsInt(r),
+    negZero: z3.And(r.eq(0), z3.Not(negative(a).eq(negative(b)))),
+  }
+  return f.call([q], e)
+}
+
+/** `Date.parse` of a universe, one function of the string for its class and one for its milliseconds. */
+const PARSING = new WeakMap<Universe, { readonly cls: FuncDecl; readonly ms: FuncDecl }>()
+const parsing = (u: Universe): { readonly cls: FuncDecl; readonly ms: FuncDecl } => {
+  let f = PARSING.get(u)
+  if (f === undefined) {
+    const z3 = u.z3
+    f = {
+      cls: z3.Function.declare("Date.parse~cls", z3.String.sort(), z3.Int.sort()),
+      ms: z3.Function.declare("Date.parse~ms", z3.String.sort(), z3.Int.sort()),
+    }
+    PARSING.set(u, f)
+  }
+  return f
 }
 
 /** `f` applied to values already lowered: a library's function, a closure, or a function that defines a computation. */
@@ -1560,6 +1657,7 @@ const binary = (L: Lowering, e: ts.BinaryExpression, env: Env): Val => {
     const l = lowerExpr(L, e.left, env)
     return nullishOr(u, l, () => onBranch(L, l.kind === "maybe" ? isNullish(u, l) : z3.Bool.val(true), () => lowerExpr(L, e.right, env)), e)
   }
+  if (op === K.InKeyword) return keyIn(L, e, env)
   const l = narrowed(L, e.left, lowerExpr(L, e.left, env), op)
   const r = narrowed(L, e.right, lowerExpr(L, e.right, env), op)
   switch (op) {
@@ -1600,6 +1698,44 @@ const binary = (L: Lowering, e: ts.BinaryExpression, env: Env): Val => {
         e.operatorToken,
       )
   }
+}
+
+/**
+ * `"key" in obj`, of a key written as a string: of an object the code built, whether it holds the key (`has`); of one it
+ * is given, whether its type requires the key, every value taken to hold the keys its type declares and no other, as
+ * TypeScript's narrowing by `in` takes it; of a union, which member it is (`split`). A key the type makes optional is
+ * refused: an absent key and one holding `undefined` read alike.
+ */
+const keyIn = (L: Lowering, e: ts.BinaryExpression, env: Env): Val => {
+  const z3 = L.u.z3
+  const key = unwrapParens(e.left)
+  if (!ts.isStringLiteral(key) && !ts.isNoSubstitutionTemplateLiteral(key))
+    throw new Unsupported('`in` is read with a key written as a string (`"refused" in moved`)', e.left)
+  const name = key.text
+  const holds = (v: Val): Bool => {
+    if (v.kind === "maybe" && v.value !== undefined) return holds(v.value)
+    if (v.kind === "array") {
+      if (name === "length") return z3.Bool.val(true)
+      throw new Unsupported(`\`${JSON.stringify(name)} in\` an array is not modeled`, e)
+    }
+    if (v.kind !== "record") throw new Unsupported(`\`in\` of a ${v.kind} is not modeled`, e)
+    const built = v.has?.(name)
+    if (built !== undefined) return built
+    if (v.split !== undefined) return z3.If(v.split.cond, holds(v.split.a), holds(v.split.b))
+    const declared = v.declares?.(name)
+    if (declared === undefined)
+      throw new Unsupported(
+        v.declares === undefined
+          ? `\`in\` of a value whose keys the verifier does not know`
+          : `\`${JSON.stringify(name)} in\` a value whose type makes \`${name}\` optional is not modeled: an absent key and one holding \`undefined\` read alike; compare the field with \`undefined\``,
+        e,
+      )
+    L.u.notes.add(
+      "`in` reads a value the code is given by its type: it holds the keys its type requires, and no key its type does not declare.",
+    )
+    return z3.Bool.val(declared)
+  }
+  return bool(holds(lowerExpr(L, e.right, env)))
 }
 
 /**
@@ -1653,6 +1789,7 @@ export const asNumber = (L: Lowering, v: Val): Extract<Val, { kind: "num" }> | u
   v.kind === "num" ? v : v.kind === "int" && v.origin === "count" ? countAsNum(L.u, v.term) : undefined
 
 const TWO_53 = 9007199254740992
+const TWO_52 = 4503599627370496
 const TWO_32 = 4294967296
 const TWO_31 = 2147483648
 

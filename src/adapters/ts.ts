@@ -4,8 +4,10 @@
 // - `new C(message?)` for a class of the program that extends `Error` and only
 //   declares fields with initializers: a record of those fields and `message`.
 import ts from "typescript"
+import type { Arith } from "z3-solver"
 import { type Adapter, packageExport } from "../adapter.ts"
 import { emptyEnv, later, lowerExpr } from "../lower.ts"
+import { collectionOf } from "../collections.ts"
 import { Unsupported, type Val, jsString, lazyRecord } from "../value.ts"
 
 const isLib = (checker: ts.TypeChecker, node: ts.Node, name: string): boolean => {
@@ -55,9 +57,42 @@ export const tsAdapter: Adapter = {
       L.u.notes.add("The time (`new Date()`, `Date.now()`) is an unknown value per call: any time is covered.")
       return freshNum("date.now")
     }
+    if (
+      ts.isNewExpression(e) &&
+      ts.isIdentifier(e.expression) &&
+      (isLib(L.checker, e.expression, "Set") || isLib(L.checker, e.expression, "Map"))
+    )
+      return builtCollection(L, e, env, e.expression.text === "Map" ? "Map" : "Set")
     if (ts.isNewExpression(e)) return errorOf(L, e, env)
     return undefined
   },
+}
+
+/**
+ * `new Set(elements?)` and `new Map(pairs?)` of an array the code holds: read through `has` and `get` (`collectionOf`),
+ * a map's key its last pair's, as the constructor keeps it.
+ */
+const builtCollection = (
+  L: Parameters<NonNullable<Adapter["expr"]>>[0],
+  e: ts.NewExpression,
+  env: Parameters<NonNullable<Adapter["expr"]>>[2],
+  kind: "Map" | "Set",
+): Val => {
+  const z3 = L.u.z3
+  const args = e.arguments ?? []
+  if (args.length > 1) throw new Unsupported(`\`new ${kind}\` of more than one argument`, e)
+  const from = args[0] === undefined ? undefined : lowerExpr(L, args[0], env)
+  if (from === undefined || from.kind === "nullish")
+    return collectionOf(L, kind, { length: z3.Int.val(0), maxSize: 0, key: () => ({ kind: "nullish", which: "undefined" }) }, e)
+  if (from.kind !== "array") throw new Unsupported(`\`new ${kind}\` of a ${from.kind}: of an array it is read`, e)
+  const bound = from.maxSize === undefined ? {} : { maxSize: from.maxSize }
+  if (kind === "Set") return collectionOf(L, kind, { length: from.length, ...bound, key: from.elem }, e)
+  const part = (i: Arith, k: number): Val => {
+    const pair = from.elem(i)
+    if (pair.kind !== "array") throw new Unsupported(`\`new Map\` of an array of ${pair.kind}s: of pairs it is read`, e)
+    return pair.elem(z3.Int.val(k))
+  }
+  return collectionOf(L, kind, { length: from.length, ...bound, key: (i) => part(i, 0), value: (i) => part(i, 1), lastWins: true }, e)
 }
 
 /** `new C(message?)` for an `Error` subclass of the program whose members are fields with initializers. */

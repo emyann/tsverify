@@ -87,15 +87,21 @@ const literal = (x: unknown): string =>
           ? "undefined"
           : Array.isArray(x)
             ? `[${x.map(literal).join(", ")}]`
-            : x !== null && typeof x === "object"
-              ? Object.keys(x).length === 0
-                ? "{}"
-                : `{ ${Object.entries(x)
-                    .map(([k, v]) => `${/^[A-Za-z_$][\w$]*$/.test(k) ? k : JSON.stringify(k)}: ${literal(v)}`)
-                    .join(", ")} }`
-              : x === null || typeof x === "boolean"
-                ? String(x)
-                : `<${typeof x}>`
+            : x instanceof Date
+              ? `new Date(${literal(x.getTime())})`
+              : x instanceof Map
+                ? `new Map([${[...x].map(([k, v]) => `[${literal(k)}, ${literal(v)}]`).join(", ")}])`
+                : x instanceof Set
+                  ? `new Set([${[...x].map(literal).join(", ")}])`
+                  : x !== null && typeof x === "object"
+                    ? Object.keys(x).length === 0
+                      ? "{}"
+                      : `{ ${Object.entries(x)
+                          .map(([k, v]) => `${/^[A-Za-z_$][\w$]*$/.test(k) ? k : JSON.stringify(k)}: ${literal(v)}`)
+                          .join(", ")} }`
+                    : x === null || typeof x === "boolean"
+                      ? String(x)
+                      : `<${typeof x}>`
 
 /** What the world gave the code on a counterexample's run: each operation's outcome, each declared function's result. */
 const given = (world: Readonly<Record<string, unknown>>) =>

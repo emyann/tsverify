@@ -174,15 +174,15 @@ src/rename.ts
     ✓ readsTheUserFirst  (88 ms)
     ✓ writesNothingWhenMissing  (66 ms)
     ✗ writesTheNewName  (30 ms)
-      e.g. ({}, "A", "")
-      where users.get gave { id: "", name: "" }, users.put succeeded
+      e.g. ({}, "", "")
+      where users.get gave { id: "A", name: "" }, users.put succeeded
 
 ✗ 1 counterexample
 ✓ 2 laws proved
   1 contract in 1 file · 1.0 s
 ```
 
-The code is what was meant; the law is not. Asked for `"A"`, the store gave back a user whose id is `""`, and the code
+The code is what was meant; the law is not. Asked for `""`, the store gave back a user whose id is `"A"`, and the code
 wrote that user renamed. Nothing says a store returns the user asked for, and the law took it for granted. Here the law
 should say what the code means, that it writes the user it read:
 

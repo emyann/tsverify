@@ -85,6 +85,11 @@ export type Val =
       readonly has?: (name: string) => Bool | undefined
       /** Two paths' records merged, `cond ? a : b`: what each holds, for a read the type checker has narrowed. */
       readonly split?: { readonly cond: Bool; readonly a: Val; readonly b: Val }
+      /**
+       * Of a value the code is given, by its type: whether it declares a key and requires it (`true`), declares none of
+       * that name (`false`), or makes it optional (`undefined`). What `in` reads where the code did not build it.
+       */
+      readonly declares?: (name: string) => boolean | undefined
     }
   /**
    * An array: its length, and its element at an index (built on demand; may refuse). `size` is its length when
@@ -163,6 +168,7 @@ export const lazyRecord = (
   id?: string,
   has?: (name: string) => Bool | undefined,
   split?: { readonly cond: Bool; readonly a: Val; readonly b: Val },
+  declares?: (name: string) => boolean | undefined,
 ): Val => {
   const memo = new Map<string, Val | undefined>()
   return {
@@ -174,6 +180,7 @@ export const lazyRecord = (
     ...(id === undefined ? {} : { id }),
     ...(has === undefined ? {} : { has }),
     ...(split === undefined ? {} : { split }),
+    ...(declares === undefined ? {} : { declares }),
   }
 }
 

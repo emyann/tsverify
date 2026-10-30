@@ -9,6 +9,7 @@
 // are refused where the lowering meets them, and the report names the reliance.
 import ts from "typescript"
 import type { Arith, Bool } from "z3-solver"
+import { collectionOf } from "./collections.ts"
 import { operation } from "./computation.ts"
 import { ite } from "./ops.ts"
 import type { Lowering } from "./lower.ts"
@@ -174,7 +175,17 @@ const present = (
     // A field of one name whose kind differs by member (`{ type: "add"; n: bigint } | { type: "name"; n: string }`) is
     // no one value: the union is then one record per member, and a selector says which it is. A read the checker has
     // narrowed to some members takes theirs (`narrowedField`), and a member's tag is tied to its own fields.
-    if (members.some((m) => checker.getPropertiesOfType(m).some((p) => !oneKind(t, fieldTypes(t, members, p.name))))) {
+    // So is a union whose members differ in the keys they require (`{ to; action } | { refused }`), which `in` tells apart.
+    const required = (m: ts.Type, name: string): boolean => {
+      const p = checker.getPropertyOfType(m, name)
+      return p !== undefined && (p.flags & ts.SymbolFlags.Optional) === 0
+    }
+    const keyed = members.some((m) =>
+      checker
+        .getPropertiesOfType(m)
+        .some((p) => required(m, p.name) && members.some((o) => checker.getPropertyOfType(o, p.name) === undefined)),
+    )
+    if (keyed || members.some((m) => checker.getPropertiesOfType(m).some((p) => !oneKind(t, fieldTypes(t, members, p.name))))) {
       const selector = u.leaf([...segments, "~variant"], "int", indices) as never as ReturnType<typeof z3.Int.val>
       u.assume(z3.And(selector.ge(0), selector.lt(members.length)), indices)
       const variants = members.map((m, k) => present(t, [m], [...segments, `|${k}`], indices, at, `${path}|${k}`))
@@ -256,6 +267,9 @@ const present = (
       },
     }
   }
+  if (isLibDate(type)) return dateOf(t, segments, indices, at, id)
+  const collection = libCollection(type)
+  if (collection !== undefined) return givenCollection(t, collection, type, segments, indices, at, id)
   const signatures = type.getCallSignatures()
   if (signatures.length > 0) {
     // A method of something the code is given: an operation, when an adapter says its result is a computation.
@@ -270,16 +284,135 @@ const present = (
       const target = segments.slice(0, -1).join("").replace(/[!$]/g, "")
       return operation(t, target, last.slice(1), op, at)
     }
-    throw new Unsupported(`${path}: a function as data is not modeled (no adapter reads its result as a computation)`, at)
+    // A function the code is given: some function, each call some value of its return type, as many as the calls, and
+    // a counterexample leans on what it gave (`opaqueCalls`).
+    const name = path.replace(/^\./, "").replace(/[!$]/g, "") || "a function"
+    return {
+      kind: "builtin",
+      name,
+      call: (_args, call) => {
+        u.opaqueCalls.add(name)
+        u.notes.add("A function the code is given is read as some function: each call gives some value of its return type.")
+        return symbolicOf(t, returns, [u.given(`${name}()`, t.guard)], u.openBounds(), call)
+      },
+    }
   }
   if (type.flags & F.Object || type.isIntersection())
-    return lazyRecord((name) => {
-      const prop = checker.getPropertyOfType(type, name)
-      if (prop === undefined) return undefined
-      const propType = checker.getTypeOfSymbol(prop)
-      return symbolicOf(t, propType, [...segments, `.${name}`], indices, at, (prop.flags & ts.SymbolFlags.Optional) !== 0)
-    }, id)
+    return lazyRecord(
+      (name) => {
+        const prop = checker.getPropertyOfType(type, name)
+        if (prop === undefined) return undefined
+        const propType = checker.getTypeOfSymbol(prop)
+        return symbolicOf(t, propType, [...segments, `.${name}`], indices, at, (prop.flags & ts.SymbolFlags.Optional) !== 0)
+      },
+      id,
+      undefined,
+      undefined,
+      (name) => {
+        const prop = checker.getPropertyOfType(type, name)
+        return prop === undefined ? false : (prop.flags & ts.SymbolFlags.Optional) === 0 ? true : undefined
+      },
+    )
   throw new Unsupported(`${path}: type ${checker.typeToString(type)} is not modeled`, at)
+}
+
+/** Whether `type` is a `Map` or a `Set` of TypeScript's own library, read-only or not. */
+const libCollection = (type: ts.Type): "Map" | "Set" | undefined => {
+  const sym = type.getSymbol()
+  const name = sym?.getName()
+  if (!(sym !== undefined && fromLib(sym))) return undefined
+  return name === "Map" || name === "ReadonlyMap" ? "Map" : name === "Set" || name === "ReadonlySet" ? "Set" : undefined
+}
+
+/**
+ * A `Map` or a `Set` the code is given: the array of its entries (`collectionOf`), each key one the code can compare
+ * as the collection does, a string, a boolean or a bigint. A `number` key (where `-0` is `0`) and an object key (by
+ * identity) are refused.
+ */
+const givenCollection = (
+  t: Lowering,
+  kind: "Map" | "Set",
+  type: ts.Type,
+  segments: ReadonlyArray<string>,
+  indices: ReadonlyArray<Arith>,
+  at: ts.Node,
+  id: string,
+): Val => {
+  const { u, checker } = t
+  const z3 = u.z3
+  const [keyType, valueType] = checker.getTypeArguments(type as ts.TypeReference)
+  if (keyType === undefined || (kind === "Map" && valueType === undefined))
+    throw new Unsupported(`${segments.join("")}: a \`${kind}\` whose types are not known`, at)
+  if (!membersOf(keyType).every((m) => m.flags & (F.StringLike | F.BooleanLike | F.BigIntLike)))
+    throw new Unsupported(
+      `${segments.join("")}: a \`${kind}\` is read with keys that are strings, booleans or bigints; of \`${checker.typeToString(keyType)}\` it is not modeled`,
+      at,
+    )
+  const length = u.leaf([...segments, kind === "Map" ? "#entries" : "#members"], "int", indices, "count") as never as Arith
+  u.assume(z3.And(length.ge(0), length.le(u.bound ?? MAX_LENGTH)), indices)
+  const keys = memoElems((i) => symbolicOf(t, keyType, [...segments, "[]", "{key}"], [...indices, i], at))
+  const values =
+    valueType === undefined || kind === "Set"
+      ? undefined
+      : memoElems((i) => symbolicOf(t, valueType, [...segments, "[]", "{value}"], [...indices, i], at))
+  return collectionOf(t, kind, { length, key: keys, ...(values === undefined ? {} : { value: values }) }, at, id)
+}
+
+/** Whether every declaration of `sym` is TypeScript's own library's. */
+const fromLib = (sym: ts.Symbol): boolean => {
+  const decls = sym.declarations ?? []
+  return decls.length > 0 && decls.every((d) => /\/node_modules\/typescript\/lib\//.test(d.getSourceFile().fileName.replaceAll("\\", "/")))
+}
+
+/** The largest time a `Date` holds, in milliseconds either side of 1970 (ECMAScript's time values). */
+export const MAX_TIME = 8.64e15
+
+/** Whether `type` is the `Date` of TypeScript's own library. */
+const isLibDate = (type: ts.Type): boolean => {
+  const sym = type.getSymbol()
+  return sym?.getName() === "Date" && fromLib(sym)
+}
+
+/**
+ * A `Date` the code is given: its time value, read through `getTime()` and `valueOf()`, which is `NaN` (an invalid date)
+ * or a whole number of milliseconds within `MAX_TIME` of 1970, and never `-0`. Read back as `new Date(time)`
+ * (`concrete.ts`, the `@time` segment).
+ */
+const dateOf = (t: Lowering, segments: ReadonlyArray<string>, indices: ReadonlyArray<Arith>, at: ts.Node, id: string): Val => {
+  const { u, checker } = t
+  const z3 = u.z3
+  const time = present(t, [checker.getNumberType()], [...segments, "@time"], indices, at, `${segments.join("")}@time`)
+  if (time.kind !== "num") throw new Error("a time that is no number")
+  u.assume(
+    z3.Or(
+      time.cls.eq(NUM.nan),
+      z3.And(time.cls.eq(NUM.finite), time.whole ?? z3.IsInt(time.real), time.real.le(MAX_TIME), time.real.ge(-MAX_TIME)),
+    ),
+    indices,
+  )
+  const signed = time.negZero === undefined ? time : { ...time, negZero: z3.Bool.val(false) }
+  if (time.negZero !== undefined) u.assume(z3.Not(time.negZero), indices)
+  return lazyRecord((name) => {
+    if (name === "getTime" || name === "valueOf")
+      return {
+        kind: "builtin",
+        name: `Date.${name}`,
+        call: (args, call) => {
+          if (args.length > 0) throw new Unsupported(`\`${name}\` takes no argument`, call)
+          return signed
+        },
+      }
+    return {
+      kind: "builtin",
+      name: `Date.${name}`,
+      call: (_args, call) => {
+        throw new Unsupported(
+          `a \`Date\` the code is given is read through \`getTime()\` and \`valueOf()\`; \`${name}\` is not modeled`,
+          call,
+        )
+      },
+    }
+  }, id)
 }
 
 const literalBigint = (m: ts.BigIntLiteralType): bigint => (m.value.negative ? -1n : 1n) * BigInt(m.value.base10Value)

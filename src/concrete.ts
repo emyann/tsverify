@@ -100,6 +100,25 @@ const read = (u: Universe, model: Model, n: Node, indices: ReadonlyArray<number>
     const inner = n.children.get("!")
     return inner === undefined ? {} : read(u, model, inner, indices)
   }
+  // A `Map` or a `Set` the code was given: its entries, a key's the first that holds it (`collections.ts`).
+  for (const kind of ["#entries", "#members"] as const) {
+    if (!n.children.has(kind)) continue
+    const length = leafAt(kind) as number
+    if (length > REPLAY_LENGTH) throw new TooLong(`a collection of ${length} entries`)
+    const elem = n.children.get("[]")
+    const keyNode = elem?.children.get("{key}")
+    const valueNode = elem?.children.get("{value}")
+    const out = new Map<unknown, unknown>()
+    if (keyNode !== undefined)
+      for (let k = 0; k < length; k++) {
+        const key = read(u, model, keyNode, [...indices, k])
+        if (!out.has(key)) out.set(key, valueNode === undefined ? {} : read(u, model, valueNode, [...indices, k]))
+      }
+    return kind === "#entries" ? out : new Set(out.keys())
+  }
+  // A `Date` the code was given: its time value (`dateOf` in `symbolic.ts`).
+  const time = n.children.get("@time")
+  if (time !== undefined) return new Date(read(u, model, time, indices) as number)
   if (n.children.has("#len")) {
     const length = leafAt("#len") as number
     if (length > REPLAY_LENGTH) throw new TooLong(`an array of ${length} elements`)
@@ -190,6 +209,26 @@ const write = (u: Universe, n: Node, indices: ReadonlyArray<number>, value: unkn
     if (isUndef !== undefined) out.push(term(u, isUndef, indices).eq(z3.Bool.val(value === undefined)))
     const inner = n.children.get("!")
     if (inner !== undefined && value !== null && value !== undefined) write(u, inner, indices, value, out)
+    return
+  }
+  const time = n.children.get("@time")
+  if (time !== undefined) {
+    write(u, time, indices, (value as Date).getTime(), out)
+    return
+  }
+  for (const kind of ["#entries", "#members"] as const) {
+    const size = leafAt(kind)
+    if (size === undefined) continue
+    const entries: Array<readonly [unknown, unknown]> =
+      kind === "#entries" ? [...(value as ReadonlyMap<unknown, unknown>)] : [...(value as ReadonlySet<unknown>)].map((x) => [x, undefined])
+    out.push((term(u, size, indices) as Arith).eq(entries.length))
+    const elem = n.children.get("[]")
+    const keyNode = elem?.children.get("{key}")
+    const valueNode = elem?.children.get("{value}")
+    entries.forEach(([key, v], k) => {
+      if (keyNode !== undefined) write(u, keyNode, [...indices, k], key, out)
+      if (valueNode !== undefined) write(u, valueNode, [...indices, k], v, out)
+    })
     return
   }
   const len = leafAt("#len")

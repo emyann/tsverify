@@ -263,6 +263,13 @@ export const ite = (u: Universe, c: Bool, a: Val, b: Val, at: ts.Node): Val => {
       { cond: c, a, b },
     )
   }
+  // One function on one path and another on the other: a call is the call of the one its path holds.
+  if (a.kind === "builtin" && b.kind === "builtin")
+    return {
+      kind: "builtin",
+      name: `${a.name} or ${b.name}`,
+      call: (args, call) => ite(u, c, a.call(args, call), b.call(args, call), call),
+    }
   if (a.kind === "array" && b.kind === "array") {
     const maxSize = a.maxSize !== undefined && b.maxSize !== undefined ? Math.max(a.maxSize, b.maxSize) : undefined
     return {
