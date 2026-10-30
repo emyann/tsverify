@@ -37,6 +37,8 @@ import {
   cond as condOf,
   defaulted,
   exactSpec,
+  patternElement,
+  patternRest,
   exactly,
   firstIndex,
   indexOf,
@@ -255,7 +257,39 @@ const newCell = (L: Lowering, st: State, name: string, thunk: Thunk, owned: bool
 /** Binds a name, or each name of an object pattern, to a cell holding the value (or its field). */
 const bindName = (L: Lowering, st: State, name: ts.BindingName, thunk: Thunk, owned: boolean, type: ts.Type | undefined): State => {
   if (ts.isIdentifier(name)) return newCell(L, st, name.text, thunk, owned, type)
-  if (!ts.isObjectBindingPattern(name)) throw new Unsupported("array destructuring is not modeled", name)
+  if (ts.isArrayBindingPattern(name)) {
+    let out = st
+    name.elements.forEach((el, k) => {
+      if (ts.isOmittedExpression(el)) return
+      const now = out
+      const elType = L.checker.getTypeAtLocation(el)
+      if (el.dotDotDotToken !== undefined) {
+        out = bindName(
+          L,
+          out,
+          el.name,
+          later(L, () => patternRest(L, thunk(), k, el)),
+          owned,
+          elType,
+        )
+        return
+      }
+      out = bindName(
+        L,
+        out,
+        el.name,
+        defaulted(
+          L,
+          later(L, () => patternElement(L, thunk(), k, el)),
+          el.initializer === undefined ? undefined : later(L, () => lowerExpr(L, el.initializer!, envOf(L, now)), now.cond),
+          el,
+        ),
+        false,
+        elType,
+      )
+    })
+    return out
+  }
   const { keys, rest } = patternKeys(name)
   let out = st
   for (const { key, el } of keys) {
@@ -1349,15 +1383,16 @@ const forOf = (L: Lowering, s: ts.ForOfStatement, st: State): Exits => {
   const z3 = u.z3
   if (s.awaitModifier !== undefined) throw new Unsupported("`for await` is not modeled", s)
   const init = s.initializer
-  if (!ts.isVariableDeclarationList(init) || init.declarations.length !== 1 || !ts.isIdentifier(init.declarations[0]!.name))
-    throw new Unsupported("a `for…of` loop is modeled with one variable, `for (const x of xs)`", s)
-  const name = init.declarations[0]!.name.text
+  if (!ts.isVariableDeclarationList(init) || init.declarations.length !== 1)
+    throw new Unsupported("a `for…of` loop is modeled with one declaration, `for (const x of xs)` or `for (const [k, v] of pairs)`", s)
+  const head = init.declarations[0]!.name
+  const name = ts.isIdentifier(head) ? head.text : undefined
   const iterPlace = placeOf(L, st, s.expression)
   const iterated = present(iterPlace !== undefined ? readPlace(L, st, iterPlace.place) : lowerExpr(L, s.expression, envOf(L, st)))
   if (iterated.kind !== "array") throw new Unsupported(`a \`for…of\` over a ${iterated.kind} is not modeled`, s.expression)
   const arr = iterated
   const { invariants: written, rest } = invariantsOf(L, s.statement)
-  for (const inv of written) noElement(L, inv, init.declarations[0]!.name)
+  for (const inv of written) for (const n of namesIn(head)) noElement(L, inv, n)
   // What is written, then the verifier's guesses, if it makes any for this loop, each read in the loop's state: when
   // nothing is written, or beside what is (`verify`'s second round, for a law what is written leaves unproved).
   if (written.length > 0) L.wrote = true
@@ -1369,11 +1404,13 @@ const forOf = (L: Lowering, s: ts.ForOfStatement, st: State): Exits => {
   const changed = changedBy(L, st, [s.statement], s.statement)
   if (iterPlace !== undefined && changed.has(iterPlace.place.cell))
     throw new Unsupported(`changes \`${s.expression.getText()}\` while iterating it`, s)
-  const elementType = L.checker.getTypeAtLocation(init.declarations[0]!.name)
-  const bindElement = (head: State, i: Arith): State => {
+  const elementType = L.checker.getTypeAtLocation(head)
+  const bindElement = (at: State, i: Arith): State => {
+    // A pattern takes the element apart, each name a value of it, as a `const` pattern does.
+    if (name === undefined) return bindName(L, at, head, () => arr.elem(i), false, elementType)
     if (iterPlace !== undefined && isObjectType(L, elementType))
-      return bindVar(head, name, { kind: "place", place: extend(iterPlace.place, { kind: "index", index: i }, name) })
-    return newCell(L, head, name, () => arr.elem(i), false, elementType)
+      return bindVar(at, name, { kind: "place", place: extend(iterPlace.place, { kind: "index", index: i }, name) })
+    return newCell(L, at, name, () => arr.elem(i), false, elementType)
   }
   const bound = arr.maxSize ?? arr.size ?? u.bound
   const results = { returns: [] as Array<Exits["returns"][number]>, leaving: [] as Array<State> }
@@ -1436,6 +1473,10 @@ const leave = (L: Lowering, st: State, x: Exits, after: State, atEnd: Bool, at: 
 }
 
 /** An invariant states what holds between iterations: the current element is not one of its words. */
+/** The names a binding declares, a pattern's every one. */
+const namesIn = (n: ts.BindingName): Array<ts.Identifier> =>
+  ts.isIdentifier(n) ? [n] : n.elements.flatMap((el) => (ts.isOmittedExpression(el) ? [] : namesIn(el.name)))
+
 const noElement = (L: Lowering, inv: ts.CallExpression, element: ts.Identifier): void => {
   const sym = L.checker.getSymbolAtLocation(element)
   const visit = (n: ts.Node): void => {

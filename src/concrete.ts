@@ -104,7 +104,12 @@ const read = (u: Universe, model: Model, n: Node, indices: ReadonlyArray<number>
     const length = leafAt("#len") as number
     if (length > REPLAY_LENGTH) throw new TooLong(`an array of ${length} elements`)
     const elem = n.children.get("[]")
-    return Array.from({ length }, (_, k) => (elem === undefined ? {} : read(u, model, elem, [...indices, k])))
+    // An array's elements share one leaf, by index; a tuple's each has its own, by position (`[k]`).
+    return Array.from({ length }, (_, k) => {
+      const at = n.children.get(`[${k}]`)
+      if (at !== undefined) return read(u, model, at, indices)
+      return elem === undefined ? {} : read(u, model, elem, [...indices, k])
+    })
   }
   const out: Record<string, unknown> = {}
   for (const [seg, child] of n.children) if (seg.startsWith(".")) out[seg.slice(1)] = read(u, model, child, indices)
@@ -193,6 +198,10 @@ const write = (u: Universe, n: Node, indices: ReadonlyArray<number>, value: unkn
     out.push((term(u, len, indices) as Arith).eq(arr.length))
     const elem = n.children.get("[]")
     if (elem !== undefined) arr.forEach((x, k) => write(u, elem, [...indices, k], x, out))
+    arr.forEach((x, k) => {
+      const at = n.children.get(`[${k}]`)
+      if (at !== undefined) write(u, at, indices, x, out)
+    })
     return
   }
   for (const [seg, child] of n.children)

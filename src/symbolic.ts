@@ -13,7 +13,7 @@ import { operation } from "./computation.ts"
 import { ite } from "./ops.ts"
 import type { Lowering } from "./lower.ts"
 import { MAX_LENGTH, type Universe } from "./universe.ts"
-import { NUM, Unsupported, type Val, exactRational, jsString, lazyRecord, termId } from "./value.ts"
+import { NUM, UNDEFINED, Unsupported, type Val, exactRational, jsString, lazy, lazyRecord, memoElems, termId } from "./value.ts"
 
 export interface Typing {
   readonly u: Universe
@@ -208,7 +208,33 @@ const present = (
     }
   }
   if (type.flags & (F.Any | F.Never)) throw new Unsupported(`${path}: type ${checker.typeToString(type)} is not modeled`, at)
-  if (checker.isTupleType(type)) throw new Unsupported(`${path}: tuples are not modeled`, at)
+  if (checker.isTupleType(type)) {
+    // A tuple: an array of its fixed length, each position of its own type, read back as an array (`[k]`, `concrete.ts`).
+    const flags = ((type as ts.TypeReference).target as ts.TupleType).elementFlags
+    if (flags.some((f) => f & (ts.ElementFlags.Optional | ts.ElementFlags.Rest | ts.ElementFlags.Variadic)))
+      throw new Unsupported(`${path}: a tuple with an optional or a rest element is not modeled`, at)
+    const parts = checker.getTypeArguments(type as ts.TypeReference)
+    const n = parts.length
+    const length = u.leaf([...segments, "#len"], "int", indices, "count") as never as ReturnType<typeof z3.Int.val>
+    u.assume(length.eq(n), indices)
+    const at_ = parts.map((p, k) => lazy(() => symbolicOf(t, p, [...segments, `[${k}]`], indices, at)))
+    return {
+      kind: "array",
+      length,
+      size: n,
+      maxSize: n,
+      elem: memoElems((i) => {
+        if (n === 0) return UNDEFINED
+        if (z3.isIntVal(i)) {
+          const k = Number(i.value())
+          return k >= 0 && k < n ? at_[k]!() : UNDEFINED
+        }
+        let v = at_[n - 1]!()
+        for (let k = n - 2; k >= 0; k--) v = ite(u, i.eq(k), at_[k]!(), v, at)
+        return v
+      }),
+    }
+  }
   if (checker.isArrayType(type)) {
     const element = checker.getTypeArguments(type as ts.TypeReference)[0]
     if (element === undefined) throw new Unsupported(`${path}: an array with no element type`, at)

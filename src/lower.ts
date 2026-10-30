@@ -315,6 +315,42 @@ export const restOf = (L: Lowering, v: Val, named: ReadonlyArray<string>, at: ts
   )
 }
 
+/**
+ * Element `k` of what an array pattern takes apart: an array's, `undefined` past its end, as `xs[k]` reads it, and
+ * refused where its type says it is there and nothing says so (no `noUncheckedIndexedAccess`, no default); a tuple's
+ * field `k`.
+ */
+export const patternElement = (L: Lowering, v: Val, k: number, el: ts.BindingElement): Val => {
+  const z3 = L.u.z3
+  const p = v.kind === "maybe" && v.value !== undefined ? v.value : v
+  if (p.kind === "array") {
+    const known = p.size !== undefined && k < p.size
+    if (!known && el.initializer === undefined) {
+      const t = L.checker.getTypeAtLocation(el)
+      if (!(t.isUnion() ? t.types : [t]).some((m) => m.flags & (ts.TypeFlags.Undefined | ts.TypeFlags.Any | ts.TypeFlags.Unknown)))
+        throw new Unsupported(
+          `\`${el.getText()}\` takes an element of an array where its type says it is there, which may be false: turn on \`noUncheckedIndexedAccess\`, or give it a default`,
+          el,
+        )
+    }
+    const i = z3.Int.val(k)
+    return known ? p.elem(i) : { kind: "maybe", isNull: z3.Bool.val(false), isUndefined: z3.Not(i.lt(p.length)), value: p.elem(i) }
+  }
+  if (p.kind === "record") {
+    const f = p.field(String(k))
+    if (f === undefined) throw new Unsupported(`no element ${k} to take apart`, el)
+    return f
+  }
+  throw new Unsupported(`an array pattern over a ${p.kind}`, el)
+}
+
+/** What `...rest` in an array pattern holds: the elements from `k` on, a copy, as `.slice(k)` gives them. */
+export const patternRest = (L: Lowering, v: Val, k: number, el: ts.BindingElement): Val => {
+  const p = v.kind === "maybe" && v.value !== undefined ? v.value : v
+  if (p.kind !== "array") throw new Unsupported(`the rest of a ${p.kind} in an array pattern is not modeled`, el)
+  return slice(L, p, [{ kind: "int", origin: "count", term: L.u.z3.Int.val(k) }], el)
+}
+
 /** The keys an object pattern names, each with its element, and its rest, if it has one. */
 export const patternKeys = (
   pattern: ts.ObjectBindingPattern,
@@ -334,7 +370,32 @@ export const bind = (L: Lowering, name: ts.BindingName, value: Thunk, scope: Map
     scope.set(name.text, value)
     return
   }
-  if (!ts.isObjectBindingPattern(name)) throw new Unsupported("array destructuring is not modeled", name)
+  if (ts.isArrayBindingPattern(name)) {
+    name.elements.forEach((el, k) => {
+      if (ts.isOmittedExpression(el)) return
+      if (el.dotDotDotToken !== undefined) {
+        bind(
+          L,
+          el.name,
+          later(L, () => patternRest(L, value(), k, el)),
+          scope,
+        )
+        return
+      }
+      bind(
+        L,
+        el.name,
+        defaulted(
+          L,
+          later(L, () => patternElement(L, value(), k, el)),
+          el.initializer === undefined ? undefined : later(L, () => lowerExpr(L, el.initializer!, scope)),
+          el,
+        ),
+        scope,
+      )
+    })
+    return
+  }
   const { keys, rest } = patternKeys(name)
   // Each name read at its type, as a property access is: a path where the object lacks the key reads `undefined` there.
   const objType = L.checker.getTypeAtLocation(name)
@@ -539,6 +600,9 @@ const elementAccess = (L: Lowering, e: ts.ElementAccessExpression, env: Env): Va
   const k = literalIndex(e.argumentExpression)
   const obj = lowerExpr(L, e.expression, env)
   return optionally(L, obj, e, e.expression, (v) => {
+    // A tuple's position, or a literal array's, at a literal index it has: there, as its type says.
+    if (v.kind === "array" && v.size !== undefined && k !== undefined && k >= 0n && k < BigInt(v.size))
+      return v.elem(L.u.z3.Int.val(Number(k)))
     if (v.kind === "array") {
       // Its type says what the element is; without `noUncheckedIndexedAccess` it says the element is there, which may be
       // false: the read is refused there.
@@ -1193,9 +1257,48 @@ const arrayMethod = (L: Lowering, arr: Extract<Val, { kind: "array" }>, name: st
     if (f.node.parameters.length > 2) throw new Unsupported(`\`.${name}\` with a callback reading the array is not modeled`, f.node)
     return (i) => truthy(u, lowerCall(L, f.node, f.env, [arr.elem(i), { kind: "int", origin: "count", term: i }], e))
   }
+  /** A callback's value at each index (`.map`, `.flatMap`), each read once. */
+  const callback = (): ((i: Arith) => Val) => {
+    if (e.arguments.length !== 1) throw new Unsupported(`\`.${name}\` with a \`this\` argument is not modeled`, e)
+    const f = lowerExpr(L, arg(0), env)
+    if (f.kind !== "fn") throw new Unsupported(`\`.${name}\` of a ${f.kind}: a function the code writes is read`, e)
+    if (f.node.parameters.length > 2) throw new Unsupported(`\`.${name}\` with a callback reading the array is not modeled`, f.node)
+    return memoElems((i) => lowerCall(L, f.node, f.env, [arr.elem(i), { kind: "int", origin: "count", term: i }], e))
+  }
   /** `exists` (or `forall`) an index of the array where `p` holds, with the facts about element i inside. */
   /** How many elements to write a quantifier out over: the array's own bound (exact on both sides), else the search side's. */
   const writtenOut = arr.maxSize ?? u.bound
+  /**
+   * The callback run on every element, read or not, as JavaScript runs it: what each call obliges (an exact operation),
+   * it obliges of each element there is, written out over the bound or said of every index.
+   */
+  const eachCall = (apply: (i: Arith) => Val): void => {
+    const run = (i: Arith, inRange: Bool, quantified: boolean) =>
+      elementwise(
+        L,
+        i,
+        inRange,
+        () => {
+          apply(i)
+          return z3.Bool.val(true)
+        },
+        quantified,
+      )
+    if (writtenOut !== undefined)
+      for (let k = 0; k < writtenOut; k++) {
+        const i = z3.Int.val(k)
+        run(i, i.lt(arr.length), false)
+      }
+    else {
+      const i = z3.Int.const(u.fresh("i"))
+      run(i, z3.And(i.ge(0), i.lt(arr.length)), true)
+    }
+  }
+  /** What the proof side knows of a fold over an array of unknown length (`.join`, `.flatMap`): what is said beside, no more. */
+  const folded = (what: string): void => {
+    u.abstracted = true
+    u.approximations.add(`\`${e.getText()}\` is known on the proof side only ${what}`)
+  }
   const quantify = (q: "exists" | "forall", p: (i: Arith) => Bool): Bool => {
     if (writtenOut !== undefined) {
       // Written out: element k for each k below the bound, counted only where k < length.
@@ -1258,6 +1361,91 @@ const arrayMethod = (L: Lowering, arr: Extract<Val, { kind: "array" }>, name: st
           e,
         )
       return bool(quantify("exists", (i) => strictEq(u, arr.elem(i), x, e)))
+    }
+    case "map": {
+      const apply = callback()
+      eachCall(apply)
+      return {
+        kind: "array",
+        length: arr.length,
+        elem: apply,
+        ...(arr.size === undefined ? {} : { size: arr.size }),
+        ...(arr.maxSize === undefined ? {} : { maxSize: arr.maxSize }),
+      }
+    }
+    case "join": {
+      if (e.arguments.length > 1) throw new Unsupported("`.join` takes one separator", e)
+      const sepVal = e.arguments.length === 0 ? undefined : lowerExpr(L, arg(0), env)
+      if (sepVal !== undefined && sepVal.kind !== "str") throw new Unsupported(`\`.join\` with a separator that is a ${sepVal.kind}`, e)
+      const sep = sepVal?.term ?? jsString(z3, ",")
+      // An element as `join` writes it: a string as it is, `null` and `undefined` as nothing.
+      const piece = (i: Arith): Extract<Val, { kind: "str" }>["term"] => {
+        const v = arr.elem(i)
+        if (v.kind === "str") return v.term
+        if (v.kind === "nullish") return jsString(z3, "")
+        if (v.kind === "maybe" && v.value?.kind === "str") return z3.If(isNullish(u, v), jsString(z3, ""), v.value.term)
+        throw new Unsupported(
+          `\`.join\` of an array of ${v.kind === "maybe" ? (v.value?.kind ?? "nothing") : v.kind}: of strings it is read`,
+          e,
+        )
+      }
+      const empty = jsString(z3, "")
+      if (writtenOut !== undefined) {
+        // Written out: what it is of each length up to the bound.
+        let joined = empty
+        let prefix = empty
+        for (let k = 0; k < writtenOut; k++) {
+          prefix = k === 0 ? piece(z3.Int.val(0)) : prefix.concat(sep).concat(piece(z3.Int.val(k)))
+          joined = z3.If(arr.length.eq(k + 1), prefix, joined)
+        }
+        return { kind: "str", term: joined }
+      }
+      const out = symbolicOf(L, L.checker.getTypeAtLocation(e), [u.fresh("joined")], u.openBounds(), e)
+      if (out.kind !== "str") throw new Unsupported("`.join` whose result is no string", e)
+      u.assume(
+        z3.And(z3.Implies(arr.length.eq(0), out.term.eq(empty)), z3.Implies(arr.length.eq(1), out.term.eq(piece(z3.Int.val(0))))),
+        u.openBounds(),
+      )
+      folded("for none or one element")
+      return out
+    }
+    case "flatMap": {
+      const apply = callback()
+      eachCall(apply)
+      const segment = (i: Arith): Extract<Val, { kind: "array" }> => {
+        const v = apply(i)
+        if (v.kind !== "array") throw new Unsupported(`\`.flatMap\` whose callback gives a ${v.kind}: an array is read`, e)
+        return v
+      }
+      if (writtenOut !== undefined) {
+        // Written out: each element's array in turn, as a spread of each joins them (`arrayLiteral`).
+        if (writtenOut === 0) return { kind: "array", length: z3.Int.val(0), size: 0, maxSize: 0, elem: arr.elem }
+        const segments = Array.from({ length: writtenOut }, (_, k) => segment(z3.Int.val(k)))
+        const offsets: Array<Arith> = []
+        let length: Arith = z3.Int.val(0)
+        let maxSize: number | undefined = 0
+        segments.forEach((seg, k) => {
+          offsets.push(length)
+          length = length.add(z3.If(z3.Int.val(k).lt(arr.length), seg.length, z3.Int.val(0)))
+          const m = seg.maxSize ?? u.bound
+          maxSize = maxSize === undefined || m === undefined ? undefined : maxSize + m
+        })
+        return {
+          kind: "array",
+          length,
+          ...(maxSize === undefined ? {} : { maxSize }),
+          elem: memoElems((j) => {
+            let v = segments[segments.length - 1]!.elem(j.sub(offsets[segments.length - 1]!))
+            for (let k = segments.length - 2; k >= 0; k--) v = ite(u, j.lt(offsets[k + 1]!), segments[k]!.elem(j.sub(offsets[k]!)), v, e)
+            return v
+          }),
+        }
+      }
+      const out = symbolicOf(L, L.checker.getTypeAtLocation(e), [u.fresh("flatMapped")], u.openBounds(), e)
+      if (out.kind !== "array") throw new Unsupported("`.flatMap` whose result is no array", e)
+      u.assume(z3.Implies(arr.length.eq(0), out.length.eq(0)), u.openBounds())
+      folded("as empty when the array is")
+      return out
     }
     case "filter": {
       // The kept elements' count; their identities are not modeled. On the search side the count is
@@ -1666,10 +1854,23 @@ export const exactly = (
  */
 const divided = (L: Lowering, op: ts.SyntaxKind, l: Val & { kind: "int" }, r: Val & { kind: "int" }, e: ts.BinaryExpression): Val => {
   const z3 = L.u.z3
+  // A divisor that is a literal other than 0n never throws: nothing to oblige, and the quotient and remainder are Z3's
+  // own, truncated toward 0 as JavaScript's are, which read inside a quantifier as well as out.
+  if (z3.isIntVal(r.term) && r.term.value() !== 0n) {
+    const d = r.term.value()
+    const negative = l.term.lt(0)
+    const size = z3.If(negative, l.term.neg(), l.term)
+    if (op === K.SlashToken) {
+      const q = z3.If(negative, size.div(d < 0n ? -d : d).neg(), size.div(d < 0n ? -d : d))
+      return { ...l, term: d < 0n ? q.neg() : q }
+    }
+    const m = size.mod(d < 0n ? -d : d)
+    return { ...l, term: z3.If(negative, m.neg(), m) }
+  }
   // Inside a quantifier the element is any index's, read or not, so the obligation would ask more than the code needs.
   if (L.u.openBounds().length > 0)
     throw new Unsupported(
-      `a bigint \`${ts.tokenToString(op)}\` inside \`.some\`, \`.every\`, \`.find\` or \`.filter\` is not modeled: divide in a \`for…of\` over the elements, or outside the callback`,
+      `a bigint \`${ts.tokenToString(op)}\` by a value the code computes, inside \`.some\`, \`.every\`, \`.find\`, \`.filter\`, \`.map\` or \`.flatMap\`, is not modeled: divide in a \`for…of\` over the elements, or outside the callback`,
       e.operatorToken,
     )
   const nonZero = z3.Not(r.term.eq(0))

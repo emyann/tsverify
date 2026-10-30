@@ -90,6 +90,9 @@ describe("bigint division", () => {
 
   it("a division inside `.every` is refused, saying where to divide instead", async () => {
     const v = await verify(z3, project, file, "inEvery")
-    assert.match(v.unsupported ?? "(verified)", /inside `\.some`, `\.every`, `\.find` or `\.filter` is not modeled: divide in a `for…of`/)
+    assert.match(
+      v.unsupported ?? "(verified)",
+      /by a value the code computes, inside `\.some`, `\.every`, .* is not modeled: divide in a `for…of`/,
+    )
   })
 })

@@ -11,8 +11,8 @@ part as a harmless one.
   *Numbers*), `null` and `undefined`;
 - unions of literals (`"open" | "closed"`), optional fields, and values that may be missing (`T | undefined`);
 - unions of records, a check of the tag narrowing each as the type checker does (*Narrowing*, below);
-- records and arrays of any length, read lazily: a field becomes an unknown only when something reads it; a tuple the
-  code builds, though not one it is given;
+- records and arrays of any length, read lazily: a field becomes an unknown only when something reads it; tuples, the
+  code's and the caller's, but for one with an optional or a rest element;
 - functions and closures, and computations (async functions, Effect programs);
 - a value of type `unknown`, carried, stored and returned, never read: its truth, `===`, `??` and its fields are refused.
 
@@ -32,10 +32,16 @@ part as a harmless one.
   and `indexOf` of one string, `charAt(i)`, `at(i)`, `s[i]` (under `noUncheckedIndexedAccess`) and `slice`, each with
   JavaScript's positions: truncated, counted from the end where `at` and `slice` count so, `""` or `undefined` outside;
 - on arrays: `.length`, an element at any index, `xs[i]` and `.at(i)` (*Indexes*, below), `.some`, `.every`, `.includes`
-  (of a string, a boolean, a bigint or a count), `.find`, `.slice` and `.filter(p).length`;
+  (of a string, a boolean, a bigint or a count), `.find`, `.slice`, `.map`, and `.filter(p).length`, `.join` and
+  `.flatMap` (*Folds*, below);
 - calls of the program's functions, read from source and inlined, by name or through a namespace import
   (`laws.readsFirst`, from `import * as laws`), and of functions a declaration covers;
 - a tuple's element at a literal index, a call's `args[0]` among them.
+
+**Patterns.** Object and array patterns, in a `const` or `let`, a parameter, a callback's parameter and a `for…of` head
+(`for (const [name, n] of pairs)`), nested, with defaults, holes and a rest: an array's element past its end is
+`undefined` and takes the default, as `xs[k]` reads it (`noUncheckedIndexedAccess`, or a default, says it may be
+missing), and `...rest` is a copy of the elements from there on.
 
 **Statements.** `const` and `let`, assignment and compound assignment, `if` with early returns, `switch` with
 fallthrough, `for…of`, `for` and `while`, `delete`, `push`, an element written at any index (`b[i] = v`), and changes
@@ -92,6 +98,15 @@ that succeeded before it. A report lists each under `divisions:`, proved, or wit
 is reported as its division, not as a law broken. In a law or a `requires`, a division by `0n` makes it throw, so it does
 not hold there: guard it, `b === 0n || …`.
 
+### Folds
+
+`.map` keeps the length, and its element `i` is the callback's of element `i`; the callback runs on every element, as
+JavaScript runs it, so what it obliges (an exact operation) it obliges of each. `.join` and `.flatMap` build their result
+from every element. The search side writes them out over its arrays of at most 4 elements, exactly; the proof side
+knows `.join` of none and one element (`""`, and the element itself) and `.flatMap` only as empty when its array is, so
+a law about more is bounded at best, with the reason saying which call: `cells.join(",")` is known on the proof side
+only for none or one element.
+
 ### Narrowing
 
 A check of a value's tag narrows it, as the type checker narrows it. A union whose members give one field different
@@ -111,7 +126,7 @@ Each refusal names the place, `file:line:column`, and the reason.
 | `%` on `number` | not modeled | `bigint` where the values are whole, or `x & (2 ** k - 1)` for a remainder of a power of two |
 | `**` of a value the code computes, bitwise operators on `bigint` | not modeled | a literal power (`2 ** 32`), shifts and masks on `number` |
 | arithmetic on `number` in a declaration's laws or a guessed invariant, but on counts and small whole literals | its rounding is not modeled | the value computed in the program, or `bigint` |
-| a bigint `/` or `%` inside `.some`, `.every`, `.find` or `.filter` | the element is any index's, read or not | the division in a `for…of` over the elements, or outside the callback |
+| a bigint `/` or `%` by a value the code computes, inside a callback of `.some`, `.every`, `.find`, `.filter`, `.map` or `.flatMap` | which elements it runs on is not modeled | the division in a `for…of` over the elements, or outside the callback; a literal divisor (`x % 2n`) is read anywhere |
 | `==`, `!=` | not modeled | `===`, `!==`, and `x === null \|\| x === undefined` for a nullish check |
 | a `let` of the module, a global (`Date`, `Math.sqrt`, `Math.round`) | a binding the verifier cannot see | a `const` or an argument, or a function declared with `assume` |
 | a string's other methods (`split`, `replace`, `toUpperCase`, `trim`), its spread `[...s]`, `indexOf(t, from)` | not modeled | the methods it reads, or a function declared with `assume` |
