@@ -8,7 +8,7 @@
 // An operation's outcome is unknown but for its types (and, later, its
 // contract): any outcome they allow is covered.
 import ts from "typescript"
-import type { Arith } from "z3-solver"
+import type { Arith, Bool } from "z3-solver"
 import type { Style } from "./adapter.ts"
 import { bind, bindParameters, cond, isLogical, later, lowerExpr, type Lowering, onBranch, stepKey } from "./lower.ts"
 import { isNullish, ite, truthy } from "./ops.ts"
@@ -270,6 +270,13 @@ const stepsIn = (L: Lowering, style: Style, n: ts.Node, env: Env, trace: Val, k:
     i === children.length ? k(scope, t) : stepsIn(L, style, children[i]!, scope, t, (s2, t2) => each(i + 1, s2, t2))
   return each(0, env, trace)
 }
+
+/** `c ? a : b` of two computations: one that runs `a` where `c` holds and `b` where it does not. */
+export const chosen = (L: Lowering, c: Bool, a: Val, b: Val, at: ts.Node): Val => ({
+  kind: "comp",
+  run: (trace) =>
+    unran(ite(L.u, c, ran(onBranch(L, c, () => runComp(a, trace, at))), ran(onBranch(L, L.u.z3.Not(c), () => runComp(b, trace, at))), at)),
+})
 
 /** Runs the computation `v` from `trace`; a value that is none is refused. */
 export const runComp = (v: Val, trace: Val, at: ts.Node): Ran => {

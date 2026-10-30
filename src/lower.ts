@@ -35,7 +35,7 @@
 import ts from "typescript"
 import type { Arith, Bool } from "z3-solver"
 import type { Adapter } from "./adapter.ts"
-import { computationCall } from "./computation.ts"
+import { chosen, computationCall } from "./computation.ts"
 import { type LemmaUse, type Obligation, runFunction } from "./exec.ts"
 import { type Order, compare, isNullish, ite, nullishOr, strictEq, truthy } from "./ops.ts"
 import { narrowedField } from "./narrow.ts"
@@ -373,13 +373,9 @@ export const lowerExpr = (L: Lowering, e: ts.Expression, env: Env): Val => {
   if (ts.isConditionalExpression(e)) {
     const c = cond(L, e.condition, env)
     const yes = onBranch(L, c, () => lowerExpr(L, e.whenTrue, env))
-    return ite(
-      u,
-      c,
-      yes,
-      onBranch(L, z3.Not(c), () => lowerExpr(L, e.whenFalse, env)),
-      e,
-    )
+    const no = onBranch(L, z3.Not(c), () => lowerExpr(L, e.whenFalse, env))
+    if (yes.kind === "comp" && no.kind === "comp") return chosen(L, c, yes, no, e)
+    return ite(u, c, yes, no, e)
   }
 
   if (ts.isPrefixUnaryExpression(e)) {
