@@ -13,7 +13,11 @@ part as a harmless one.
 - unions of records, a check of the tag narrowing each as the type checker does (*Narrowing*, below);
 - records and arrays of any length, read lazily: a field becomes an unknown only when something reads it; tuples, the
   code's and the caller's, but for one with an optional or a rest element;
-- functions and closures, and computations (async functions, Effect programs);
+- functions and closures, and computations (async functions, Effect programs); a function the code is given, as some
+  function, each call some value of its return type, on which a counterexample leans;
+- a `Date` the code is given, read through `getTime()` and `valueOf()`: `NaN` or a whole number of milliseconds within
+  8.64e15 of 1970; a `Map` and a `Set`, given or built from an array (`new Set(["done", "failed"])`), read through `has`
+  and `get` (*Collections*, below);
 - a value of type `unknown`, carried, stored and returned, never read: its truth, `===`, `??` and its fields are refused.
 
 **Expressions.**
@@ -22,8 +26,10 @@ part as a harmless one.
 - `+`, `-`, `*` and `/` on `number`, where they are exact, each an obligation that it is (*Numbers*, below); its
   bitwise operators, `|`, `&`, `^`, `~`, `<<`, `>>` and `>>>`, on 32-bit integers as JavaScript makes them; and `**` of
   two literals (`2 ** 32`);
-  `Math.floor`, `Math.ceil`, `Math.trunc`, `Math.abs`, `Math.max`, `Math.min`, `Number.isInteger`, `Number.isSafeInteger`,
-  `Number.isFinite`, `Number.isNaN`, and `Object.is`, which tells `-0` from `0`;
+  `Math.floor`, `Math.ceil`, `Math.trunc`, `Math.round`, `Math.abs`, `Math.max`, `Math.min`, `Number.isInteger`,
+  `Number.isSafeInteger`, `Number.isFinite`, `Number.isNaN`, and `Object.is`, which tells `-0` from `0`; `Date.parse`,
+  as some function of its string;
+- `"key" in obj`, of a key written as a string (*Narrowing*, below);
 - `/` and `%` on bigints, as JavaScript computes them: the quotient truncated toward zero, the remainder with the
   dividend's sign. A division by `0n` throws, so each divisor is proved other than `0n` on the branch where its division
   runs (*Divisions*, below);
@@ -32,8 +38,9 @@ part as a harmless one.
   and `indexOf` of one string, `charAt(i)`, `at(i)`, `s[i]` (under `noUncheckedIndexedAccess`) and `slice`, each with
   JavaScript's positions: truncated, counted from the end where `at` and `slice` count so, `""` or `undefined` outside;
 - on arrays: `.length`, an element at any index, `xs[i]` and `.at(i)` (*Indexes*, below), `.some`, `.every`, `.includes`
-  (of a string, a boolean, a bigint or a count), `.find`, `.slice`, `.map`, and `.filter(p).length`, `.join` and
-  `.flatMap` (*Folds*, below);
+  (of a string, a boolean, a bigint or a count), `.find`, `.slice` with JavaScript's positions, `.map`, `.toReversed()`,
+  `.reverse()` of a copy made where it is called (`[...xs].reverse()`), and `.filter`, `.join` and `.flatMap` (*Folds*,
+  below);
 - calls of the program's functions, read from source and inlined, by name or through a namespace import
   (`laws.readsFirst`, from `import * as laws`), and of functions a declaration covers;
 - a tuple's element at a literal index, a call's `args[0]` among them.
@@ -71,12 +78,18 @@ where its arithmetic is exact, and a `requires` is read as allowing an input whe
 as ruling it out, for a counterexample. In other spec code (a declaration's laws, a guessed invariant), arithmetic on
 `number` is read on counts and small whole literals alone, `i - 1`.
 
-`Math.floor`, `Math.ceil` and `Math.trunc` give the integral double JavaScript gives; `Math.max` and `Math.min` are `NaN`
+`Math.floor`, `Math.ceil`, `Math.trunc` and `Math.round` give the integral double JavaScript gives (`Math.round` takes a
+half up, toward +∞, and -0.5 to `-0`). Of a quotient of two whole numbers, `Math.round(ms / 1000)` or
+`Math.floor((lo + hi) / 2)`, each rounds the quotient's real value, which is what JavaScript gives while the dividend is
+within 2^52: a quotient that is no exact double lies further from a whole number, and from a half, than the double it
+rounds to strays from it. That the operands are whole and the dividend within 2^52 is the obligation, listed under
+`arithmetic:` in the division's place. `Math.max` and `Math.min` are `NaN`
 where an argument is, of any number of arguments; the `Number` checks read the class and the value. A bitwise operator
 makes each operand a 32-bit integer as JavaScript does (`NaN`, the infinities and the zeros are 0, a fraction is
 truncated, the rest wraps), so its result is exact and never `-0`: `(lo + hi) >>> 1` is proved between `lo` and `hi`
 while their sum is below 2^32, and refuted past it. `%` on `number`, `**` of anything but two literals, and `Math`'s
-other functions are refused.
+other functions are refused. The `Number` checks of a value that may be missing say it is there and passes:
+`d === undefined || Number.isInteger(d)` keeps every whole `d`.
 
 ### Indexes
 
@@ -107,6 +120,19 @@ knows `.join` of none and one element (`""`, and the element itself) and `.flatM
 a law about more is bounded at best, with the reason saying which call: `cells.join(",")` is known on the proof side
 only for none or one element.
 
+`.filter` keeps its elements in order. The search side writes it out: element `k` is kept where the predicate holds of
+it, and the `j`-th kept is the one with `j` kept before it, so `xs.filter(p)[0]` and `.at(-1)` are exact. The proof side
+counts the kept as none or some, and knows the `j`-th kept to be some element the predicate holds of, at an index that
+rises with `j`.
+
+### Collections
+
+A `Map` or a `Set` is the array of its entries, read through `has` and `get`: a key is found as the collection finds it
+(`NaN` finds `NaN`), a `Map` the code is given gives a key's first entry, and one built from pairs its last, as its
+constructor keeps it. `get` is `undefined` where the key has no entry. A `Map` or a `Set` the code is given has keys
+that are strings, booleans or bigints, and reads back in a counterexample as `new Map([...])` or `new Set([...])`. Its
+`size`, its iteration and every change to it are refused.
+
 ### Narrowing
 
 A check of a value's tag narrows it, as the type checker narrows it. A union whose members give one field different
@@ -115,6 +141,12 @@ bigint once `ev.type === "add"`, and a counterexample is always one of the membe
 same way, wherever it stands: once `c.op === "set"`, `c.args[1]` is the `set`'s second argument, inside
 `calls.every((c) => (c.op === "set" ? … : true))` too, where on some runs the call at that place is a `get` of one argument.
 A read takes the paths on which the value can have the type the checker gives the read; no run reaches it on the others.
+
+`"refused" in moved` reads which member a union is: a union whose members require different keys
+(`{ to; action } | { refused }`) is held as one record per member too. Of an object the code built, `in` asks whether it
+wrote the key; of one it is given, whether its type requires it, every value taken to hold the keys its type declares and
+no other, as TypeScript's narrowing by `in` takes it, which the report lists among what it assumed. A key the type makes
+optional is refused: an absent key and one holding `undefined` read alike.
 
 ## What it refuses, and what to write instead
 
@@ -128,11 +160,15 @@ Each refusal names the place, `file:line:column`, and the reason.
 | arithmetic on `number` in a declaration's laws or a guessed invariant, but on counts and small whole literals | its rounding is not modeled | the value computed in the program, or `bigint` |
 | a bigint `/` or `%` by a value the code computes, inside a callback of `.some`, `.every`, `.find`, `.filter`, `.map` or `.flatMap` | which elements it runs on is not modeled | the division in a `for…of` over the elements, or outside the callback; a literal divisor (`x % 2n`) is read anywhere |
 | `==`, `!=` | not modeled | `===`, `!==`, and `x === null \|\| x === undefined` for a nullish check |
-| a `let` of the module, a global (`Date`, `Math.sqrt`, `Math.round`) | a binding the verifier cannot see | a `const` or an argument, or a function declared with `assume` |
+| a `let` of the module, a global (`Date`, `Math.sqrt`, `JSON`) | a binding the verifier cannot see | a `const` or an argument, or a function declared with `assume` |
 | a string's other methods (`split`, `replace`, `toUpperCase`, `trim`), its spread `[...s]`, `indexOf(t, from)` | not modeled | the methods it reads, or a function declared with `assume` |
 | `Object.is` of an object | it compares identity, which is not modeled | a field of each |
 | `xs[i]` on an array, without `noUncheckedIndexedAccess` | its type says the element is there, which may be false | `noUncheckedIndexedAccess` turned on, or `xs.at(i)`, whose type says it may be missing |
 | `.includes(x)` of a `number` | it finds `NaN`, which `===` does not | `.some((y) => y === x)` |
+| `.reverse()` of an array something else holds | it turns that array around | `[...xs].reverse()` or `xs.toReversed()` |
+| a `Map`'s or a `Set`'s `size`, its iteration, `set`, `add`, `delete`; a key that is a `number` or an object | not modeled | `has` and `get`; string keys |
+| `"key" in obj` of a key the type makes optional | an absent key and one holding `undefined` read alike | `obj.key !== undefined` |
+| a `Date`'s methods but `getTime()` and `valueOf()`; `new Date(x)` | not modeled | the time, `getTime()`, and arithmetic on it |
 | a member of a value the type checker has not shown present | it may be missing | a check first, or `?.` |
 | a field of a union whose kind differs by member, read before its tag is checked | it is no one value | a check of the tag first: `ev.type === "add" && ev.n > 0n` |
 | recursion | not modeled | `assume(f, { pure: true, ensures })` |
