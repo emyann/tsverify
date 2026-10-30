@@ -32,6 +32,9 @@ const parts = (u: Universe, v: Val): { isNull: Bool; isUndefined: Bool; value: V
 /** `v == null`: v is null or undefined. */
 export const isNullish = (u: Universe, v: Val): Bool => {
   const p = parts(u, v)
+  // One of the two where the other cannot be: the same condition a default is taken on (`undefinedOr`).
+  if (u.z3.isFalse(p.isNull)) return p.isUndefined
+  if (u.z3.isFalse(p.isUndefined)) return p.isNull
   return u.z3.Or(p.isNull, p.isUndefined)
 }
 
@@ -313,6 +316,8 @@ export const ite = (u: Universe, c: Bool, a: Val, b: Val, at: ts.Node): Val => {
       kind: "builtin",
       name: `${a.name} or ${b.name}`,
       call: (args, call) => ite(u, c, a.call(args, call), b.call(args, call), call),
+      ...(a.id === undefined || b.id === undefined ? {} : { id: `ite(${termId(c)},${a.id},${b.id})` }),
+      ...(a.effects === undefined && b.effects === undefined ? {} : { effects: () => a.effects?.() ?? b.effects?.() }),
     }
   if (a.kind === "array" && b.kind === "array") {
     const maxSize = a.maxSize !== undefined && b.maxSize !== undefined ? Math.max(a.maxSize, b.maxSize) : undefined

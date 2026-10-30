@@ -333,9 +333,12 @@ const present = (
     return {
       kind: "builtin",
       name,
+      id: `fn:${id}`,
       call: (_args, call) => {
         u.opaqueCalls.add(name)
-        u.notes.add("A function the code is given is read as some function: each call gives some value of its return type.")
+        u.notes.add(
+          "A function the code is given is read as some function that changes nothing: each call gives some value of its return type.",
+        )
         return symbolicOf(t, returns, [u.given(`${name}()`, t.guard)], u.openBounds(), call)
       },
     }

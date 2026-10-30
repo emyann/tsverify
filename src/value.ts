@@ -119,7 +119,15 @@ export type Val =
   /** A function value: its node and the bindings it closes over. */
   | { readonly kind: "fn"; readonly node: FunctionNode; readonly env: Env }
   /** A function the verifier models itself: a library's, or an operation's. */
-  | { readonly kind: "builtin"; readonly name: string; readonly call: (args: ReadonlyArray<Val>, at: ts.Node) => Val }
+  | {
+      readonly kind: "builtin"
+      readonly name: string
+      readonly call: (args: ReadonlyArray<Val>, at: ts.Node) => Val
+      /** Its identity, where it has one: a function the code is given, or one written with nothing of its scope in it. */
+      readonly id?: string
+      /** Why a call of it may change something, or `undefined` where it changes nothing. Left out, it changes nothing. */
+      readonly effects?: () => string | undefined
+    }
   /**
    * A computation not yet run: an Effect, a pending call of an async function or an operation. Running it from a
    * trace gives its outcome and the trace with its calls added; each run is a run of its own.
@@ -245,9 +253,9 @@ export const identity = (v: Val): string | undefined => {
     }
     case "record":
     case "array":
+    case "builtin":
       return v.id
     case "fn":
-    case "builtin":
     case "comp":
     case "opaque":
       return undefined

@@ -54,6 +54,23 @@ export const lawRunsAComputation = contract((x: string) => x, { ensures: { runs:
 /** The program may read the clock where a law reads the result: a binding keeps the mode of the code that wrote it. */
 export const stampedNow = contract((x: string) => ({ x, at: Date.now() }), { ensures: { keeps: (x, out) => out.x === x && out.at === out.at } })
 
+/** Pure where the function it is given is: it applies it. */
+export function applied(f: (x: number) => number, x: number): number {
+  return f(x)
+}
+export const appliedIsPure = assume(applied, { pure: true })
+let ticks = 0
+const tick = (x: number): number => {
+  ticks++
+  return x + ticks
+}
+/** Given a function that counts its calls, `applied` is not pure. */
+export const appliedToATick = contract((x: number) => applied(tick, x), { ensures: { always } })
+/** Given one that changes nothing, written twice alike, it is one call: one result. */
+export const appliedTwice = contract((x: number) => Object.is(applied((y) => y + 1, x), applied((y) => y + 1, x)), {
+  ensures: { same: (_x, out) => out },
+})
+
 /** `uniq` is declared on strings; on numbers no declaration covers it. */
 export const uncovered = contract((xs: ReadonlyArray<number>) => uniq(xs).length, { ensures: { always } })
 

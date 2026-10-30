@@ -13,6 +13,8 @@ In rough order:
 - Collections the code changes: `Map.set`, `Set.add` and `delete` on a map the function allocated, its `size` and its
   iteration, by the keys it holds; and a dictionary's keys, values and entries (`Object.keys`), its keys held distinct
   and in JavaScript's order, integer-like keys first.
+- A function the code is given, declared pure where a spec says so: the same value for the same arguments, so a law can
+  say what two calls of it give, as it can of a declaration's.
 - A query's time, steadier: a proof that takes a second can take more than ten when Z3 meets the same formula in another
   order, as it does when terms are freed and their numbers reused. Each number the loops keep whole by construction (a
   counter) is held as an integer; the rest are held in parts the solver must reason about.

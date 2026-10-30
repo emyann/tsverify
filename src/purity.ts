@@ -4,13 +4,17 @@
 // Pure means: a call changes nothing anyone else can see, and its result
 // depends only on its arguments. The check refuses
 // - an effect: `await`, `yield`, `this`, a call to anything it does not know
-//   to be pure (the clock, `Math.random`, the console, a function it was given,
-//   a method it cannot see into, a package's function not declared pure), a
-//   read or a write of a module's `let`;
+//   to be pure (the clock, `Math.random`, the console, a function it cannot
+//   read, a method it cannot see into, a package's function not declared pure),
+//   a read or a write of a module's `let`;
 // - a change to an object it did not allocate: its arguments, a module's
 //   constants, what a callee returned;
 // - a cast (`as`) or a type predicate (`x is T`), either of which would hide a
 //   value's type from the next rule.
+//
+// A call to a function it was given is pure where that function is: the check
+// names the arguments it calls (`calls`), and a caller passes pure functions
+// there, which `assumedCall` asks of each call.
 //
 // It may change what it allocated itself (a fold builds its state so). The
 // hard part is aliasing: a fresh object can hold a value of the caller's, and
@@ -28,7 +32,14 @@ import { CONTRACT_MODULE, declared as ownExport } from "./project.ts"
 import type { AssumedFn } from "./trust.ts"
 import { type FunctionNode, locate } from "./value.ts"
 
-export type Purity = { readonly pure: true; readonly read: ReadonlyArray<string> } | { readonly pure: false; readonly why: string }
+export type Purity =
+  | {
+      readonly pure: true
+      readonly read: ReadonlyArray<string>
+      /** The arguments it calls, by position: it is pure where each function passed there is. */
+      readonly calls: ReadonlyArray<number>
+    }
+  | { readonly pure: false; readonly why: string }
 
 /** Where a value came from: allocated during the call, the caller's argument `k`, or anything else. */
 type Origin = "fresh" | "foreign" | number
@@ -42,6 +53,8 @@ interface Summary {
   readonly changes: Map<ts.Type, ts.Node>
   /** The types of values not allocated during the call, stored into one that was. */
   readonly stored: Set<ts.Type>
+  /** The arguments it calls, by position. */
+  readonly calls: Set<number>
 }
 
 const K = ts.SyntaxKind
@@ -161,7 +174,7 @@ export const purityOf = (checker: ts.TypeChecker, fn: FunctionNode, assumed: (ca
   const summarise = (f: FunctionNode): Summary => {
     const known = summaries.get(f)
     if (known !== undefined) return known
-    const s: Summary = { effect: undefined, changed: new Map(), changes: new Map(), stored: new Set() }
+    const s: Summary = { effect: undefined, changed: new Map(), changes: new Map(), stored: new Set(), calls: new Set() }
     const changeOf = (param: number, type: ts.Type, at: ts.Node) => {
       const m = s.changed.get(param) ?? new Map<ts.Type, ts.Node>()
       if (!m.has(type)) m.set(type, at)
@@ -260,8 +273,45 @@ export const purityOf = (checker: ts.TypeChecker, fn: FunctionNode, assumed: (ca
       return new Set(["foreign"])
     }
 
+    /**
+     * Whether `e` is an object this call allocated, itself: a literal, a fresh collection, or a local only ever bound to
+     * one. A change to it reaches nothing else, whatever it holds; one to an object read out of it may.
+     */
+    const allocating = new Set<ts.Symbol>()
+    const allocation = (e: ts.Expression): boolean => {
+      if (ts.isParenthesizedExpression(e) || ts.isSatisfiesExpression(e)) return allocation(e.expression)
+      if (ts.isAsExpression(e)) return freshLiteral(e.expression) && allocation(e.expression)
+      if (ts.isArrayLiteralExpression(e) || ts.isObjectLiteralExpression(e)) return true
+      if (ts.isNewExpression(e))
+        return ts.isIdentifier(e.expression) && isLib(checker, e.expression) && FRESH_CONSTRUCTORS.has(e.expression.text)
+      if (!ts.isIdentifier(e)) return false
+      const sym = symbolOf(checker, e)
+      if (sym === undefined || !local(sym) || params.has(sym)) return false
+      if (allocating.has(sym)) return true
+      allocating.add(sym)
+      try {
+        const decls = sym.declarations ?? []
+        return (
+          decls.length > 0 &&
+          decls.every(
+            (d) =>
+              ts.isVariableDeclaration(d) &&
+              ts.isIdentifier(d.name) &&
+              !ts.isForOfStatement(d.parent.parent) &&
+              !ts.isForInStatement(d.parent.parent) &&
+              d.initializer !== undefined &&
+              allocation(d.initializer),
+          ) &&
+          (assigned.get(sym) ?? []).every(allocation)
+        )
+      } finally {
+        allocating.delete(sym)
+      }
+    }
+
     /** A change to the object `obj` (a property set or deleted, a mutating method called on it). */
     const change = (obj: ts.Expression, at: ts.Node) => {
+      if (allocation(obj)) return
       const type = checker.getTypeAtLocation(obj)
       for (const o of originsOf(obj)) {
         if (o === "fresh") changeFresh(type, at)
@@ -296,6 +346,11 @@ export const purityOf = (checker: ts.TypeChecker, fn: FunctionNode, assumed: (ca
     const callProgram = (callee: FunctionNode, args: ReadonlyArray<ts.Expression>, at: ts.Node) => {
       const c = summarise(callee)
       if (c.effect !== undefined) effect(`calls \`${nameOf(callee)}\`, which is not pure: ${c.effect}`, at)
+      // A function it passes where the callee calls one: called, as if here. Left out, the callee's default is.
+      for (const param of c.calls) {
+        const arg = args[param]
+        if (arg !== undefined) calledValue(arg, `\`${nameOf(callee)}\` calls it`)
+      }
       for (const t of c.stored) s.stored.add(t)
       for (const [type, where] of c.changes) changeFresh(type, where)
       for (const [param, types] of c.changed) {
@@ -309,6 +364,47 @@ export const purityOf = (checker: ts.TypeChecker, fn: FunctionNode, assumed: (ca
             else changeOf(o, type, at)
           }
       }
+    }
+
+    /**
+     * A function value the code calls, or hands to something that calls it (`xs.map(f)`, `g(f)`): written here, its
+     * body is read where it stands; an argument, it is one this function calls; a function of the program, read.
+     */
+    const calledValue = (v: ts.Expression, why: string): void => {
+      if (ts.isParenthesizedExpression(v)) return calledValue(v.expression, why)
+      if (ts.isArrowFunction(v) || ts.isFunctionExpression(v)) return
+      if (!ts.isIdentifier(v)) {
+        effect(`passes \`${v.getText()}\`, a function it cannot read, and ${why}`, v)
+        return
+      }
+      const declared = assumed(v)
+      if (declared !== undefined) {
+        if (!declared.pure) effect(`passes \`${declared.name}\`, declared \`pure: false\`, and ${why}`, v)
+        return
+      }
+      if (isLib(checker, v)) {
+        if (!PURE_GLOBAL_FNS.has(v.text)) effect(`passes \`${v.text}\`, which the check does not know to be pure, and ${why}`, v)
+        return
+      }
+      const sym = symbolOf(checker, v)
+      const target = sym === undefined ? undefined : programFunction(sym)
+      if (target !== undefined) {
+        if (own.has(target)) return
+        const c = summarise(target)
+        if (c.effect !== undefined) effect(`passes \`${nameOf(target)}\`, which is not pure: ${c.effect}`, v)
+        // What it is called with is not known here: a change to it, or a call of it, may reach anything.
+        else if (c.changed.size > 0 || c.calls.size > 0)
+          effect(`passes \`${nameOf(target)}\`, which changes or calls what it is given, and ${why}`, v)
+        for (const t of c.stored) s.stored.add(t)
+        for (const [type, where] of c.changes) changeFresh(type, where)
+        return
+      }
+      const origins = originsOf(v)
+      if ([...origins].every((o) => o !== "foreign")) {
+        for (const o of origins) if (typeof o === "number") s.calls.add(o)
+        return
+      }
+      effect(`passes \`${v.text}\`, a function it cannot read, and ${why}`, v)
     }
 
     const call = (e: ts.CallExpression) => {
@@ -343,8 +439,14 @@ export const purityOf = (checker: ts.TypeChecker, fn: FunctionNode, assumed: (ca
         }
         const t = checker.getNonNullableType(checker.getTypeAtLocation(recv))
         if (isPrimitive(checker, t)) return
+        // A callback given to a read is called by it.
+        const callbacks = () => {
+          for (const a of e.arguments)
+            if (checker.getNonNullableType(checker.getTypeAtLocation(a)).getCallSignatures().length > 0)
+              calledValue(a, `\`.${m}\` calls it`)
+        }
         if (isArrayLike(checker, recv)) {
-          if (ARRAY_READS.has(m)) return
+          if (ARRAY_READS.has(m)) return callbacks()
           if (ARRAY_WRITES.has(m)) {
             change(recv, e)
             const stored =
@@ -357,8 +459,8 @@ export const purityOf = (checker: ts.TypeChecker, fn: FunctionNode, assumed: (ca
             return
           }
         }
-        if (isNamed(checker, recv, ["Map", "ReadonlyMap", "WeakMap"]) && MAP_READS.has(m)) return
-        if (isNamed(checker, recv, ["Set", "ReadonlySet", "WeakSet"]) && SET_READS.has(m)) return
+        if (isNamed(checker, recv, ["Map", "ReadonlyMap", "WeakMap"]) && MAP_READS.has(m)) return callbacks()
+        if (isNamed(checker, recv, ["Set", "ReadonlySet", "WeakSet"]) && SET_READS.has(m)) return callbacks()
         if (isNamed(checker, recv, ["Map", "WeakMap", "Set", "WeakSet"]) && COLLECTION_WRITES.has(m)) {
           change(recv, e)
           for (const a of e.arguments) store(a)
@@ -392,7 +494,13 @@ export const purityOf = (checker: ts.TypeChecker, fn: FunctionNode, assumed: (ca
           callProgram(target, e.arguments, e)
           return
         }
-        effect(`calls \`${callee.text}\`, a function it was given or one the check cannot read`, e)
+        // A function it was given, or one written here: pure where what it was given is.
+        const origins = sym === undefined ? new Set<Origin>(["foreign"]) : originsOf(callee)
+        if ([...origins].every((o) => o !== "foreign")) {
+          for (const o of origins) if (typeof o === "number") s.calls.add(o)
+          return
+        }
+        effect(`calls \`${callee.text}\`, a function the check cannot read`, e)
         return
       }
       effect(`calls \`${callee.getText()}\`, which the check cannot see into`, e)
@@ -543,7 +651,7 @@ export const purityOf = (checker: ts.TypeChecker, fn: FunctionNode, assumed: (ca
         why: `${locate(at)}: changes an object of type \`${checker.typeToString(type)}\`, which may be a value of the caller's it stored (of type \`${checker.typeToString(hit)}\`)`,
       }
   }
-  return { pure: true, read }
+  return { pure: true, read, calls: [...s.calls].sort((a, b) => a - b) }
 }
 
 /** An object or array literal: a cast of one names the type of what it allocates and hides nothing it was given. */

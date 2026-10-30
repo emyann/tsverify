@@ -61,6 +61,7 @@ describe("refused, with what to write instead", () => {
       /`total` is not read \(`Math` is a binding the verifier cannot see.*\): declare what the verifier may assume of it, `assume\(total, \{ pure: true/,
     ],
     ["stamped", /`stamp` is declared pure and is not: .*changes its argument `log`\. Declare it `pure: false`/],
+    ["appliedToATick", /`applied` is pure where the functions it is given are, and `tick` may change something: .*changes `ticks`/],
     [
       "uncovered",
       /`uniq \(lodash-es\)` is called with \(readonly number\[\]\), which no declaration covers: \(readonly string\[\]\) at packs\/lodash\.ts/,
@@ -73,6 +74,14 @@ describe("refused, with what to write instead", () => {
       const v = await run(name)
       assert.match(v.unsupported ?? "(verified)", why)
     })
+})
+
+it("a pure function given the same function twice, written alike, is called once", async () => {
+  const v = await run("appliedTwice")
+  assert.deepEqual(
+    v.laws.map((l) => [l.name, l.status]),
+    [["same", "proved"]],
+  )
 })
 
 describe("spec code", () => {

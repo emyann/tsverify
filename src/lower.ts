@@ -309,8 +309,93 @@ export const defaulted = (L: Lowering, value: Thunk, fallback: Thunk | undefined
  * A function the code writes, as a value that may stand where a function it is given does (a default for a parameter
  * of a function's type): called, it is called as the code wrote it.
  */
-const callable = (L: Lowering, v: Val): Val =>
-  v.kind === "fn" ? { kind: "builtin", name: nameOf(v.node), call: (args, at) => applyValue(L, v, args, at) } : v
+const callable = (L: Lowering, v: Val): Val => {
+  if (v.kind !== "fn") return v
+  const id = closedId(L.checker, v.node)
+  return {
+    kind: "builtin",
+    name: nameOf(v.node),
+    call: (args, at) => applyValue(L, v, args, at),
+    effects: () => effectsOf(L, v),
+    ...(id === undefined ? {} : { id }),
+  }
+}
+
+/** Why a call of a function the code wrote may change something, or `undefined`: the purity check's answer. */
+const effectsOf = (L: Lowering, v: Extract<Val, { kind: "fn" }>): string | undefined => {
+  const p = purityOf(L.checker, v.node, L.trust.assumptions.of)
+  return !p.pure ? p.why : p.calls.length > 0 ? `\`${nameOf(v.node)}\` calls a function it is given` : undefined
+}
+
+/**
+ * A function written with nothing of its scope in it — every name it reads its own, a module's constant or import, or
+ * a global — is one function wherever it is evaluated: its place in the source names it.
+ */
+const closedId = (checker: ts.TypeChecker, node: ts.Node): string | undefined => {
+  const within = (d: ts.Node): boolean => d.pos >= node.pos && d.end <= node.end && d.getSourceFile() === node.getSourceFile()
+  const fixed = (d: ts.Declaration): boolean => {
+    if (d.getSourceFile().isDeclarationFile || within(d)) return true
+    if (ts.isImportSpecifier(d) || ts.isImportClause(d) || ts.isNamespaceImport(d)) return true
+    if (ts.isFunctionDeclaration(d) || ts.isClassDeclaration(d)) return ts.isSourceFile(d.parent)
+    return (
+      ts.isVariableDeclaration(d) &&
+      ts.isVariableDeclarationList(d.parent) &&
+      (d.parent.flags & ts.NodeFlags.Const) !== 0 &&
+      ts.isSourceFile(d.parent.parent.parent)
+    )
+  }
+  let closed = true
+  let local = false
+  const visit = (n: ts.Node): void => {
+    if (!closed) return
+    if (ts.isIdentifier(n)) {
+      const sym = ts.isShorthandPropertyAssignment(n.parent)
+        ? checker.getShorthandAssignmentValueSymbol(n.parent)
+        : checker.getSymbolAtLocation(n)
+      const binding = ts.SymbolFlags.Variable | ts.SymbolFlags.Function | ts.SymbolFlags.Alias | ts.SymbolFlags.Class
+      if (sym !== undefined && sym.flags & binding) {
+        const decls = sym.declarations ?? []
+        if (!decls.every(fixed)) closed = false
+        else if (!decls.every((d) => d.getSourceFile().isDeclarationFile || within(d))) local = true
+      }
+    }
+    ts.forEachChild(n, visit)
+  }
+  visit(node)
+  if (!closed) return undefined
+  // Reading only its own names and the globals, it is its text; reading a module's, its place in that module.
+  return local ? `fn:${node.getSourceFile().fileName}:${node.pos}` : `fn:${node.getText().replace(/\s+/g, " ")}`
+}
+
+/**
+ * The arguments a declared function binds, for telling two calls apart: a function written in place as the function it
+ * is, and where one is `undefined` or left out and its parameter's default is a function written with nothing of its
+ * scope in it, that default where it is `undefined`. Two calls that bind the same values are the same call, whichever
+ * of them wrote the default out.
+ */
+const boundArgs = (L: Lowering, a: AssumedFn, args: ReadonlyArray<Val>, at: ts.Node): ReadonlyArray<Val> => {
+  const params = a.body?.parameters
+  // A rest parameter binds every argument past it: they are told apart as they are passed.
+  if (params === undefined || params.some((p) => p.dotDotDotToken !== undefined)) return args
+  return params.map((p, k) => {
+    // A function written here is the function its text is, where it reads nothing of its scope (`closedId`).
+    const given = args[k]?.kind === "fn" ? callable(L, args[k]) : (args[k] ?? UNDEFINED)
+    const init = p.initializer
+    if (init === undefined || !(ts.isArrowFunction(init) || ts.isFunctionExpression(init))) return given
+    if (closedId(L.checker, init) === undefined) return given
+    if (given.kind !== "nullish" && !(given.kind === "maybe" && given.value?.kind === "builtin")) return given
+    return undefinedOr(L.u, given, () => callable(L, { kind: "fn", node: init, env: EMPTY }), at)
+  })
+}
+
+/** Why a function passed where a pure function calls one may change something, or `undefined` where it changes nothing. */
+const effectsOfValue = (L: Lowering, v: Val | undefined): string | undefined => {
+  if (v === undefined || v.kind === "nullish") return undefined
+  if (v.kind === "maybe") return effectsOfValue(L, v.value)
+  if (v.kind === "builtin") return v.effects?.()
+  if (v.kind === "fn") return effectsOf(L, v)
+  return `it is a ${v.kind}, not a function the verifier reads`
+}
 
 /**
  * What an object pattern's rest holds: every property of `v` but the keys the pattern named before it. As a spread,
@@ -1239,7 +1324,12 @@ const nameOf = (fn: FunctionNode): string =>
   fn.name?.getText() ?? (ts.isVariableDeclaration(fn.parent) ? fn.parent.name.getText() : "a function")
 
 /** A declared function as a value: calling it is `assumedCall`. */
-const assumedFn = (L: Lowering, a: AssumedFn): Val => ({ kind: "builtin", name: a.name, call: (args, at) => assumedCall(L, a, args, at) })
+const assumedFn = (L: Lowering, a: AssumedFn): Val => ({
+  kind: "builtin",
+  name: a.name,
+  call: (args, at) => assumedCall(L, a, args, at),
+  ...(a.pure ? {} : { effects: () => `\`${a.name}\` is declared \`pure: false\`` }),
+})
 
 /**
  * A call to a declared function: an unknown result of the call's type, the same for the same arguments when the
@@ -1266,6 +1356,15 @@ const assumedCall = (L: Lowering, a: AssumedFn, args: ReadonlyArray<Val>, at: ts
         `\`${a.name}\` is declared pure and is not: ${p.why}. Declare it \`pure: false\`, or change it so it changes only what it allocates`,
         at,
       )
+    // Pure where the functions it calls are: each passed here must change nothing.
+    for (const k of p.calls) {
+      const why = effectsOfValue(L, args[k])
+      if (why !== undefined)
+        throw new Unsupported(
+          `\`${a.name}\` is pure where the functions it is given are, and \`${at.arguments[k]?.getText() ?? k}\` may change something: ${why}`,
+          at,
+        )
+    }
   }
   const views = coveringViews(checker, a, at.arguments)
   if (views.length === 0) {
@@ -1279,7 +1378,7 @@ const assumedCall = (L: Lowering, a: AssumedFn, args: ReadonlyArray<Val>, at: ts
   // Inside a quantifier the result depends on the bound index, as the arguments may: one constant for every element
   // would claim the function constant over them.
   const indices = u.openBounds()
-  const ids = args.map(identity)
+  const ids = boundArgs(L, a, args, at).map(identity)
   const key =
     a.pure && ids.every((i) => i !== undefined)
       ? `assumed:${a.views[0]!.where}(${ids.join(",")})[${indices.map(termId).join(",")}]`
@@ -1826,7 +1925,18 @@ const binary = (L: Lowering, e: ts.BinaryExpression, env: Env): Val => {
   }
   if (op === K.QuestionQuestionToken) {
     const l = lowerExpr(L, e.left, env)
-    return nullishOr(u, l, () => onBranch(L, l.kind === "maybe" ? isNullish(u, l) : z3.Bool.val(true), () => lowerExpr(L, e.right, env)), e)
+    // A function the code writes, standing where one it is given may be missing (`closeoutOf ?? (() => undefined)`).
+    const fns = l.kind === "maybe" && l.value?.kind === "builtin"
+    return nullishOr(
+      u,
+      l,
+      () =>
+        onBranch(L, l.kind === "maybe" ? isNullish(u, l) : z3.Bool.val(true), () => {
+          const r = lowerExpr(L, e.right, env)
+          return fns ? callable(L, r) : r
+        }),
+      e,
+    )
   }
   if (op === K.InKeyword) return keyIn(L, e, env)
   const l = narrowed(L, e.left, lowerExpr(L, e.left, env), op)

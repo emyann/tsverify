@@ -59,11 +59,33 @@ export const passesItsArgumentOn = (xs: string[]): number => {
 
 export const callsTheClockThroughAHelper = (): number => readsClock() + 1
 
-export const appliesWhatItIsGiven = (f: (x: number) => number, x: number): number => f(x)
-
 export const casts = (x: unknown): number => (x as { a: number }).a
 
+/** A callback a read calls: one that reads the clock, the console's, one that changes what it is given. */
+const stampOf = (_x: number): number => Date.now()
+export const passesTheClock = (xs: ReadonlyArray<number>): ReadonlyArray<number> => xs.map(stampOf)
+export const logsEach = (xs: ReadonlyArray<string>): void => xs.forEach(console.log)
+export const passesWhatChangesIt = (xs: ReadonlyArray<string[]>): void => xs.forEach(changesArgument)
+
+// Pure where the functions it is given are: it calls them, or hands them to what does.
+
+export const appliesWhatItIsGiven = (f: (x: number) => number, x: number): number => f(x)
+export const mapsWithWhatItIsGiven = (xs: ReadonlyArray<number>, f: (x: number) => number): ReadonlyArray<number> => xs.map(f)
+export const passesItOn = (g: (x: number) => number): number => appliesWhatItIsGiven(g, 1)
+export const defaultsIt = (x: number, f: (x: number) => number = (y) => y): number => f(x)
+
 // Pure.
+
+/** Fills two lists it made, one with values it was given as `unknown`: a change to either reaches nothing of the caller's. */
+export const sortsUnknowns = (xs: ReadonlyArray<unknown>): number => {
+  const lists: unknown[] = []
+  const others: string[] = []
+  for (const x of xs) {
+    if (Array.isArray(x)) lists.push(x)
+    else others.push(typeof x)
+  }
+  return lists.length + others.length
+}
 
 /** Builds a fresh list and fills it: a change to what it allocated. */
 export const copies = (xs: ReadonlyArray<number>): number => {

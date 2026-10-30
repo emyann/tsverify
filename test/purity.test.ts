@@ -47,8 +47,10 @@ describe("impure, each for its reason", () => {
     ["changesANarrowedUnknown", /changes an object of type `object & Record<"k", unknown>`, which may be a value of the caller's/],
     ["passesItsArgumentOn", /changes its argument `xs`/],
     ["callsTheClockThroughAHelper", /calls `readsClock`, which is not pure: .*calls `Date\.now`/],
-    ["appliesWhatItIsGiven", /calls `f`, a function it was given/],
     ["casts", /casts \(`as`\)/],
+    ["passesTheClock", /passes `stampOf`, which is not pure: .*calls `Date\.now`/],
+    ["logsEach", /passes `console\.log`, a function it cannot read/],
+    ["passesWhatChangesIt", /passes `changesArgument`, which changes or calls what it is given/],
   ]
   for (const [name, why] of cases)
     it(name, () => {
@@ -58,10 +60,23 @@ describe("impure, each for its reason", () => {
     })
 })
 
-describe("pure", () => {
-  for (const name of ["copies", "folds", "asks", "reduces", "recurses"])
+describe("pure where what it is given is, naming the arguments it calls", () => {
+  for (const [name, calls] of [
+    ["appliesWhatItIsGiven", [0]],
+    ["mapsWithWhatItIsGiven", [1]],
+    ["passesItOn", [0]],
+    ["defaultsIt", [1]],
+  ] as const)
     it(name, () => {
       const p = purity(file, name)
-      assert.deepEqual(p.pure ? "pure" : p.why, "pure")
+      assert.deepEqual(p.pure ? p.calls : p.why, calls)
+    })
+})
+
+describe("pure", () => {
+  for (const name of ["copies", "folds", "asks", "reduces", "recurses", "sortsUnknowns"])
+    it(name, () => {
+      const p = purity(file, name)
+      assert.deepEqual(p.pure ? (p.calls.length === 0 ? "pure" : p.calls) : p.why, "pure")
     })
 })

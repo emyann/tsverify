@@ -14,7 +14,7 @@ part as a harmless one.
 - records and arrays of any length, read lazily: a field becomes an unknown only when something reads it; tuples, the
   code's and the caller's, but for one with an optional or a rest element;
 - functions and closures, and computations (async functions, Effect programs); a function the code is given, as some
-  function, each call some value of its return type, on which a counterexample leans;
+  function that changes nothing, each call some value of its return type, on which a counterexample leans;
 - a dictionary the code is given, `Record<string, T>`, read at any key (*Dictionaries*, below);
 - values of more than one primitive kind (`boolean | "strict"`), each the kind it is, `typeof` telling them apart
   (*Narrowing*, below);
@@ -299,11 +299,16 @@ src/tags.contract.ts
   1 contract in 1 file · 0.7 s
 ```
 
-It refuses an effect (`await`, `yield`, `this`, the clock, `Math.random`, the console, a module's `let`, a function it was
-given, a method or a package function it does not know), a change to anything it did not allocate (its arguments, a
-module's constants), and a cast or a type predicate, either of which would hide a value's type. It accepts a function that
-changes only what it allocated, as a fold builds its state: it follows each value of the caller's stored into a fresh one,
-by type, and refuses a change to an object that value could reach. It takes three things on trust, and every report that
+It refuses an effect (`await`, `yield`, `this`, the clock, `Math.random`, the console, a module's `let`, a function it
+cannot read, a method or a package function it does not know), a change to anything it did not allocate (its arguments, a
+module's constants), and a cast or a type predicate, either of which would hide a value's type. A function it was given,
+called or handed to a read that calls it (`xs.map(f)`), makes it pure where that function is: the check names the
+arguments it calls, and a call of the declaration that passes there anything but a function that changes nothing — one
+the code is given, or one it writes that the check reads as pure — is refused. It accepts a function that changes only
+what it allocated, as a fold builds its state: a change to a literal or a fresh collection a local holds reaches nothing
+else, and it follows each value of the caller's stored into a fresh one, by type, and refuses a change to an object that
+value could reach. Two calls of a pure declaration that bind the same values give one result: a function written in
+place with nothing of its scope in it is the function its text is, and a default is bound where `undefined` is passed. It takes three things on trust, and every report that
 leans on it says so: a property read runs no getter, a module constant is never changed by other code, and the function
 ends.
 
