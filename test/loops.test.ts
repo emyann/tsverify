@@ -100,7 +100,7 @@ describe("asserts and lemmas", () => {
 })
 
 describe("state", () => {
-  for (const name of ["twiceIsTwo", "markedWhenFound", "kinds", "stampKept"])
+  for (const name of ["twiceIsTwo", "markedWhenFound", "kinds", "stampKept", "readOnly"])
     it(`${name}: proved`, async () => {
       const v = await verify(z3, project, files.state, name)
       assert.equal(v.unsupported, undefined)
@@ -115,6 +115,17 @@ describe("state", () => {
     assert.deepEqual([0n, 1n, 2n, 3n].map(state.mark), [false, true, true, false])
     assert.deepEqual((["a", "b", "c", "d"] as const).map(state.kindOf), [1n, 1n, 12n, 10n])
     assert.equal(state.stamps("now"), "now")
+    assert.deepEqual(
+      state.keptOverRead(
+        { xs: [1n, 2n], name: "ab" },
+        (x) => x > 1n,
+        (name) => name === "ab",
+      ),
+      { same: true, named: true },
+    )
+    assert.equal(state.keptOverLent(), 1n)
+    assert.equal(state.keptOverHanded(), 1n)
+    assert.equal(state.keptOverACallback(), 1n)
   })
 
   const refused: ReadonlyArray<readonly [string, RegExp]> = [
@@ -125,6 +136,9 @@ describe("state", () => {
     ["borrowed", /replaces `s\.xs` while `a` refers into it/],
     ["closure", /a closure kept for later over `n`, which its function changes/],
     ["shorthand", /a closure kept for later over `n`, which its function changes/],
+    ["lent", /a closure kept for later over `s`, which its function changes/],
+    ["handed", /a closure kept for later over `s`, which its function changes/],
+    ["callback", /`applied` is not read \(changes `c\.n`, which the function did not allocate/],
   ]
   for (const [name, why] of refused)
     it(`refused: ${name}`, async () => {

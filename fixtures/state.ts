@@ -58,6 +58,26 @@ export function stamps(at: string): string | undefined {
 }
 export const stampKept = contract(stamps, { ensures: { first: (at, out) => out === at } })
 
+/** A closure kept for later over a value that what runs before its call only reads: a part passed, or the whole to a pure function. */
+function sizeOf(c: { xs: ReadonlyArray<bigint>; name: string }): number {
+  return c.xs.length
+}
+function counted(c: { xs: ReadonlyArray<bigint> }, has: (x: bigint) => boolean): number {
+  return c.xs.filter((x) => has(x)).length
+}
+export function keptOverRead(
+  c: { xs: ReadonlyArray<bigint>; name: string },
+  has: (x: bigint) => boolean,
+  named: (name: string) => boolean,
+): { same: boolean; named: boolean } {
+  const f = () => c.xs.length
+  const known = named(c.name)
+  return { same: counted(c, has) >= 0 && f() === sizeOf(c), named: known }
+}
+export const readOnly = contract(keptOverRead, {
+  ensures: { same: (_c, _has, _named, out) => out.same },
+})
+
 // Refused.
 
 export function changesItsArgument(xs: Array<bigint>): number {
@@ -114,3 +134,35 @@ export function keptShorthand(): bigint {
 }
 // Runs to 1n: a closure is read with what it captures where it is written, so this would read as 0n.
 export const shorthand = contract(keptShorthand, { ensures: { isZero: (r) => r === 0n } })
+
+export function keptOverLent(): bigint {
+  const s = { n: 0n }
+  const f = () => s.n
+  bump(s)
+  return f()
+}
+export const lent = contract(keptOverLent, { ensures: { always } })
+
+/** Pure where the function it is handed is: handed one that changes what it is passed, the whole call changes `s`. */
+function applied(c: { n: bigint }, g: (c: { n: bigint }) => void): void {
+  g(c)
+}
+export function keptOverHanded(): bigint {
+  const s = { n: 0n }
+  const f = () => s.n
+  applied(s, bump)
+  return f()
+}
+export const handed = contract(keptOverHanded, { ensures: { always } })
+
+/**
+ * A callback's parameter is no function the caller is given: here it is `bump`, which changes `s`. The closure check
+ * would not take it for one; that `applied` then changes what it is passed refuses it first.
+ */
+export function keptOverACallback(): bigint {
+  const s = { n: 0n }
+  const f = () => s.n
+  const done = [bump].map((g) => applied(s, g))
+  return done.length > 0 ? f() : 0n
+}
+export const callback = contract(keptOverACallback, { ensures: { always } })

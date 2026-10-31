@@ -2795,6 +2795,50 @@ const arrayLiteral = (L: Lowering, e: ts.ArrayLiteralExpression, env: Env): Val 
 
 /** The names each function body assigns or changes (cached), for the closure check. */
 const changedIn = new WeakMap<ts.Node, Set<string>>()
+/** What the purity check, reading its source, finds of each function of the program a closure's host calls. */
+const purityRead = new WeakMap<ts.Node, Purity>()
+const programPurity = (checker: ts.TypeChecker, callee: ts.Expression): Purity | undefined => {
+  if (!ts.isIdentifier(callee)) return undefined
+  let sym = checker.getSymbolAtLocation(callee)
+  if (sym !== undefined && sym.flags & ts.SymbolFlags.Alias) sym = checker.getAliasedSymbol(sym)
+  const d = sym?.valueDeclaration
+  if (d === undefined || d.getSourceFile().isDeclarationFile) return undefined
+  const fn =
+    ts.isFunctionDeclaration(d) && d.body !== undefined
+      ? d
+      : ts.isVariableDeclaration(d) &&
+          d.initializer !== undefined &&
+          (d.parent.flags & ts.NodeFlags.Const) !== 0 &&
+          (ts.isArrowFunction(d.initializer) || ts.isFunctionExpression(d.initializer))
+        ? d.initializer
+        : undefined
+  if (fn === undefined) return undefined
+  let p = purityRead.get(fn)
+  if (p === undefined) {
+    p = purityOf(checker, fn, () => undefined)
+    purityRead.set(fn, p)
+  }
+  return p
+}
+/**
+ * Whether a call changes nothing it is passed: a function of the program found pure, each function it calls of those it is
+ * passed being a parameter of `host`, the function the call is written in (a function it is given, which its own purity
+ * is relative to), or one found pure outright.
+ */
+const changesNothing = (checker: ts.TypeChecker, call: ts.CallExpression, host: ts.Node): boolean => {
+  const p = programPurity(checker, call.expression)
+  if (p === undefined || !p.pure) return false
+  return p.calls.every((k) => {
+    const a = call.arguments[k]
+    if (a === undefined) return true
+    if (!ts.isIdentifier(a)) return false
+    const d = checker.getSymbolAtLocation(a)?.valueDeclaration
+    if (d !== undefined && ts.isParameter(d) && d.parent === host) return true
+    const q = programPurity(checker, a)
+    return q !== undefined && q.pure && q.calls.length === 0
+  })
+}
+
 const changedNames = (body: ts.Node, checker: ts.TypeChecker): Set<string> => {
   let out = changedIn.get(body)
   if (out !== undefined) return out
@@ -2817,7 +2861,7 @@ const changedNames = (body: ts.Node, checker: ts.TypeChecker): Set<string> => {
     const t = checker.getTypeAtLocation(x)
     return (t.isUnion() ? t.types : [t]).every((m) => (m.flags & PRIMITIVE) !== 0)
   }
-  const passedName = (x: ts.Expression): string | undefined => (ts.isIdentifier(x) && primitive(x) ? undefined : rootName(x))
+  const passedName = (x: ts.Expression): string | undefined => (primitive(x) ? undefined : rootName(x))
   const found = out
   const visit = (n: ts.Node): void => {
     if (ts.isBinaryExpression(n) && n.operatorToken.kind >= K.FirstAssignment && n.operatorToken.kind <= K.LastAssignment) {
@@ -2837,10 +2881,12 @@ const changedNames = (body: ts.Node, checker: ts.TypeChecker): Set<string> => {
         const r = passedName(n.expression.expression)
         if (r !== undefined) found.add(r)
       }
-      for (const a of n.arguments) {
-        const r = passedName(a)
-        if (r !== undefined) found.add(r)
-      }
+      // A function of the program the purity check reads as pure changes nothing it is passed.
+      if (!changesNothing(checker, n, body.parent))
+        for (const a of n.arguments) {
+          const r = passedName(a)
+          if (r !== undefined) found.add(r)
+        }
     }
     ts.forEachChild(n, visit)
   }

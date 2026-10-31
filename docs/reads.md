@@ -206,6 +206,7 @@ Each refusal names the place, `file:line:column`, and the reason.
 | recursion | not modeled | `assume(f, { pure: true, ensures })` |
 | a package's function | the verifier does not read packages | `assume`, in the spec or a pack |
 | a change to an argument, a second name for part of an object, a moved value, a change while borrowed | aliasing is kept out of the solver | build a new value and return it |
+| a closure called after its function changes what it captures: a `let` assigned, an object lent to a call that may change it | a closure is read with what it captures where it is written | call it where it is written, or pass it the value; a part of a primitive kind (`step.name`) and a call of a function of the program the purity check finds pure change nothing |
 | `break` or `continue` to a label, `do…while`, `for…in`, `var`, array methods that change the array but `push` | not modeled | `for…of`, `push`, a new array |
 | a step after `?.` | it runs only when what is before it is present | an `if` |
 | a field read through a spread, where the spread value may lack it | its type does not say whether it is there | the field written after the spread, or a required one |
