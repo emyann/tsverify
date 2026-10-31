@@ -54,6 +54,7 @@ import {
 } from "./ops.ts"
 import { narrowedField } from "./narrow.ts"
 import { type Purity, isLib, purityOf } from "./purity.ts"
+import { functionNamed, inProgram, symbolOf } from "./resolve.ts"
 import { MAX_TIME, type Typing, symbolicOf } from "./symbolic.ts"
 import type { Universe } from "./universe.ts"
 import { type AssumedFn, type Assumptions, coveringViews } from "./trust.ts"
@@ -900,16 +901,15 @@ const namespaceMember = (L: Lowering, e: ts.PropertyAccessExpression, env: Env):
 
 /** What a name the code does not bind refers to, by its declaration: a module's function or constant, or a declaration's. */
 const named = (L: Lowering, e: ts.Identifier): Val => {
-  let sym = L.checker.getSymbolAtLocation(e)
-  const imported = sym !== undefined && (sym.flags & ts.SymbolFlags.Alias) !== 0
-  if (sym !== undefined && sym.flags & ts.SymbolFlags.Alias) sym = L.checker.getAliasedSymbol(sym)
+  const imported = ((L.checker.getSymbolAtLocation(e)?.flags ?? 0) & ts.SymbolFlags.Alias) !== 0
+  const sym = symbolOf(L.checker, e)
   if (sym?.name === "undefined" && sym.declarations === undefined) return { kind: "nullish", which: "undefined" }
   if (sym?.name === "undefined" && sym.declarations?.every((d) => d.getSourceFile().isDeclarationFile))
     return { kind: "nullish", which: "undefined" }
   const declared = L.trust.assumptions.of(e)
   if (declared !== undefined) return assumedFn(L, declared)
   const decl = sym?.valueDeclaration
-  if (decl !== undefined && !decl.getSourceFile().isDeclarationFile && !decl.getSourceFile().fileName.includes("/node_modules/")) {
+  if (decl !== undefined && inProgram(decl)) {
     if (ts.isFunctionDeclaration(decl)) return { kind: "fn", node: decl, env: EMPTY }
     if (ts.isVariableDeclaration(decl) && isModuleConst(decl) && decl.initializer !== undefined) {
       let v = L.constants.get(decl)
@@ -2798,20 +2798,7 @@ const changedIn = new WeakMap<ts.Node, Set<string>>()
 /** What the purity check, reading its source, finds of each function of the program a closure's host calls. */
 const purityRead = new WeakMap<ts.Node, Purity>()
 const programPurity = (checker: ts.TypeChecker, callee: ts.Expression): Purity | undefined => {
-  if (!ts.isIdentifier(callee)) return undefined
-  let sym = checker.getSymbolAtLocation(callee)
-  if (sym !== undefined && sym.flags & ts.SymbolFlags.Alias) sym = checker.getAliasedSymbol(sym)
-  const d = sym?.valueDeclaration
-  if (d === undefined || d.getSourceFile().isDeclarationFile) return undefined
-  const fn =
-    ts.isFunctionDeclaration(d) && d.body !== undefined
-      ? d
-      : ts.isVariableDeclaration(d) &&
-          d.initializer !== undefined &&
-          (d.parent.flags & ts.NodeFlags.Const) !== 0 &&
-          (ts.isArrowFunction(d.initializer) || ts.isFunctionExpression(d.initializer))
-        ? d.initializer
-        : undefined
+  const fn = ts.isIdentifier(callee) ? functionNamed(checker, callee) : undefined
   if (fn === undefined) return undefined
   let p = purityRead.get(fn)
   if (p === undefined) {

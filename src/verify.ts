@@ -33,7 +33,8 @@ import {
   trustOf,
 } from "./lower.ts"
 import { strictEq, truthy } from "./ops.ts"
-import { type ContractSource, type Project, readContract, unwrap } from "./project.ts"
+import { type ContractSource, type Project, readContract } from "./project.ts"
+import { unwrap } from "./resolve.ts"
 import { symbolicOf } from "./symbolic.ts"
 import { PURITY_TRUSTS, readAssumptions, type Trusted } from "./trust.ts"
 import { Universe } from "./universe.ts"

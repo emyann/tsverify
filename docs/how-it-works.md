@@ -57,6 +57,7 @@ A counterexample's `where names.get gave ""` is the part of w the model chose.
 | `src/project.ts` | the program (a file's text can be replaced or added in memory), diagnostics, a contract read from source |
 | `src/symbolic.ts` | any value of a TypeScript type, built lazily: a field becomes an unknown only when read |
 | `src/lower.ts` | pure TypeScript to symbolic values, with JavaScript's semantics, and the branch each runs on, which a division's obligation holds on |
+| `src/resolve.ts` | what a name refers to: its symbol, through an import or a shorthand property, and the function a declaration holds |
 | `src/exec.ts` | statements: state, places and ownership, loops through their invariants, and the obligations of the proof code and of each division |
 | `src/ops.ts` | truthiness, `===`, `<`, `??` and conditional values, exactly as JavaScript defines them |
 | `src/narrow.ts` | a field read where the type checker has narrowed its object: the paths whose value can have the read's type |

@@ -4,6 +4,7 @@
 import { existsSync, readFileSync } from "node:fs"
 import path from "node:path"
 import ts from "typescript"
+import { constValue, functionIn, symbolOf, unwrap } from "./resolve.ts"
 import { type FunctionNode, Unsupported } from "./value.ts"
 
 export interface Project {
@@ -170,9 +171,7 @@ const isImplementation = (checker: ts.TypeChecker, d: ts.VariableDeclaration): b
 const specQuery = (checker: ts.TypeChecker, arg: ts.TypeNode): ts.TypeQueryNode | undefined => {
   if (ts.isTypeQueryNode(arg)) return arg
   if (!ts.isTypeReferenceNode(arg) || arg.typeArguments !== undefined) return undefined
-  let sym = checker.getSymbolAtLocation(arg.typeName)
-  if (sym !== undefined && sym.flags & ts.SymbolFlags.Alias) sym = checker.getAliasedSymbol(sym)
-  const alias = sym?.declarations?.find(ts.isTypeAliasDeclaration)
+  const alias = symbolOf(checker, arg.typeName)?.declarations?.find(ts.isTypeAliasDeclaration)
   return alias !== undefined && ts.isTypeQueryNode(alias.type) ? alias.type : undefined
 }
 
@@ -193,9 +192,7 @@ const specOf = (
       "an implementation names its spec: `Implementation<ChargeSpec>`, where `export type ChargeSpec = typeof chargeSpec`, or `Implementation<typeof chargeSpec>`",
       t,
     )
-  let sym = checker.getSymbolAtLocation(query.exprName)
-  if (sym !== undefined && sym.flags & ts.SymbolFlags.Alias) sym = checker.getAliasedSymbol(sym)
-  const decl = sym?.valueDeclaration
+  const decl = symbolOf(checker, query.exprName)?.valueDeclaration
   const call = decl !== undefined && ts.isVariableDeclaration(decl) && decl.initializer !== undefined ? unwrap(decl.initializer) : undefined
   const named = query.exprName.text
   const notASpec = () =>
@@ -315,29 +312,13 @@ const lawOf = (checker: ts.TypeChecker, e: ts.Expression): { readonly law: Funct
 /** The object literal a `const` holds, when `e` names one (in `{ law }`, the shorthand's binding). */
 const constObject = (checker: ts.TypeChecker, e: ts.Expression): ts.ObjectLiteralExpression | undefined => {
   if (!ts.isIdentifier(e)) return undefined
-  let sym = ts.isShorthandPropertyAssignment(e.parent)
-    ? checker.getShorthandAssignmentValueSymbol(e.parent)
-    : checker.getSymbolAtLocation(e)
-  if (sym !== undefined && sym.flags & ts.SymbolFlags.Alias) sym = checker.getAliasedSymbol(sym)
-  const decl = sym?.valueDeclaration
-  if (
-    decl === undefined ||
-    !ts.isVariableDeclaration(decl) ||
-    decl.initializer === undefined ||
-    (decl.parent.flags & ts.NodeFlags.Const) === 0
-  )
-    return undefined
-  const init = unwrap(decl.initializer)
-  return ts.isObjectLiteralExpression(init) ? init : undefined
+  const value = constValue(symbolOf(checker, e)?.valueDeclaration)
+  return value !== undefined && ts.isObjectLiteralExpression(value) ? value : undefined
 }
-
-export const unwrap = (e: ts.Expression): ts.Expression =>
-  ts.isParenthesizedExpression(e) || ts.isSatisfiesExpression(e) ? unwrap(e.expression) : e
 
 /** Whether `e` resolves to the export `name` of tsverify's module `module`. */
 export const declared = (checker: ts.TypeChecker, e: ts.Expression, module: OwnModule, name: string): boolean => {
-  let sym = checker.getSymbolAtLocation(ts.isPropertyAccessExpression(e) ? e.name : e)
-  if (sym !== undefined && sym.flags & ts.SymbolFlags.Alias) sym = checker.getAliasedSymbol(sym)
+  const sym = symbolOf(checker, ts.isPropertyAccessExpression(e) ? e.name : e)
   const decl = sym?.declarations?.[0]
   return sym?.name === name && decl !== undefined && ownModule(decl.getSourceFile().fileName, module)
 }
@@ -346,17 +327,9 @@ export const declared = (checker: ts.TypeChecker, e: ts.Expression, module: OwnM
 const targetOf = (checker: ts.TypeChecker, e: ts.Expression): ts.Node => {
   const x = unwrap(e)
   if (!ts.isIdentifier(x)) return x
-  let sym = checker.getSymbolAtLocation(x)
-  if (sym !== undefined && sym.flags & ts.SymbolFlags.Alias) sym = checker.getAliasedSymbol(sym)
-  const decl = sym?.valueDeclaration
-  if (decl !== undefined && ts.isFunctionDeclaration(decl) && decl.body !== undefined) return decl
-  if (
-    decl !== undefined &&
-    ts.isVariableDeclaration(decl) &&
-    decl.initializer !== undefined &&
-    (decl.parent.flags & ts.NodeFlags.Const) !== 0
-  )
-    return unwrap(decl.initializer)
+  const decl = symbolOf(checker, x)?.valueDeclaration
+  const target = decl !== undefined && ts.isFunctionDeclaration(decl) ? functionIn(decl) : constValue(decl)
+  if (target !== undefined) return target
   throw new Unsupported("expected a function or a computation the program declares", e)
 }
 
@@ -366,18 +339,8 @@ export const functionOf = (checker: ts.TypeChecker, e: ts.Expression): FunctionN
   if (ts.isArrowFunction(x) || ts.isFunctionExpression(x)) return x
   // A name, or a member of a namespace import (`laws.readsFirst`, from `import * as laws`).
   const name = ts.isIdentifier(x) ? x : ts.isPropertyAccessExpression(x) && ts.isIdentifier(x.expression) ? x.name : undefined
-  if (name !== undefined) {
-    // In `{ requires }` the name is the property's; the binding it reads is the shorthand's value symbol.
-    let sym = ts.isShorthandPropertyAssignment(name.parent)
-      ? checker.getShorthandAssignmentValueSymbol(name.parent)
-      : checker.getSymbolAtLocation(name)
-    if (sym !== undefined && sym.flags & ts.SymbolFlags.Alias) sym = checker.getAliasedSymbol(sym)
-    const decl = sym?.valueDeclaration
-    if (decl !== undefined && ts.isFunctionDeclaration(decl) && decl.body !== undefined) return decl
-    if (decl !== undefined && ts.isVariableDeclaration(decl) && decl.initializer !== undefined) {
-      const init = unwrap(decl.initializer)
-      if ((decl.parent.flags & ts.NodeFlags.Const) !== 0 && (ts.isArrowFunction(init) || ts.isFunctionExpression(init))) return init
-    }
-  }
+  // In `{ requires }` the name is the property's; `symbolOf` reads the binding it names.
+  const fn = name === undefined ? undefined : functionIn(symbolOf(checker, name)?.valueDeclaration)
+  if (fn !== undefined) return fn
   throw new Unsupported("expected a function written in place, or the name of one the program declares", e)
 }

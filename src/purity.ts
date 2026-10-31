@@ -30,6 +30,7 @@
 import ts from "typescript"
 import { CONTRACT_MODULE, declared as ownExport } from "./project.ts"
 import type { AssumedFn } from "./trust.ts"
+import { functionIn, hasSource, symbolOf } from "./resolve.ts"
 import { type FunctionNode, locate } from "./value.ts"
 
 export type Purity =
@@ -609,8 +610,8 @@ export const purityOf = (checker: ts.TypeChecker, fn: FunctionNode, assumed: (ca
     for (const p of init.properties) {
       let fn: FunctionNode | undefined
       if (ts.isShorthandPropertyAssignment(p)) {
-        const sym = checker.getShorthandAssignmentValueSymbol(p)
-        fn = sym === undefined ? undefined : programFunction(sym.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(sym) : sym)
+        const sym = symbolOf(checker, p.name)
+        fn = sym === undefined ? undefined : programFunction(sym)
       } else if (ts.isPropertyAssignment(p)) {
         const v = p.initializer
         if (ts.isArrowFunction(v) || ts.isFunctionExpression(v)) fn = v
@@ -627,13 +628,7 @@ export const purityOf = (checker: ts.TypeChecker, fn: FunctionNode, assumed: (ca
 
   const programFunction = (sym: ts.Symbol): FunctionNode | undefined => {
     const d = sym.valueDeclaration
-    if (d === undefined || d.getSourceFile().isDeclarationFile) return undefined
-    if (ts.isFunctionDeclaration(d) && d.body !== undefined) return d
-    if (ts.isVariableDeclaration(d) && d.initializer !== undefined && (d.parent.flags & ts.NodeFlags.Const) !== 0) {
-      const init = d.initializer
-      if (ts.isArrowFunction(init) || ts.isFunctionExpression(init)) return init
-    }
-    return undefined
+    return d !== undefined && hasSource(d) ? functionIn(d) : undefined
   }
 
   const s = summarise(fn)
@@ -663,14 +658,6 @@ const union = <A>(...sets: ReadonlyArray<ReadonlySet<A>>): Set<A> => new Set(set
 const isAssignment = (k: ts.SyntaxKind): boolean => k >= K.FirstAssignment && k <= K.LastAssignment
 const isStoringAssignment = (k: ts.SyntaxKind): boolean =>
   k === K.EqualsToken || k === K.QuestionQuestionEqualsToken || k === K.BarBarEqualsToken || k === K.AmpersandAmpersandEqualsToken
-
-const symbolOf = (checker: ts.TypeChecker, e: ts.Node): ts.Symbol | undefined => {
-  const at =
-    ts.isShorthandPropertyAssignment(e.parent) && e.parent.name === e
-      ? checker.getShorthandAssignmentValueSymbol(e.parent)
-      : checker.getSymbolAtLocation(e)
-  return at !== undefined && at.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(at) : at
-}
 
 const boundSymbols = (checker: ts.TypeChecker, name: ts.BindingName): Array<ts.Symbol> => {
   if (ts.isIdentifier(name)) {

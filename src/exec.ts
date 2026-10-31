@@ -54,7 +54,8 @@ import {
   under,
 } from "./lower.ts"
 import { countAsNum, isNullish, isWhole, ite, nullishOr, strictEq, truthy } from "./ops.ts"
-import { CONTRACT_MODULE, declared, functionOf, ownModule, unwrap } from "./project.ts"
+import { CONTRACT_MODULE, declared, functionOf, ownModule } from "./project.ts"
+import { functionIn, inProgram, symbolOf, unwrap } from "./resolve.ts"
 import { symbolicOf } from "./symbolic.ts"
 import {
   type Env,
@@ -820,22 +821,16 @@ const programFunction = (L: Lowering, e: ts.CallExpression, st: State): { readon
     return v.kind === "fn" ? { node: v.node, env: v.env } : undefined
   }
   if (b !== undefined) return undefined
-  let sym = L.checker.getSymbolAtLocation(callee)
-  if (sym !== undefined && sym.flags & ts.SymbolFlags.Alias) sym = L.checker.getAliasedSymbol(sym)
-  const d = sym?.valueDeclaration
-  if (d === undefined || d.getSourceFile().isDeclarationFile || d.getSourceFile().fileName.includes("/node_modules/")) return undefined
-  if (ownModule(d.getSourceFile().fileName, CONTRACT_MODULE)) return undefined
-  if (ts.isFunctionDeclaration(d) && d.body !== undefined) return { node: d, env: new Map() }
-  if (ts.isVariableDeclaration(d) && d.initializer !== undefined && (d.parent.flags & ts.NodeFlags.Const) !== 0) {
-    const init = unwrap(d.initializer)
-    if (
-      (ts.isArrowFunction(init) || ts.isFunctionExpression(init)) &&
-      init.asteriskToken === undefined &&
-      !init.modifiers?.some((m) => m.kind === K.AsyncKeyword)
-    )
-      return { node: init, env: new Map() }
-  }
-  return undefined
+  const d = symbolOf(L.checker, callee)?.valueDeclaration
+  if (d === undefined || !inProgram(d) || ownModule(d.getSourceFile().fileName, CONTRACT_MODULE)) return undefined
+  const fn = functionIn(d)
+  // A generator or an async function a `const` holds is a computation, read where it is run.
+  if (
+    fn === undefined ||
+    (!ts.isFunctionDeclaration(fn) && (fn.asteriskToken !== undefined || fn.modifiers?.some((m) => m.kind === K.AsyncKeyword)))
+  )
+    return undefined
+  return { node: fn, env: new Map() }
 }
 
 const ASSIGN_OPS: ReadonlyMap<ts.SyntaxKind, ts.SyntaxKind> = new Map([
@@ -1579,9 +1574,7 @@ export const lemmaOf = (
   | { readonly file: string; readonly name: string; readonly statement: FunctionNode; readonly requires: FunctionNode | undefined }
   | undefined => {
   if (!ts.isIdentifier(callee)) return undefined
-  let sym = L.checker.getSymbolAtLocation(callee)
-  if (sym !== undefined && sym.flags & ts.SymbolFlags.Alias) sym = L.checker.getAliasedSymbol(sym)
-  const d = sym?.valueDeclaration
+  const d = symbolOf(L.checker, callee)?.valueDeclaration
   if (d === undefined || !ts.isVariableDeclaration(d) || d.initializer === undefined) return undefined
   const init = unwrap(d.initializer)
   if (!ts.isCallExpression(init) || !declared(L.checker, init.expression, CONTRACT_MODULE, "lemma")) return undefined

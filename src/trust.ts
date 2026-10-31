@@ -9,7 +9,8 @@
 import path from "node:path"
 import ts from "typescript"
 import { packageExport } from "./adapter.ts"
-import { CONTRACT_MODULE, type Project, declared, functionOf, unwrap } from "./project.ts"
+import { CONTRACT_MODULE, type Project, declared, functionOf } from "./project.ts"
+import { functionIn, hasSource, symbolOf, unwrap } from "./resolve.ts"
 import { type FunctionNode, Unsupported, locate } from "./value.ts"
 
 /** One `assume(fn, …)`: the view its laws are written for, and the laws. */
@@ -63,21 +64,13 @@ export const PURITY_TRUSTS = [
 const resolved = (checker: ts.TypeChecker, e: ts.Expression): ts.Symbol | undefined => {
   let x = unwrap(e)
   if (ts.isExpressionWithTypeArguments(x)) x = x.expression
-  const at = ts.isPropertyAccessExpression(x) ? x.name : x
-  let sym = checker.getSymbolAtLocation(at)
-  if (sym !== undefined && sym.flags & ts.SymbolFlags.Alias) sym = checker.getAliasedSymbol(sym)
-  return sym
+  return symbolOf(checker, ts.isPropertyAccessExpression(x) ? x.name : x)
 }
 
+/** The source of a function an assumption declares, where the program has it. */
 const bodyOf = (sym: ts.Symbol): FunctionNode | undefined => {
   const d = sym.valueDeclaration
-  if (d === undefined || d.getSourceFile().isDeclarationFile) return undefined
-  if (ts.isFunctionDeclaration(d) && d.body !== undefined) return d
-  if (ts.isVariableDeclaration(d) && d.initializer !== undefined && (d.parent.flags & ts.NodeFlags.Const) !== 0) {
-    const init = unwrap(d.initializer)
-    if (ts.isArrowFunction(init) || ts.isFunctionExpression(init)) return init
-  }
-  return undefined
+  return d !== undefined && hasSource(d) ? functionIn(d) : undefined
 }
 
 /** The parameter types of the view: `A` of `assume<A, R>`, read from the declaration's resolved type. */

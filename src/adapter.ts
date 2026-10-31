@@ -5,6 +5,7 @@
 // says which of a library's forms are those: which function is a computation,
 // what a step's operand runs, which method type is an operation, and what its
 // library's functions and constructors mean. The core never names a library.
+import { symbolOf } from "./resolve.ts"
 import ts from "typescript"
 import type { Lowering } from "./lower.ts"
 import type { Env, FunctionNode, Val } from "./value.ts"
@@ -44,9 +45,7 @@ export const packageExport = (
   checker: ts.TypeChecker,
   node: ts.Node,
 ): { readonly pkg: string; readonly module: string; readonly name: string } | undefined => {
-  const at = ts.isPropertyAccessExpression(node) ? node.name : node
-  let sym = checker.getSymbolAtLocation(at)
-  if (sym !== undefined && sym.flags & ts.SymbolFlags.Alias) sym = checker.getAliasedSymbol(sym)
+  const sym = symbolOf(checker, ts.isPropertyAccessExpression(node) ? node.name : node)
   const file = sym?.declarations?.[0]?.getSourceFile().fileName.replaceAll("\\", "/")
   const m = file === undefined ? null : /\/node_modules\/((?:@[^/]+\/)?[^/]+)\/(?:.*\/)?([^/]+)\.d\.ts$/.exec(file)
   return sym === undefined || m === null ? undefined : { pkg: m[1]!, module: m[2]!, name: sym.name }
