@@ -29,4 +29,3 @@ In rough order:
 - Packs for the most-called libraries, each tested against its library; a check of a package's purity from its JavaScript.
 - Equivalence as a first-class check: "this refactor preserves behaviour", run on a diff.
 - A versioned report bound to source hashes.
-- A first release: a version past 0.0.0, and npm.

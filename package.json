@@ -1,8 +1,19 @@
 {
   "name": "tsverify",
-  "version": "0.0.0",
-  "private": true,
+  "version": "0.1.0",
   "description": "Prove laws of ordinary TypeScript for every input, or get an input that breaks one: read from source, solved by Z3.",
+  "keywords": [
+    "typescript",
+    "formal-verification",
+    "z3",
+    "smt",
+    "contracts",
+    "property-testing"
+  ],
+  "homepage": "https://github.com/emyann/tsverify#readme",
+  "bugs": {
+    "url": "https://github.com/emyann/tsverify/issues"
+  },
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -40,7 +51,7 @@
     }
   },
   "bin": {
-    "tsverify": "./dist/src/cli.js"
+    "tsverify": "dist/src/cli.js"
   },
   "files": [
     "dist",

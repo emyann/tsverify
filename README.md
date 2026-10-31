@@ -226,13 +226,10 @@ itself: where it is weak, what the code can reach, and which laws say nothing.
 
 ## Install
 
-tsverify is not on npm yet. Build a tarball from this repository and install it in your project:
-
 ```sh
-npm pack                                          # here: builds the package, writes tsverify-0.0.0.tgz
-npm install --save-dev <path>/tsverify-0.0.0.tgz  # in your project; add `effect` for Effect programs
-npx tsverify                                      # every contract under the current folder
-npx tsverify --watch                              # again on every save, until all is proved
+npm install --save-dev tsverify  # add `effect` for Effect programs
+npx tsverify                     # every contract under the current folder
+npx tsverify --watch             # again on every save, until all is proved
 ```
 
 It needs Node 24.16 or later, and brings its own `typescript` and `z3-solver`. It reads every file that imports
@@ -292,7 +289,7 @@ about it, and `--json` for tools.
 
 ## Status
 
-A prototype: version 0.0.0, not on npm, and its API may change. Every example in these pages is run by its tests, the
+A prototype: version 0.1.0, and its API may change before 1.0. Every example in these pages is run by its tests, the
 output shown included. What matters most before you rely on it:
 
 - **Arguments are taken to have their types**, and code to throw only where it says so. At the edge of a program, check
