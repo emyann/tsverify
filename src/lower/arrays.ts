@@ -4,7 +4,7 @@ import type { Arith, Bool } from "z3-solver"
 import { isNullish, ite, strictEq, truthy } from "../ops.ts"
 import { narrowedField } from "../narrow.ts"
 import { symbolicOf } from "../symbolic.ts"
-import { type Env, UNDEFINED, Unsupported, type Val, jsString, memoElems, termId } from "../value.ts"
+import { type Env, UNDEFINED, Unsupported, type Val, jsString, listed, memoElems, termId } from "../value.ts"
 import { type Lowering, bool, later, lowerCall, lowerExpr, member, optionally } from "../lower.ts"
 import { atIndex, indexOf, relativePosition, shown } from "./strings.ts"
 import { PROTO, dictionaryRead } from "./records.ts"
@@ -145,6 +145,23 @@ export const elementwise = (
   }
 }
 
+/** The methods of an array the verifier reads (`push` is a statement's: `exec.ts`); any other is refused, naming these. */
+export const ARRAY_METHODS = [
+  "at",
+  "find",
+  "toReversed",
+  "reverse",
+  "slice",
+  "some",
+  "every",
+  "includes",
+  "map",
+  "join",
+  "flatMap",
+  "filter",
+] as const
+const readArrayMethod = (name: string): name is (typeof ARRAY_METHODS)[number] => (ARRAY_METHODS as ReadonlyArray<string>).includes(name)
+
 export const arrayMethod = (L: Lowering, arr: Extract<Val, { kind: "array" }>, name: string, e: ts.CallExpression, env: Env): Val => {
   const { u } = L
   const z3 = u.z3
@@ -219,6 +236,7 @@ export const arrayMethod = (L: Lowering, arr: Extract<Val, { kind: "array" }>, n
       ? z3.Exists([i], z3.And(inRange, ...facts, result))
       : z3.ForAll([i], z3.Implies(z3.And(inRange, ...facts), result))
   }
+  if (!readArrayMethod(name)) throw new Unsupported(`array method \`.${name}\` is not modeled: ${listed(ARRAY_METHODS)} are`, e)
   switch (name) {
     case "at": {
       if (e.arguments.length !== 1) throw new Unsupported("`.at` with other than one argument", e)
@@ -428,8 +446,6 @@ export const arrayMethod = (L: Lowering, arr: Extract<Val, { kind: "array" }>, n
       u.approximations.add(`\`${e.getText()}\` is known on the proof side as some of the elements its predicate keeps, in order`)
       return { kind: "array", length: count, ...bounds, elem: memoElems((k) => arr.elem(positionOf(k))) }
     }
-    default:
-      throw new Unsupported(`array method \`.${name}\` is not modeled`, e)
   }
 }
 

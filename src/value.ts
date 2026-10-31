@@ -35,6 +35,12 @@ export type FunctionNode = ts.ArrowFunction | ts.FunctionExpression | ts.Functio
 export type Thunk = () => Val
 export type Env = ReadonlyMap<string, Thunk>
 
+/** Names as a message lists them: `` `a`, `b` and `c` ``. */
+export const listed = (names: ReadonlyArray<string>): string => {
+  const quoted = names.map((n) => `\`${n}\``)
+  return quoted.length < 2 ? quoted.join("") : `${quoted.slice(0, -1).join(", ")} and ${quoted.at(-1)}`
+}
+
 /** What `typeof` says of a value, the eight names JavaScript has. */
 export const TYPE_NAMES = ["undefined", "object", "boolean", "number", "bigint", "string", "symbol", "function"] as const
 

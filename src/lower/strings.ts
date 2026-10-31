@@ -2,7 +2,7 @@
 import ts from "typescript"
 import type { Arith, Bool } from "z3-solver"
 import { countAsNum, intOf, isWhole } from "../ops.ts"
-import { type Env, NUM, Unsupported, type Val, identity, jsString, termId } from "../value.ts"
+import { type Env, NUM, Unsupported, type Val, identity, jsString, listed, termId } from "../value.ts"
 import { type Lowering, bool, lowerExpr } from "../lower.ts"
 
 /**
@@ -105,6 +105,21 @@ export const atIndex = (
   at: ts.Node,
 ): { readonly index: Arith; readonly isUndefined: Bool } => atPosition(L, arr.length, v, at)
 
+/** The methods of a string the verifier reads; any other is refused, naming these. */
+export const STRING_METHODS = [
+  "startsWith",
+  "endsWith",
+  "includes",
+  "indexOf",
+  "charAt",
+  "at",
+  "slice",
+  "trim",
+  "trimStart",
+  "trimEnd",
+] as const
+const readStringMethod = (name: string): name is (typeof STRING_METHODS)[number] => (STRING_METHODS as ReadonlyArray<string>).includes(name)
+
 /**
  * A string's method, on its UTF-16 code units, as Z3 holds them (`jsString`): `startsWith`, `endsWith` and `includes`
  * of one string; `indexOf` of one, -1 where it is not there and 0 for `""`; `charAt` and `at` at a position, `""` and
@@ -123,6 +138,7 @@ export const stringMethod = (L: Lowering, s: Extract<Val, { kind: "str" }>, name
   }
   const length = s.term.length()
   const str = (term: unknown): Val => ({ kind: "str", term: term as Extract<Val, { kind: "str" }>["term"] })
+  if (!readStringMethod(name)) throw new Unsupported(`method \`${name}\` of a string is not modeled: ${listed(STRING_METHODS)} are`, e)
   switch (name) {
     case "startsWith":
       taking(1, "one argument, the prefix")
@@ -157,11 +173,6 @@ export const stringMethod = (L: Lowering, s: Extract<Val, { kind: "str" }>, name
     case "trimEnd":
       taking(0, "no argument")
       return str(trimmed(L, s.term, name === "trim" || name === "trimStart", name === "trim" || name === "trimEnd"))
-    default:
-      throw new Unsupported(
-        `method \`${name}\` of a string is not modeled: \`startsWith\`, \`endsWith\`, \`includes\`, \`indexOf\`, \`charAt\`, \`at\`, \`slice\` and \`trim\` are`,
-        e,
-      )
   }
 }
 

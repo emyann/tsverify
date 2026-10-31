@@ -13,6 +13,29 @@ import { ownOf, tupleOf } from "./records.ts"
 
 const K = ts.SyntaxKind
 
+/** The functions of JavaScript's library the verifier reads; any other is a name it cannot see. */
+export const LIBRARY_FUNCTIONS = [
+  "Math.floor",
+  "Math.ceil",
+  "Math.trunc",
+  "Math.round",
+  "Math.max",
+  "Math.min",
+  "Math.abs",
+  "Object.is",
+  "Object.keys",
+  "Object.values",
+  "Object.entries",
+  "Object.hasOwn",
+  "Number.isInteger",
+  "Number.isSafeInteger",
+  "Number.isFinite",
+  "Number.isNaN",
+  "Date.parse",
+] as const
+const readLibraryFunction = (name: string): name is (typeof LIBRARY_FUNCTIONS)[number] =>
+  (LIBRARY_FUNCTIONS as ReadonlyArray<string>).includes(name)
+
 /**
  * A function of JavaScript's own `Math`, `Number` or `Object` the model reads: what a double makes of it, exactly.
  * `floor`, `trunc` and `ceil` give an integral double, which the double holds, `-0` where JavaScript gives it; `max` and
@@ -21,9 +44,10 @@ const K = ts.SyntaxKind
  */
 export const standard = (L: Lowering, callee: ts.PropertyAccessExpression): Val | undefined => {
   const o = callee.expression
-  if (!ts.isIdentifier(o) || !["Math", "Number", "Object", "Date"].includes(o.text) || !isLib(L.checker, o)) return undefined
+  if (!ts.isIdentifier(o)) return undefined
   const z3 = L.u.z3
   const name = `${o.text}.${callee.name.text}`
+  if (!readLibraryFunction(name) || !isLib(L.checker, o)) return undefined
   const one = (f: (v: Val, at: ts.Node) => Val): Val => ({
     kind: "builtin",
     name,
@@ -203,9 +227,10 @@ export const standard = (L: Lowering, callee: ts.PropertyAccessExpression): Val 
       return check((v) => v.cls.eq(NUM.finite))
     case "Number.isNaN":
       return check((v) => v.cls.eq(NUM.nan))
-    default:
-      return undefined
   }
+  // Every name the list holds has its case.
+  const unread: never = name
+  return unread
 }
 
 const ROUNDING = new Set(["Math.floor", "Math.ceil", "Math.trunc", "Math.round"])
