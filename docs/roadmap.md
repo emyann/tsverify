@@ -15,9 +15,8 @@ In rough order:
   code built.
 - A function the code is given, declared pure where a spec says so: the same value for the same arguments, so a law can
   say what two calls of it give, as it can of a declaration's.
-- A query's time, steadier: a proof that takes a second can take more than ten when Z3 meets the same formula in another
-  order, as it does when terms are freed and their numbers reused. Each number the loops keep whole by construction (a
-  counter) is held as an integer; the rest are held in parts the solver must reason about.
+- A query's work, smaller: each number the loops keep whole by construction (a counter) is held as an integer; the rest
+  are held in parts the solver must reason about.
 - The next Effect forms, by how often they stop real code: `Effect.exit`, `mapError`, `catchCause`, `suspend`; `let` in
   a computation's body.
 - A loop of steps read through invariants over the trace, as a fold's loop is read through its own, so a law of such a

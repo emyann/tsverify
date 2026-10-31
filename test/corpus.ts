@@ -95,8 +95,8 @@ const judged = async (
     }
   }
   // The verdicts, held to it.
-  // Four seconds a query: the slowest proof here takes about two, and a case past it is a gap the case names.
-  const v = await verify(z3, project, file, contractName, { timeoutMs: 4000 })
+  // The default work a query: a case it does not decide within it is a gap the case names.
+  const v = await verify(z3, project, file, contractName)
   for (const [law, t] of Object.entries(c.laws)) {
     const result = v.laws.find((l) => l.name === law)
     const status = result?.status ?? (v.unsupported !== undefined ? "unsupported" : "missing")

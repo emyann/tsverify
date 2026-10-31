@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// tsverify [<file or folder>...] [--project tsconfig.json] [--bound 4] [--timeout 10000] [--verbose] [--json] [--watch]
+// tsverify [<file or folder>...] [--project tsconfig.json] [--bound 4] [--work 15000000] [--verbose] [--json] [--watch]
 //   Verifies every contract each file exports: every implementation of a spec (`const f: Implementation<S>`),
 //   and every `contract`, computation and lemma, in each file that imports tsverify under each folder (the current one
 //   by default): a line per contract, under it a line per law that needs a look (per law, of a run of one file or with
@@ -30,10 +30,27 @@ process.on("uncaughtException", (e) => {
   process.exit(3)
 })
 
+// The same verdict on every run asks for the same collections of the solver's terms: when JavaScript collects them
+// decides which of their numbers the solver hands out again, and so the order of its search. V8 collects on a schedule
+// of its own only by a flag it takes on its command line alone (`NODE_OPTIONS` refuses it), so the command runs itself
+// again with it, and leaves with what that run leaves with.
+const STEADY = "--predictable-gc-schedule"
+if (!process.execArgv.includes(STEADY)) {
+  const run = spawn(process.execPath, [STEADY, ...process.execArgv, ...process.argv.slice(1)], { stdio: "inherit" })
+  const signals = ["SIGINT", "SIGTERM", "SIGHUP"] as const
+  for (const s of signals) process.on(s, () => run.kill(s))
+  run.on("exit", (code, signal) => {
+    if (signal === null) process.exit(code ?? 3)
+    for (const s of signals) process.removeAllListeners(s)
+    process.kill(process.pid, signal)
+  })
+  await new Promise<never>(() => {})
+}
+
 const USAGE =
-  "usage: tsverify [<file or folder>...] [--project tsconfig.json] [--bound N] [--timeout MS] [--verbose] [--json] [--watch]\n       tsverify <file.ts> <export> [--json] [--watch]"
+  "usage: tsverify [<file or folder>...] [--project tsconfig.json] [--bound N] [--work N] [--verbose] [--json] [--watch]\n       tsverify <file.ts> <export> [--json] [--watch]"
 const argv = process.argv.slice(2)
-const VALUED = new Set(["--project", "--bound", "--timeout"])
+const VALUED = new Set(["--project", "--bound", "--work"])
 const positional = argv.filter((a, i) => !a.startsWith("--") && !VALUED.has(argv[i - 1] ?? ""))
 const flag = (f: string): string | undefined => {
   const i = argv.indexOf(f)
@@ -42,8 +59,8 @@ const flag = (f: string): string | undefined => {
 const verbose = argv.includes("--verbose")
 const json = argv.includes("--json")
 const bound = flag("--bound") === undefined ? undefined : Number(flag("--bound"))
-const timeoutMs = flag("--timeout") === undefined ? undefined : Number(flag("--timeout"))
-const opts: Options = { ...(bound ? { bound } : {}), ...(timeoutMs ? { timeoutMs } : {}) }
+const work = flag("--work") === undefined ? undefined : Number(flag("--work"))
+const opts: Options = { ...(bound ? { bound } : {}), ...(work ? { work } : {}) }
 
 /** The watch's own lines, styled for a terminal; `styleText` leaves them plain when stdout is not one, or `NO_COLOR` is set. */
 const paint = (style: Parameters<typeof styleText>[0], text: string): string => (json ? text : styleText(style, text))

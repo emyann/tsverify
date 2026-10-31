@@ -52,10 +52,10 @@
     "typecheck": "tsc --noEmit",
     "lint": "oxlint && oxfmt --check",
     "format": "oxfmt",
-    "test": "node --conditions=tsverify-source --test test/*.test.ts",
-    "verify": "node --conditions=tsverify-source src/cli.ts",
-    "bench": "node --conditions=tsverify-source bench/mutants.ts --json bench/results.json",
-    "coverage": "node --conditions=tsverify-source bench/coverage.ts"
+    "test": "node --predictable-gc-schedule --conditions=tsverify-source --test test/*.test.ts",
+    "verify": "node --predictable-gc-schedule --conditions=tsverify-source src/cli.ts",
+    "bench": "node --predictable-gc-schedule --conditions=tsverify-source bench/mutants.ts --json bench/results.json",
+    "coverage": "node --predictable-gc-schedule --conditions=tsverify-source bench/coverage.ts"
   },
   "dependencies": {
     "ink": "8.0.0",

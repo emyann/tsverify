@@ -195,9 +195,10 @@ are then trusted.
 
 ### ? `unknown`
 
-Neither side answered: the solver gave up on each, out of time or on a query it cannot decide (quantifiers and
-non-linear arithmetic can do that). The reason gives each side's. `--timeout` raises the time per query (10 s by
-default); splitting a law into smaller ones, or a lemma, often helps more.
+Neither side answered: the solver gave up on each, out of work or on a query it cannot decide (quantifiers and
+non-linear arithmetic can do that). The reason gives each side's. `--work` raises the work each query may do (15,000,000
+of the solver's steps by default, about six seconds on a laptop); splitting a law into smaller ones, or a lemma, often
+helps more.
 
 ### ! `inconsistent`
 
@@ -268,7 +269,7 @@ $ npx tsverify src/cap.ts cap
 ## The command
 
 ```text
-tsverify [<file or folder>...] [--project tsconfig.json] [--bound N] [--timeout MS] [--verbose] [--json] [--watch]
+tsverify [<file or folder>...] [--project tsconfig.json] [--bound N] [--work N] [--verbose] [--json] [--watch]
 tsverify <file.ts> <export> [--json] [--watch]
 ```
 
@@ -276,7 +277,7 @@ tsverify <file.ts> <export> [--json] [--watch]
 | --- | --- |
 | `--project` | the `tsconfig.json` every file is read through, instead of the nearest one above it |
 | `--bound` | the longest array the search side tries, 4 by default |
-| `--timeout` | the time each query may take, in milliseconds, 10,000 by default |
+| `--work` | the work each query may do, in the solver's own steps (Z3's resource limit), 15,000,000 by default |
 | `--verbose` | every law and every obligation of every contract, with what each trusted and assumed, as the one-contract form prints them |
 | `--json` | one JSON document instead of the text, and nothing else on stdout |
 | `--watch` | the same again on every change to the project's TypeScript, until stopped (below) |
@@ -287,6 +288,12 @@ tsverify <file.ts> <export> [--json] [--watch]
 | 1 | one is not: a counterexample, or a law bounded, vacuous, unsupported, unknown or inconsistent, or a contract not verified |
 | 2 | a usage error: a path that is not there, no file or no contract to verify, no `tsconfig.json` |
 | 3 | the verifier itself failed, which says nothing of the code |
+
+The same code gets the same verdicts on every run, on a fast machine or a slow one, idle or busy. Each query may do a
+set amount of the solver's work, counted in its own steps and not in seconds, and the command runs Node with
+`--predictable-gc-schedule`, so JavaScript frees the solver's terms at the same moments and the solver meets its
+formulas in the same order. A program that calls `verify` itself (`tsverify/api`, whose `work` option is `--work`)
+gets the same by starting Node with that flag; `NODE_OPTIONS` refuses it.
 
 In a terminal the report is drawn live: each contract verified stays above a line naming the one being verified and how
 far the run is, and a long line wraps to the window under its own first word. It is in colour: green for `proved`, red

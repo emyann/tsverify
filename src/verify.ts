@@ -126,8 +126,13 @@ export interface Verification {
 }
 
 export interface Options {
-  /** Per query, on each side. */
-  readonly timeoutMs?: number
+  /**
+   * The work each query may do, on each side, in the solver's own units (Z3's resource limit, `rlimit`): a count of
+   * its steps, not of seconds, so a verdict is the same on a fast machine and a slow one, idle or busy, when Node runs
+   * with `--predictable-gc-schedule` as the command runs it (when its terms are freed orders the solver's search).
+   * `WORK` by default.
+   */
+  readonly work?: number
   /** The search side's longest array. */
   readonly bound?: number
   /** Called as each law and each cover query is decided: progress for a long run. */
@@ -806,6 +811,27 @@ type Outcome =
   | { readonly status: "unsat" }
   | { readonly status: "unknown"; readonly reason: string }
 
+/**
+ * The work a query may do by default: above the most any query of the suite and of the case study needs to end, 9.7
+ * million, by half again. Measured on 5,672 queries; one that does not end stops at the same step on every run.
+ */
+export const WORK = 15_000_000
+/** A guard against a query that never counts its work: far past what `WORK` takes, and said apart when it is reached. */
+const STUCK_MS = 300_000
+
+const limited = (solver: { set(key: string, value: number): void }, work: number): void => {
+  solver.set("rlimit", work)
+  solver.set("timeout", STUCK_MS)
+}
+
+/** Why the solver gave up, in a report's words. */
+const unknownWhy = (reason: string): string =>
+  /resource limit/i.test(reason)
+    ? "out of work (the solver's limit per query, `--work`)"
+    : /timeout|canceled/i.test(reason)
+      ? `out of time: the query ran ${STUCK_MS / 60_000} minutes without counting its work`
+      : reason
+
 /** Checks a side's assumptions with `goals`; on `sat`, reads the arguments back, preferring short arrays. */
 export const solve = async (
   side: Lowered,
@@ -817,7 +843,7 @@ export const solve = async (
   const z3 = u.z3
   const run = async (extra: ReadonlyArray<Bool>) => {
     const solver = new z3.Solver()
-    solver.set("timeout", opts.timeoutMs ?? 10_000)
+    limited(solver, opts.work ?? WORK)
     vectorsBy(u, solver)
     for (const a of [...u.assumptions, ...hints, ...goals, ...extra]) solver.add(a)
     const status = await solver.check()
@@ -825,7 +851,7 @@ export const solve = async (
   }
   const first = await run([])
   if (first.status === "unsat") return { status: "unsat" }
-  if (first.status === "unknown") return { status: "unknown", reason: first.solver.reasonUnknown() }
+  if (first.status === "unknown") return { status: "unknown", reason: unknownWhy(first.solver.reasonUnknown()) }
   // A model may pick a huge array or dictionary; ask again with short ones, which narrows the same formula. A `Map`'s
   // or a `Set`'s count is left as it is: bounding it can cost the query its time, and its model is read back whole.
   const counts = new Set(["#len", "#own"])
@@ -908,7 +934,7 @@ export const disagreements = async (
     const want = expected(args)
     const pins = params.flatMap((p, i) => pin(u, p, args[i]))
     const solver = new z3.Solver()
-    solver.set("timeout", 20_000)
+    limited(solver, 2 * WORK)
     vectorsBy(u, solver)
     for (const a of [...u.assumptions, ...pins, z3.Not(strictEq(u, result, valueOf(u, want), side.fn))]) solver.add(a)
     const status = await solver.check()
