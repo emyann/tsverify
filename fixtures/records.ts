@@ -3,7 +3,8 @@
 // told apart by `typeof`; `trim`, `Boolean(x)`; a field read once a check has shown its object present; a value
 // written before a search and first read inside it; and the same search made twice, by the code and by a law, with a
 // function declared pure called on what it found; a dictionary's keys and entries (`Object.keys`, `Object.entries`),
-// each key once, and a literal's in the order JavaScript gives them. `test/records.test.ts` asks each.
+// each key once, and a literal's in the order JavaScript gives them; and `typeof` of an `unknown`.
+// `test/records.test.ts` asks each.
 import { assume, contract } from "../src/contract.ts"
 
 export type Steps = Readonly<Record<string, { readonly taskId: string | null }>>
@@ -203,3 +204,27 @@ export const writtenInOrder = contract(written, {
       out[7] === "y",
   },
 })
+
+/** What kind of value anything is, as `typeof` says it. */
+export function kindOfAnything(v: unknown): string {
+  const kind = typeof v
+  return kind
+}
+
+export const kindOfAnythingIsJavaScripts = contract(kindOfAnything, {
+  ensures: {
+    oneOfEight: (_v, out) =>
+      out === "undefined" ||
+      out === "object" ||
+      out === "boolean" ||
+      out === "number" ||
+      out === "bigint" ||
+      out === "string" ||
+      out === "symbol" ||
+      out === "function",
+    aFunctionIsOne: (v, out) => typeof v !== "function" || out === "function",
+  },
+})
+
+/** False: a counterexample gives a function, read back as one. */
+export const neverAFunction = contract(kindOfAnything, { ensures: { never: (_v, out) => out !== "function" } })

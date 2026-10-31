@@ -22,7 +22,8 @@ part as a harmless one.
 - a `Date` the code is given, read through `getTime()` and `valueOf()`: `NaN` or a whole number of milliseconds within
   8.64e15 of 1970; a `Map` and a `Set`, given or built from an array (`new Set(["done", "failed"])`), read through `has`
   and `get` (*Collections*, below);
-- a value of type `unknown`, carried, stored and returned, never read: its truth, `===`, `??` and its fields are refused.
+- a value of type `unknown`, carried, stored and returned, and asked its kind by `typeof`, read back in a
+  counterexample as a value of that kind; its truth, `===`, `??` and its fields are refused.
 
 **Expressions.**
 - `===`, `!==`, `<`, `<=`, `>`, `>=`, `!`, `&&`, `||`, `??`, `?:`, as JavaScript defines them, `NaN` and `-0` included;

@@ -89,6 +89,20 @@ const read = (u: Universe, model: Model, n: Node, indices: ReadonlyArray<number>
     }
   }
   if (n.children.has("$")) return leafAt("$")
+  // A value of type `unknown`: a plain value of the type `typeof` was found to say.
+  if (n.children.has("~typeof")) {
+    const plain: Record<string, unknown> = {
+      undefined,
+      object: null,
+      boolean: false,
+      number: 0,
+      bigint: 0n,
+      string: "",
+      symbol: Symbol("tsverify"),
+      function: () => undefined,
+    }
+    return plain[leafAt("~typeof") as string]
+  }
   // A value of more than one kind: the part its tag names (`symbolicOf`), a plain value of that kind where none was read.
   if (n.children.has("~kind")) {
     const name = ["bool", "str", "num", "bigint"][leafAt("~kind") as number]!
@@ -211,6 +225,11 @@ const write = (u: Universe, n: Node, indices: ReadonlyArray<number>, value: unkn
         }
       }
     } else out.push(t.eq(literal(u, value)))
+    return
+  }
+  const typeOf = leafAt("~typeof")
+  if (typeOf !== undefined) {
+    out.push(term(u, typeOf, indices).eq(jsString(u.z3, typeof value)))
     return
   }
   const kind = leafAt("~kind")

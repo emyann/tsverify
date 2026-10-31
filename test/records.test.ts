@@ -1,6 +1,7 @@
 // Records read by key and values of more than one kind (fixtures/records.ts): every law proved; the laws hold when the
 // functions run; a bug planted in each is caught; a key `Object.prototype` holds is an obligation broken where nothing
-// rules it out; and a counterexample reads a dictionary back as a plain object, a value of two kinds as the kind it is.
+// rules it out; and a counterexample reads a dictionary back as a plain object, a value of two kinds as the kind it is,
+// an `unknown` as a value of the kind `typeof` gave it.
 import assert from "node:assert/strict"
 import path from "node:path"
 import { after, before, describe, it } from "node:test"
@@ -39,6 +40,7 @@ checkFixture(
     namesOfItsOwn: [[{}], [{ b: { taskId: null }, 0: { taskId: "t" } }]],
     filedStepsAreFiled: [[{}], [{ a: { taskId: null }, b: { taskId: "t" } }]],
     writtenInOrder: [[]],
+    kindOfAnythingIsJavaScripts: [[undefined], [null], [() => 1], ["a"], [1n], [Symbol("s")]],
   },
   [
     {
@@ -93,6 +95,12 @@ checkFixture(
       change: ['{ b: "w", 2: "x", a: "y", 1: "z" }', '{ a: "y", 2: "x", b: "w", 1: "z" }'],
       contract: "writtenInOrder",
     },
+    {
+      id: "R13",
+      what: "a function named an object",
+      change: ["const kind = typeof v", 'const kind = typeof v === "function" ? "object" : typeof v'],
+      contract: "kindOfAnythingIsJavaScripts",
+    },
   ],
 )
 
@@ -131,5 +139,13 @@ describe("records: keys of Object's, and what a counterexample reads back", () =
     const [setting] = law.args as [boolean | "strict"]
     assert.ok(setting === true || setting === "strict", String(setting))
     assert.equal(fixture.modeOf(setting), "strict")
+  })
+  it("an `unknown` is read back as a value of the kind `typeof` gave it", async () => {
+    const v = await verify(z3, project, file, "neverAFunction")
+    const [law] = v.laws
+    assert.equal(law?.status, "counterexample")
+    const [value] = law.args as [unknown]
+    assert.equal(typeof value, "function")
+    assert.equal(fixture.kindOfAnything(value), "function")
   })
 })

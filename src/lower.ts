@@ -859,7 +859,8 @@ const typeOf = (L: Lowering, v: Val, at: ts.Node): Val => {
       case "builtin":
         return word("function")
       case "opaque":
-        throw new Unsupported("`typeof` of a value of type `unknown` is not modeled: such a value is carried and never read", at)
+        if (x.typeOf !== undefined) return x.typeOf()
+        throw new Unsupported("`typeof` of a value of type `unknown` the code was not given is not modeled", at)
     }
   }
   return { kind: "str", term: of(v) }

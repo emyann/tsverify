@@ -239,6 +239,10 @@ export const ite = (u: Universe, c: Bool, a: Val, b: Val, at: ts.Node): Val => {
   if (a === b || z3.isTrue(c)) return a
   if (z3.isFalse(c)) return b
   // What is known of one side is lost in the merge: nothing reads the merged value but to pass it along.
+  if (a.kind === "opaque" && b.kind === "opaque" && a.typeOf !== undefined && b.typeOf !== undefined) {
+    const [x, y] = [a.typeOf, b.typeOf]
+    return { kind: "opaque", typeOf: () => z3.If(c, x(), y()) }
+  }
   if (a.kind === "opaque" || b.kind === "opaque") return { kind: "opaque" }
   if (a.kind === "maybe" || b.kind === "maybe" || a.kind === "nullish" || b.kind === "nullish") {
     if (a.kind === "nullish" && b.kind === "nullish" && a.which === b.which) return a

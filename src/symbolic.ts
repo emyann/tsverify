@@ -14,7 +14,20 @@ import { operation } from "./computation.ts"
 import { ite } from "./ops.ts"
 import type { Lowering } from "./lower.ts"
 import { MAX_LENGTH, type Universe } from "./universe.ts"
-import { KIND, NUM, UNDEFINED, Unsupported, type Val, exactRational, jsString, lazy, lazyRecord, memoElems, termId } from "./value.ts"
+import {
+  KIND,
+  NUM,
+  TYPE_NAMES,
+  UNDEFINED,
+  Unsupported,
+  type Val,
+  exactRational,
+  jsString,
+  lazy,
+  lazyRecord,
+  memoElems,
+  termId,
+} from "./value.ts"
 
 export interface Typing {
   readonly u: Universe
@@ -44,8 +57,21 @@ export const symbolicOf = (
   const { u } = t
   const z3 = u.z3
   const members = membersOf(type)
-  // `unknown` (or a union it absorbed, or a field marked optional on it): a value passed along, never read.
-  if (members.some((m) => m.flags & F.Unknown)) return { kind: "opaque" }
+  // `unknown` (or a union it absorbed, or a field marked optional on it): a value passed along, never read but for what
+  // `typeof` says of it.
+  if (members.some((m) => m.flags & F.Unknown)) {
+    // Made where `typeof` first asks: most such values are only passed along, and each fact costs every query.
+    let name: Extract<Val, { kind: "str" }>["term"] | undefined
+    const typeOf = () => {
+      if (name === undefined) {
+        const made = u.leaf([...segments, "~typeof"], "str", indices) as never as Extract<Val, { kind: "str" }>["term"]
+        u.assume(z3.Or(...TYPE_NAMES.map((n) => made.eq(jsString(z3, n)))), indices)
+        name = made
+      }
+      return name
+    }
+    return { kind: "opaque", typeOf }
+  }
   const canNull = members.some((m) => m.flags & F.Null)
   const canUndefined = optional || members.some((m) => m.flags & (F.Undefined | F.Void))
   const rest = members.filter((m) => !(m.flags & (F.Null | F.Undefined | F.Void)))

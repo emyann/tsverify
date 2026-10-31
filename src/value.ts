@@ -35,6 +35,9 @@ export type FunctionNode = ts.ArrowFunction | ts.FunctionExpression | ts.Functio
 export type Thunk = () => Val
 export type Env = ReadonlyMap<string, Thunk>
 
+/** What `typeof` says of a value, the eight names JavaScript has. */
+export const TYPE_NAMES = ["undefined", "object", "boolean", "number", "bigint", "string", "symbol", "function"] as const
+
 /** The kinds of a primitive, by the tag a value of more than one kind holds (`mixed`). */
 export const KIND = { bool: 0, str: 1, num: 2, bigint: 3 } as const
 
@@ -139,10 +142,11 @@ export type Val =
    */
   | { readonly kind: "comp"; readonly run: (trace: Val) => Ran }
   /**
-   * A value of type `unknown`: passed along, stored, returned, never read. What would read it (a field, a comparison,
-   * its truth, `??`) is refused, since it may be anything, `undefined` included.
+   * A value of type `unknown`: passed along, stored, returned, never read but for what `typeof` says of it (`typeOf`,
+   * one of JavaScript's eight names, made when first asked), where the code was given it. What else would read it (a
+   * field, a comparison, its truth, `??`) is refused, since it may be anything, `undefined` included.
    */
-  | { readonly kind: "opaque" }
+  | { readonly kind: "opaque"; readonly typeOf?: () => Extract<Val, { kind: "str" }>["term"] }
 
 /** A computation's end: its outcome (`{ _tag: "Success", value } | { _tag: "Failure", error }`) and the trace after it. */
 export interface Ran {
