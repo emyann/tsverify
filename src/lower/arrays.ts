@@ -170,21 +170,21 @@ export const arrayMethod = (L: Lowering, arr: Extract<Val, { kind: "array" }>, n
     if (a === undefined) throw new Unsupported(`\`.${name}\` with no argument ${k + 1}`, e)
     return a
   }
-  const predicate = (): ((i: Arith) => Bool) => {
-    if (e.arguments.length !== 1) throw new Unsupported(`\`.${name}\` with a \`this\` argument is not modeled`, e)
-    const f = lowerExpr(L, arg(0), env)
-    if (f.kind !== "fn") throw new Unsupported(`\`.${name}\` of a ${f.kind}`, e)
-    if (f.node.parameters.length > 2) throw new Unsupported(`\`.${name}\` with a callback reading the array is not modeled`, f.node)
-    return (i) => truthy(u, lowerCall(L, f.node, f.env, [arr.elem(i), { kind: "int", origin: "count", term: i }], e))
-  }
-  /** A callback's value at each index (`.map`, `.flatMap`), each read once. */
-  const callback = (): ((i: Arith) => Val) => {
+  /** The function the method is given, written in the code, called at an index with the element and the index. */
+  const given = (): ((i: Arith) => Val) => {
     if (e.arguments.length !== 1) throw new Unsupported(`\`.${name}\` with a \`this\` argument is not modeled`, e)
     const f = lowerExpr(L, arg(0), env)
     if (f.kind !== "fn") throw new Unsupported(`\`.${name}\` of a ${f.kind}: a function the code writes is read`, e)
     if (f.node.parameters.length > 2) throw new Unsupported(`\`.${name}\` with a callback reading the array is not modeled`, f.node)
-    return memoElems((i) => lowerCall(L, f.node, f.env, [arr.elem(i), { kind: "int", origin: "count", term: i }], e))
+    return (i) => lowerCall(L, f.node, f.env, [arr.elem(i), { kind: "int", origin: "count", term: i }], e)
   }
+  /** Its truth at an index (`.find`, `.some`), read again where it is asked, under the branch that asks. */
+  const predicate = (): ((i: Arith) => Bool) => {
+    const call = given()
+    return (i) => truthy(u, call(i))
+  }
+  /** Its value at each index (`.map`, `.flatMap`), each read once. */
+  const callback = (): ((i: Arith) => Val) => memoElems(given())
   /** `exists` (or `forall`) an index of the array where `p` holds, with the facts about element i inside. */
   /** How many elements to write a quantifier out over: the array's own bound (exact on both sides), else the search side's. */
   const writtenOut = arr.maxSize ?? u.bound
