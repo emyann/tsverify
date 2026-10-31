@@ -2,7 +2,7 @@
 import ts from "typescript"
 import type { Arith, Bool, FuncDecl } from "z3-solver"
 import { compare, countAsNum, intOf, isNegZero, isNullish, isWhole, ite, sameValue, strictEq } from "../ops.ts"
-import { isLib } from "../purity.ts"
+import { isLib } from "../effects.ts"
 import { MAX_TIME } from "../symbolic.ts"
 import type { Universe } from "../universe.ts"
 import { type Env, NUM, UNDEFINED, Unsupported, type Val, locate, memoElems } from "../value.ts"

@@ -52,6 +52,7 @@ A counterexample's `where names.get gave ""` is the part of w the model chose.
 | `src/mutants.ts` | laws against planted bugs, the solver beside property testing (`tsverify/mutants`) |
 | `src/trust.ts` | the declarations in force, read from source, and the report's trusted base |
 | `src/purity.ts` | the purity check of a declared function's source |
+| `src/effects.ts` | what JavaScript's library changes when it is called, as the purity check needs it |
 | `packs/` | declarations of a library's functions, tested against the library (`tsverify/packs/lodash`) |
 | `examples/` | the worked examples: a charge written against its spec, an order's status, an account's ledger and a withdrawal, a program calling lodash |
 | `src/project.ts` | the program (a file's text can be replaced or added in memory), diagnostics, a contract read from source |

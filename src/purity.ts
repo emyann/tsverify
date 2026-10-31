@@ -30,6 +30,17 @@
 import ts from "typescript"
 import { CONTRACT_MODULE, declared as ownExport } from "./project.ts"
 import type { AssumedFn } from "./trust.ts"
+import {
+  ARRAY_ELEMENTS,
+  FRESH_CONSTRUCTORS,
+  PURE_GLOBAL_FNS,
+  isArrayLike,
+  isLib,
+  isNamed,
+  isPrimitive,
+  membersOf,
+  methodCall,
+} from "./effects.ts"
 import { functionIn, hasSource, symbolOf } from "./resolve.ts"
 import { type FunctionNode, locate } from "./value.ts"
 
@@ -59,110 +70,6 @@ interface Summary {
 }
 
 const K = ts.SyntaxKind
-
-const MATH_IMPURE = new Set(["random"])
-const PURE_STATICS: Readonly<Record<string, ReadonlySet<string>>> = {
-  JSON: new Set(["stringify", "parse"]),
-  Object: new Set(["keys", "values", "entries", "fromEntries", "isFrozen", "getPrototypeOf", "hasOwn", "is", "groupBy"]),
-  Number: new Set(["isFinite", "isInteger", "isNaN", "isSafeInteger", "parseFloat", "parseInt"]),
-  Array: new Set(["isArray", "from", "of"]),
-  String: new Set(["fromCharCode", "fromCodePoint", "raw"]),
-  Date: new Set(["UTC", "parse"]),
-  BigInt: new Set(["asIntN", "asUintN"]),
-}
-const PURE_GLOBAL_FNS = new Set([
-  "String",
-  "Number",
-  "Boolean",
-  "BigInt",
-  "parseInt",
-  "parseFloat",
-  "isNaN",
-  "isFinite",
-  "encodeURIComponent",
-  "decodeURIComponent",
-  "encodeURI",
-  "decodeURI",
-  "structuredClone",
-])
-const FRESH_CONSTRUCTORS = new Set([
-  "Map",
-  "Set",
-  "WeakMap",
-  "WeakSet",
-  "Array",
-  "Date",
-  "Error",
-  "TypeError",
-  "RangeError",
-  "SyntaxError",
-  "URL",
-  "RegExp",
-])
-const ARRAY_READS = new Set([
-  "at",
-  "concat",
-  "entries",
-  "every",
-  "filter",
-  "find",
-  "findIndex",
-  "findLast",
-  "findLastIndex",
-  "flat",
-  "flatMap",
-  "forEach",
-  "includes",
-  "indexOf",
-  "join",
-  "keys",
-  "lastIndexOf",
-  "map",
-  "reduce",
-  "reduceRight",
-  "slice",
-  "some",
-  "toReversed",
-  "toSorted",
-  "toSpliced",
-  "values",
-  "with",
-  "toString",
-])
-const ARRAY_WRITES = new Set(["push", "pop", "shift", "unshift", "splice", "sort", "reverse", "fill", "copyWithin"])
-/** Array methods whose result holds the receiver's elements. */
-const ARRAY_ELEMENTS = new Set([
-  "at",
-  "find",
-  "findLast",
-  "filter",
-  "slice",
-  "concat",
-  "flat",
-  "toReversed",
-  "toSorted",
-  "toSpliced",
-  "with",
-  "pop",
-  "shift",
-  "values",
-])
-const MAP_READS = new Set(["get", "has", "forEach", "entries", "keys", "values"])
-const SET_READS = new Set([
-  "has",
-  "forEach",
-  "entries",
-  "keys",
-  "values",
-  "union",
-  "intersection",
-  "difference",
-  "symmetricDifference",
-  "isSubsetOf",
-  "isSupersetOf",
-  "isDisjointFrom",
-])
-const COLLECTION_WRITES = new Set(["set", "add", "delete", "clear"])
 
 /**
  * Checks `fn`: pure, with the functions of the program it read on the way, or not, with the first reason. `assumed`
@@ -424,56 +331,18 @@ export const purityOf = (checker: ts.TypeChecker, fn: FunctionNode, assumed: (ca
         }
       }
       if (ts.isPropertyAccessExpression(callee)) {
-        const m = callee.name.text
-        const recv = callee.expression
-        if (ts.isIdentifier(recv) && isLib(checker, recv)) {
-          if (recv.text === "Math" && !MATH_IMPURE.has(m)) return
-          if (PURE_STATICS[recv.text]?.has(m)) return
-          if (recv.text === "Object" && (m === "assign" || m === "freeze")) {
-            const [target, ...sources] = e.arguments
-            if (target !== undefined) change(target, e)
-            for (const src of sources) storeSpread(src)
-            return
-          }
-          effect(`calls \`${recv.text}.${m}\`, which the check does not know to be pure`, e)
-          return
-        }
-        const t = checker.getNonNullableType(checker.getTypeAtLocation(recv))
-        if (isPrimitive(checker, t)) return
-        // A callback given to a read is called by it.
-        const callbacks = () => {
+        const c = methodCall(checker, callee, e.arguments)
+        if (c.does === "effect") effect(c.why, e)
+        else if (c.does === "call") {
+          // A callback given to a read is called by it.
           for (const a of e.arguments)
             if (checker.getNonNullableType(checker.getTypeAtLocation(a)).getCallSignatures().length > 0)
-              calledValue(a, `\`.${m}\` calls it`)
+              calledValue(a, `\`.${callee.name.text}\` calls it`)
+        } else if (c.does === "change") {
+          change(c.target, e)
+          for (const a of c.copied) storeSpread(a)
+          for (const a of c.stored) store(a)
         }
-        if (isArrayLike(checker, recv)) {
-          if (ARRAY_READS.has(m)) return callbacks()
-          if (ARRAY_WRITES.has(m)) {
-            change(recv, e)
-            const stored =
-              m === "splice"
-                ? e.arguments.slice(2)
-                : m === "push" || m === "unshift" || m === "fill"
-                  ? e.arguments.slice(0, m === "fill" ? 1 : undefined)
-                  : []
-            for (const a of stored) store(a)
-            return
-          }
-        }
-        if (isNamed(checker, recv, ["Map", "ReadonlyMap", "WeakMap"]) && MAP_READS.has(m)) return callbacks()
-        if (isNamed(checker, recv, ["Set", "ReadonlySet", "WeakSet"]) && SET_READS.has(m)) return callbacks()
-        if (isNamed(checker, recv, ["Map", "WeakMap", "Set", "WeakSet"]) && COLLECTION_WRITES.has(m)) {
-          change(recv, e)
-          for (const a of e.arguments) store(a)
-          return
-        }
-        if (isNamed(checker, recv, ["Date"]) && /^(get|to|valueOf)/.test(m)) return
-        if (isNamed(checker, recv, ["RegExp"]) && (m === "test" || m === "exec")) {
-          if (!statelessRegExp(checker, recv))
-            effect(`\`${recv.getText()}.${m}\` moves a global or sticky regular expression's \`lastIndex\``, e)
-          return
-        }
-        effect(`calls the method \`${callee.getText()}\`, which the check cannot see into`, e)
         return
       }
       if (ts.isIdentifier(callee)) {
@@ -676,20 +545,6 @@ const declarationOf = (d: ts.VariableDeclaration | ts.BindingElement): ts.Variab
 const nameOf = (f: FunctionNode): string =>
   f.name?.getText() ?? (ts.isVariableDeclaration(f.parent) ? f.parent.name.getText() : `the function at ${locate(f)}`)
 
-/** Whether `e` names a global of the TypeScript or Node libraries. */
-/** Whether `e` names something TypeScript's own library or `@types/node` declares, and nothing of the program. */
-export const isLib = (checker: ts.TypeChecker, e: ts.Node): boolean => {
-  const sym = symbolOf(checker, e)
-  const decls = sym?.declarations ?? []
-  return (
-    decls.length > 0 &&
-    decls.every(
-      (d) =>
-        d.getSourceFile().isDeclarationFile &&
-        /\/node_modules\/(typescript\/lib|@types\/node)\//.test(d.getSourceFile().fileName.replaceAll("\\", "/")),
-    )
-  )
-}
 const isGlobal = (checker: ts.TypeChecker, e: ts.Expression, name: string): boolean =>
   ts.isIdentifier(e) && e.text === name && isLib(checker, e)
 
@@ -707,47 +562,9 @@ const isModuleState = (checker: ts.TypeChecker, e: ts.Identifier, own: ReadonlyS
   )
 }
 
-const isPrimitive = (checker: ts.TypeChecker, t: ts.Type): boolean =>
-  membersOf(checker, t).every(
-    (m) =>
-      (m.flags &
-        (ts.TypeFlags.StringLike |
-          ts.TypeFlags.NumberLike |
-          ts.TypeFlags.BooleanLike |
-          ts.TypeFlags.BigIntLike |
-          ts.TypeFlags.EnumLike |
-          ts.TypeFlags.ESSymbolLike |
-          ts.TypeFlags.Never)) !==
-      0,
-  )
-
-/** A type's members, null and undefined dropped. */
-const membersOf = (checker: ts.TypeChecker, t: ts.Type): Array<ts.Type> => {
-  const nn = checker.getNonNullableType(t)
-  return nn.isUnion() ? nn.types : [nn]
-}
-
 /** An array's or a tuple's element types; `undefined` for any other type. */
 const elementsOf = (checker: ts.TypeChecker, t: ts.Type): ReadonlyArray<ts.Type> | undefined =>
   checker.isArrayType(t) || checker.isTupleType(t) ? checker.getTypeArguments(t as ts.TypeReference) : undefined
-
-const isArrayLike = (checker: ts.TypeChecker, e: ts.Expression): boolean =>
-  membersOf(checker, checker.getTypeAtLocation(e)).every((m) => checker.isArrayType(m) || checker.isTupleType(m))
-
-const isNamed = (checker: ts.TypeChecker, e: ts.Expression, names: ReadonlyArray<string>): boolean =>
-  membersOf(checker, checker.getTypeAtLocation(e)).every((m) => names.includes(m.getSymbol()?.name ?? ""))
-
-/** A regular expression without the `g` or `y` flag, written in place or held by a constant: `test` and `exec` leave it as it was. */
-const statelessRegExp = (checker: ts.TypeChecker, e: ts.Expression): boolean => {
-  let x: ts.Node = e
-  if (ts.isIdentifier(x)) {
-    const d = symbolOf(checker, x)?.valueDeclaration
-    if (d === undefined || !ts.isVariableDeclaration(d) || (d.parent.flags & ts.NodeFlags.Const) === 0 || d.initializer === undefined)
-      return false
-    x = d.initializer
-  }
-  return ts.isRegularExpressionLiteral(x) && !/[gy]/.test(x.text.slice(x.text.lastIndexOf("/") + 1))
-}
 
 /** Every object type a value of `types` can hold, itself included, to a depth of six. */
 const reachable = (checker: ts.TypeChecker, types: ReadonlySet<ts.Type>): Set<ts.Type> => {
