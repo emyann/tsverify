@@ -56,7 +56,8 @@ A counterexample's `where names.get gave ""` is the part of w the model chose.
 | `examples/` | the worked examples: a charge written against its spec, an order's status, an account's ledger and a withdrawal, a program calling lodash |
 | `src/project.ts` | the program (a file's text can be replaced or added in memory), diagnostics, a contract read from source |
 | `src/symbolic.ts` | any value of a TypeScript type, built lazily: a field becomes an unknown only when read |
-| `src/lower.ts` | pure TypeScript to symbolic values, with JavaScript's semantics, and the branch each runs on, which a division's obligation holds on |
+| `src/lower.ts` | pure TypeScript to symbolic values, with JavaScript's semantics, and the branch each runs on, which a division's obligation holds on: the state of a lowering, names, members, conditions, operators and the dispatch of calls |
+| `src/lower/` | the rest of the lowering, a file to what it reads: `patterns`, `closures` (and the check of a closure kept for later), `calls`, `library` (`Math`, `Number`, `Object`, `Date`), `numbers`, `strings`, `arrays`, `records` |
 | `src/resolve.ts` | what a name refers to: its symbol, through an import or a shorthand property, and the function a declaration holds |
 | `src/exec.ts` | statements: state, places and ownership, loops through their invariants, and the obligations of the proof code and of each division |
 | `src/ops.ts` | truthiness, `===`, `<`, `??` and conditional values, exactly as JavaScript defines them |

@@ -7,7 +7,8 @@
 // key and value at `[]`, which a counterexample reads back as a `Map` or a `Set` (`concrete.ts`).
 import type ts from "typescript"
 import type { Arith, Bool } from "z3-solver"
-import { firstIndex, type Lowering } from "./lower.ts"
+import { firstIndex } from "./lower/arrays.ts"
+import { type Lowering } from "./lower.ts"
 import { strictEq } from "./ops.ts"
 import { NUM, Unsupported, type Val, jsString, lazyRecord } from "./value.ts"
 
@@ -30,7 +31,8 @@ const sameKey = (L: Lowering, a: Val, b: Val, at: ts.Node): Bool => {
 
 /**
  * A dictionary the code is given, `Record<string, T>`: the array of its own entries, a key's the first that holds it.
- * Its reads go through `entries` (`dictionaryRead` in `lower.ts`), and a counterexample reads it back as a plain object.
+ * Its reads go through `entries` (`dictionaryRead` in `lower/records.ts`), and a counterexample reads it back as a plain
+ * object.
  * Where the code lists its keys (`Object.keys`), they are distinct and in the order JavaScript lists an object's: the
  * names of array positions first, by number, then the rest as they were written.
  */

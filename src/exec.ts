@@ -31,17 +31,8 @@ import ts from "typescript"
 import type { Arith, Bool } from "z3-solver"
 import {
   type Lowering,
-  arithmetic,
-  asNumber,
-  atIndex,
   cond as condOf,
-  defaulted,
   exactSpec,
-  patternElement,
-  patternRest,
-  exactly,
-  firstIndex,
-  indexOf,
   inSpec,
   later,
   lowerCall,
@@ -49,10 +40,12 @@ import {
   shownPresent,
   member,
   onBranch,
-  patternKeys,
-  restOf,
   under,
 } from "./lower.ts"
+import { arithmetic, asNumber, exactly } from "./lower/numbers.ts"
+import { atIndex, indexOf } from "./lower/strings.ts"
+import { defaulted, patternElement, patternRest, patternKeys, restOf } from "./lower/patterns.ts"
+import { firstIndex } from "./lower/arrays.ts"
 import { countAsNum, isNullish, isWhole, ite, nullishOr, strictEq, truthy } from "./ops.ts"
 import { CONTRACT_MODULE, declared, functionOf, ownModule } from "./project.ts"
 import { functionIn, inProgram, symbolOf, unwrap } from "./resolve.ts"

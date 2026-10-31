@@ -28,10 +28,10 @@ import {
   lowering,
   member,
   num,
-  slice,
   type Trust,
   trustOf,
 } from "./lower.ts"
+import { slice } from "./lower/arrays.ts"
 import { strictEq, truthy } from "./ops.ts"
 import { type ContractSource, type Project, readContract } from "./project.ts"
 import { unwrap } from "./resolve.ts"
