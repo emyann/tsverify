@@ -2,7 +2,8 @@
 // `Object.hasOwn` of it; a record read at a key its type holds to a few names; a value that is a boolean or a name,
 // told apart by `typeof`; `trim`, `Boolean(x)`; a field read once a check has shown its object present; a value
 // written before a search and first read inside it; and the same search made twice, by the code and by a law, with a
-// function declared pure called on what it found. `test/records.test.ts` asks each.
+// function declared pure called on what it found; a dictionary's keys and entries (`Object.keys`, `Object.entries`),
+// each key once, and a literal's in the order JavaScript gives them. `test/records.test.ts` asks each.
 import { assume, contract } from "../src/contract.ts"
 
 export type Steps = Readonly<Record<string, { readonly taskId: string | null }>>
@@ -154,5 +155,51 @@ export const quotedAtItsPrice = contract(quote, {
       const job = jobs.find((j) => j.id === id)
       return job === undefined ? out === 0 : Object.is(out, priceOf(job, weigh ?? (() => 1)))
     },
+  },
+})
+
+/** The names of a dictionary: each its own key, none twice, and array positions first. */
+export function namesOf(steps: Steps): ReadonlyArray<string> {
+  return Object.keys(steps)
+}
+
+export const namesOfItsOwn = contract(namesOf, {
+  ensures: {
+    itsOwn: (steps, out) => out.every((k) => Object.hasOwn(steps, k)),
+    eachOnce: (_steps, out) => out.every((k, i) => out.every((j, m) => m === i || j !== k)),
+    /** An array position comes first, ascending: none is less than "0". */
+    zeroFirst: (_steps, out) => out.every((k, i) => k !== "0" || i === 0),
+  },
+})
+
+/** The steps filed, by name: an entry's key beside its value. */
+export function filedSteps(steps: Steps): ReadonlyArray<string> {
+  return Object.entries(steps)
+    .filter(([, s]) => s.taskId !== null)
+    .map(([name]) => name)
+}
+
+export const filedStepsAreFiled = contract(filedSteps, {
+  ensures: { filed: (steps, out) => out.every((n) => Object.hasOwn(steps, n) && steps[n]?.taskId !== null) },
+})
+
+/** A literal's keys and values: positions first, ascending, then names as they were written. */
+export function written(): ReadonlyArray<string> {
+  const o = { b: "w", 2: "x", a: "y", 1: "z" }
+  return [...Object.keys(o), ...Object.values(o)]
+}
+
+export const writtenInOrder = contract(written, {
+  ensures: {
+    keysThenValues: (out) =>
+      out.length === 8 &&
+      out[0] === "1" &&
+      out[1] === "2" &&
+      out[2] === "b" &&
+      out[3] === "a" &&
+      out[4] === "z" &&
+      out[5] === "x" &&
+      out[6] === "w" &&
+      out[7] === "y",
   },
 })

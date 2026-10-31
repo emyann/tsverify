@@ -9,7 +9,7 @@ import type ts from "typescript"
 import type { Arith, Bool } from "z3-solver"
 import { firstIndex, type Lowering } from "./lower.ts"
 import { strictEq } from "./ops.ts"
-import { NUM, Unsupported, type Val, lazyRecord } from "./value.ts"
+import { NUM, Unsupported, type Val, jsString, lazyRecord } from "./value.ts"
 
 export interface Entries {
   readonly length: Arith
@@ -31,15 +31,56 @@ const sameKey = (L: Lowering, a: Val, b: Val, at: ts.Node): Bool => {
 /**
  * A dictionary the code is given, `Record<string, T>`: the array of its own entries, a key's the first that holds it.
  * Its reads go through `entries` (`dictionaryRead` in `lower.ts`), and a counterexample reads it back as a plain object.
+ * Where the code lists its keys (`Object.keys`), they are distinct and in the order JavaScript lists an object's: the
+ * names of array positions first, by number, then the rest as they were written.
  */
-export const dictionaryOf = (L: Lowering, entries: Entries & { readonly value: (i: Arith) => Val }, at: ts.Node, id?: string): Val => {
+export const dictionaryOf = (
+  L: Lowering,
+  entries: Entries & { readonly value: (i: Arith) => Val },
+  indices: ReadonlyArray<Arith>,
+  id?: string,
+): Val => {
+  const { u } = L
+  const z3 = u.z3
   const searched = { kind: "array" as const, length: entries.length, elem: entries.key }
-  const own = (key: Val, call: unknown): { readonly found: Bool; readonly value: Val } => {
+  const entryOf = (key: Val, call: unknown): { readonly found: Bool; readonly value: Val } => {
     const node = call as ts.Node
     const { found, k } = firstIndex(L, searched, (i) => sameKey(L, entries.key(i), key, node))
     return { found, value: entries.value(k) }
   }
-  return lazyRecord(() => undefined, id, undefined, undefined, undefined, own)
+  let listed = false
+  const own = () => {
+    if (!listed) {
+      listed = true
+      const i = z3.Int.const(u.fresh("own.i"))
+      const j = z3.Int.const(u.fresh("own.j"))
+      const ki = entries.key(i)
+      const kj = entries.key(j)
+      if (ki.kind !== "str" || kj.kind !== "str") throw new Unsupported("the keys of a record keyed by other than strings", undefined)
+      const digit = z3.Range(jsString(z3, "0"), jsString(z3, "9"))
+      const position = z3.Union(z3.Re.toRe(jsString(z3, "0")), z3.ReConcat(z3.Range(jsString(z3, "1"), jsString(z3, "9")), z3.Star(digit)))
+      // Its number at least 0 as well, which the digits already say, said outright for the solver.
+      const isPosition = (s: typeof ki.term) => z3.And(z3.InRe(s, position), s.toInt().ge(0), s.toInt().lt(4294967295))
+      u.assume(
+        z3.ForAll(
+          [i, j],
+          z3.Implies(
+            z3.And(i.ge(0), i.lt(j), j.lt(entries.length)),
+            z3.And(
+              z3.Not(ki.term.eq(kj.term)),
+              z3.Implies(isPosition(kj.term), z3.And(isPosition(ki.term), ki.term.toInt().lt(kj.term.toInt()))),
+            ),
+          ),
+        ),
+        indices,
+      )
+    }
+    return {
+      keys: { kind: "array" as const, length: entries.length, elem: entries.key },
+      values: { kind: "array" as const, length: entries.length, elem: entries.value },
+    }
+  }
+  return { ...lazyRecord(() => undefined, id, undefined, undefined, undefined, entryOf), own } as Val
 }
 
 export const collectionOf = (L: Lowering, kind: "Map" | "Set", entries: Entries, at: ts.Node, id?: string): Val => {

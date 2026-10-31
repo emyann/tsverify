@@ -309,7 +309,7 @@ const present = (
     u.assume(z3.And(length.ge(0), length.le(u.bound ?? MAX_LENGTH)), indices)
     const keys = memoElems((i) => symbolicOf(t, checker.getStringType(), [...segments, "[]", "{key}"], [...indices, i], at))
     const values = memoElems((i) => symbolicOf(t, keyedBy.type, [...segments, "[]", "{value}"], [...indices, i], at))
-    return dictionaryOf(t, { length, key: keys, value: values }, at, id)
+    return dictionaryOf(t, { length, key: keys, value: values }, indices, id)
   }
   const collection = libCollection(type)
   if (collection !== undefined) return givenCollection(t, collection, type, segments, indices, at, id)

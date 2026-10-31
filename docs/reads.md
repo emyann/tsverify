@@ -15,7 +15,8 @@ part as a harmless one.
   code's and the caller's, but for one with an optional or a rest element;
 - functions and closures, and computations (async functions, Effect programs); a function the code is given, as some
   function that changes nothing, each call some value of its return type, on which a counterexample leans;
-- a dictionary the code is given, `Record<string, T>`, read at any key (*Dictionaries*, below);
+- a dictionary the code is given, `Record<string, T>`, read at any key, and its keys, values and entries
+  (*Dictionaries*, below);
 - values of more than one primitive kind (`boolean | "strict"`), each the kind it is, `typeof` telling them apart
   (*Narrowing*, below);
 - a `Date` the code is given, read through `getTime()` and `valueOf()`: `NaN` or a whole number of milliseconds within
@@ -33,6 +34,8 @@ part as a harmless one.
   `Number.isSafeInteger`, `Number.isFinite`, `Number.isNaN`, and `Object.is`, which tells `-0` from `0`; `Date.parse`,
   as some function of its string;
 - `typeof x`, and `Boolean(x)`, the truth a condition reads;
+- `Object.keys`, `Object.values` and `Object.entries` of a dictionary the code is given and of an object literal it
+  wrote, in the order JavaScript lists them (*Dictionaries*, below);
 - `"key" in obj`, of a key written as a string (*Narrowing*, below), and of any key of a dictionary;
 - a record read at a key its type holds to a few names (`WORDS[phase]`, `phase: "waiting" | "running"`), as the field
   of the name it is;
@@ -150,7 +153,11 @@ type says it may be missing (`noUncheckedIndexedAccess`) or where a check the co
 entry for `k` and `k` is a name `Object.prototype` holds (`"toString"`, `"constructor"`), JavaScript finds that member,
 a function: that the key is `d`'s own or none of those is an obligation, listed under `keys read:`
 ([Verdicts](verdicts.md)). `k in d` holds of an own key and of those names, `Object.hasOwn(d, k)` of an own key alone.
-Its keys, values and entries (`Object.keys`) are refused.
+`Object.keys(d)`, `Object.values(d)` and `Object.entries(d)` list its entries as JavaScript does: each key once, the
+names of array positions (`"0"`, `"12"`) first, by number, then the rest. Of an object literal the code wrote, without
+a spread, they are its keys and values in that same order, a key written as a number (`1: "z"`) being the name
+JavaScript gives it (`0x10` is `"16"`). Of a record the code is given whose type names its fields they are refused: it
+may hold keys its type does not name.
 
 ### Narrowing
 
@@ -185,7 +192,7 @@ Each refusal names the place, `file:line:column`, and the reason.
 | a bigint `/` or `%` by a value the code computes, inside a callback of `.some`, `.every`, `.find`, `.filter`, `.map` or `.flatMap` | which elements it runs on is not modeled | the division in a `for…of` over the elements, or outside the callback; a literal divisor (`x % 2n`) is read anywhere |
 | `==`, `!=` | not modeled | `===`, `!==`, and `x === null \|\| x === undefined` for a nullish check |
 | a `let` of the module, a global (`Date`, `Math.sqrt`, `JSON`) | a binding the verifier cannot see | a `const` or an argument, or a function declared with `assume` |
-| a string's other methods (`split`, `replace`, `toUpperCase`, `trim`), its spread `[...s]`, `indexOf(t, from)` | not modeled | the methods it reads, or a function declared with `assume` |
+| a string's other methods (`split`, `replace`, `toUpperCase`), its spread `[...s]`, `indexOf(t, from)` | not modeled | the methods it reads, or a function declared with `assume` |
 | `Object.is` of an object | it compares identity, which is not modeled | a field of each |
 | `xs[i]` on an array, without `noUncheckedIndexedAccess` | its type says the element is there, which may be false | `noUncheckedIndexedAccess` turned on, or `xs.at(i)`, whose type says it may be missing |
 | `.includes(x)` of a `number` | it finds `NaN`, which `===` does not | `.some((y) => y === x)` |

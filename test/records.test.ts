@@ -36,6 +36,9 @@ checkFixture(
       [[job("a", 1), job("b", 2)], "b", (j: fixture.Job) => j.size],
       [[], "a", undefined],
     ],
+    namesOfItsOwn: [[{}], [{ b: { taskId: null }, 0: { taskId: "t" } }]],
+    filedStepsAreFiled: [[{}], [{ a: { taskId: null }, b: { taskId: "t" } }]],
+    writtenInOrder: [[]],
   },
   [
     {
@@ -71,6 +74,24 @@ checkFixture(
       what: "the first job's price",
       change: ["priceOf(job, weigh)", "priceOf(jobs[0] ?? job, weigh)"],
       contract: "quotedAtItsPrice",
+    },
+    {
+      id: "R10",
+      what: "each name twice",
+      change: ["return Object.keys(steps)", "return [...Object.keys(steps), ...Object.keys(steps)]"],
+      contract: "namesOfItsOwn",
+    },
+    {
+      id: "R11",
+      what: "an unfiled step kept",
+      change: [".filter(([, s]) => s.taskId !== null)", '.filter(([, s]) => s.taskId !== "")'],
+      contract: "filedStepsAreFiled",
+    },
+    {
+      id: "R12",
+      what: "names read in the order written",
+      change: ['{ b: "w", 2: "x", a: "y", 1: "z" }', '{ a: "y", 2: "x", b: "w", 1: "z" }'],
+      contract: "writtenInOrder",
     },
   ],
 )

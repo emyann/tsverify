@@ -535,6 +535,8 @@ export const bind = (L: Lowering, name: ts.BindingName, value: Thunk, scope: Map
 
 export const propertyKey = (name: ts.PropertyName): string => {
   if (ts.isIdentifier(name) || ts.isStringLiteral(name) || ts.isNoSubstitutionTemplateLiteral(name)) return name.text
+  // A number names the key JavaScript writes it as: `0x10` is "16", `1.50` is "1.5".
+  if (ts.isNumericLiteral(name)) return String(Number(name.text.replaceAll("_", "")))
   throw new Unsupported("a computed property name is not modeled", name)
 }
 
@@ -1185,6 +1187,22 @@ const standard = (L: Lowering, callee: ts.PropertyAccessExpression): Val | undef
           "`Date.parse` is read as some function of its string: the same string gives the same time, `NaN` or a whole number of milliseconds; which time, the verifier does not compute.",
         )
         return { kind: "num", cls, real: z3.ToReal(ms), whole: z3.Bool.val(true), int: ms }
+      })
+    case "Object.keys":
+      return one((v, at) => ownOf(L, v, name, at).keys)
+    case "Object.values":
+      return one((v, at) => ownOf(L, v, name, at).values)
+    case "Object.entries":
+      return one((v, at) => {
+        const { keys, values } = ownOf(L, v, name, at)
+        if (keys.kind !== "array" || values.kind !== "array") throw new Unsupported(`\`${name}\` of a value whose keys are not a list`, at)
+        return {
+          kind: "array",
+          length: keys.length,
+          elem: memoElems((i) => tupleOf(L, [() => keys.elem(i), () => values.elem(i)], () => UNDEFINED, at)),
+          ...(keys.maxSize === undefined ? {} : { maxSize: keys.maxSize }),
+          ...(keys.size === undefined ? {} : { size: keys.size }),
+        }
       })
     case "Object.hasOwn":
       return {
@@ -2626,13 +2644,72 @@ const objectLiteral = (L: Lowering, e: ts.ObjectLiteralExpression, env: Env): Va
     resolved.set(name, r)
     return r
   }
-  return lazyRecord(
+  const record = lazyRecord(
     (name) => {
       const r = resolve(name)
       return z3.isFalse(r.has) ? undefined : (r.value ?? UNDEFINED)
     },
     undefined,
     (name) => resolve(name).has,
+  )
+  if (parts.some((p) => "spread" in p)) return record
+  // Its own keys are the ones written, in the order JavaScript lists them: array positions first, by number.
+  const written = [...new Set(parts.map((p) => ("key" in p ? p.key : "")))]
+  const position = (k: string) => /^(0|[1-9]\d*)$/.test(k) && Number(k) < 4294967295
+  const names = [...written.filter(position).sort((a, b) => Number(a) - Number(b)), ...written.filter((k) => !position(k))]
+  const own = () => ({
+    keys: tupleOf(
+      L,
+      names.map((n) => (): Val => ({ kind: "str", term: jsString(z3, n) })),
+      () => ({ kind: "str", term: u.leaf([u.fresh("beyond"), "$"], "str", u.openBounds()) as never }),
+      e,
+    ),
+    values: tupleOf(
+      L,
+      names.map((n) => () => resolve(n).value ?? UNDEFINED),
+      () => (names.length === 0 ? UNDEFINED : (resolve(names.at(-1)!).value ?? UNDEFINED)),
+      e,
+    ),
+  })
+  return { ...record, own } as Val
+}
+
+/** A list of values the code wrote, as an array literal holds them; past its end, `past` (read on no run that happens). */
+const tupleOf = (L: Lowering, items: ReadonlyArray<() => Val>, past: (i: Arith) => Val, at: ts.Node): Val => {
+  const z3 = L.u.z3
+  return {
+    kind: "array",
+    length: z3.Int.val(items.length),
+    size: items.length,
+    maxSize: items.length,
+    elem: memoElems((i) => {
+      if (z3.isIntVal(i)) {
+        const k = Number(i.value())
+        return k >= 0 && k < items.length ? items[k]!() : past(i)
+      }
+      let v = past(i)
+      for (let k = items.length - 1; k >= 0; k--) v = ite(L.u, i.eq(k), items[k]!(), v, at)
+      return v
+    }),
+  }
+}
+
+/**
+ * What `Object.keys`, `Object.values` and `Object.entries` read: the value's own keys and their values, in
+ * JavaScript's order. Known of an object the code built with no spread, of a dictionary it is given, and of either of
+ * two such on two paths; of anything else refused, since a value may hold more keys than its type says, in any order.
+ */
+const ownOf = (L: Lowering, v: Val, name: string, at: ts.Node): { readonly keys: Val; readonly values: Val } => {
+  if (v.kind !== "record") throw new Unsupported(`\`${name}\` of a ${v.kind}`, at)
+  if (v.own !== undefined) return v.own()
+  if (v.split !== undefined) {
+    const a = ownOf(L, v.split.a, name, at)
+    const b = ownOf(L, v.split.b, name, at)
+    return { keys: ite(L.u, v.split.cond, a.keys, b.keys, at), values: ite(L.u, v.split.cond, a.values, b.values, at) }
+  }
+  throw new Unsupported(
+    `\`${name}\` of a value whose keys the verifier does not know: one the code is given may hold more than its type says, in any order; of a dictionary (\`Record<string, T>\`) or an object the code built they are read`,
+    at,
   )
 }
 

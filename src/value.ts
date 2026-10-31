@@ -103,6 +103,11 @@ export type Val =
        * value its entry holds there. A key it does not hold reads as `undefined`, or as `Object.prototype`'s member.
        */
       readonly entries?: (key: Val, at: unknown) => { readonly found: Bool; readonly value: Val }
+      /**
+       * Its own keys, in the order JavaScript lists them (`Object.keys`), and their values: of an object the code built
+       * with no spread, and of a dictionary it is given. Of anything else they are not known.
+       */
+      readonly own?: () => { readonly keys: Val; readonly values: Val }
     }
   /**
    * An array: its length, and its element at an index (built on demand; may refuse). `size` is its length when
