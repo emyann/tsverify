@@ -7,7 +7,7 @@
 export type Truth = "valid" | "invalid"
 /**
  * What tsverify gives today in place of a verdict: refused (not read), or read and not judged, `bounded` or `unknown`,
- * which of the two depending on whether the solver ran out of time, and so held as one.
+ * which of the two depending on whether the solver ran out of work, and so held as one.
  */
 export type Gap = "refused" | "bounded" | "unknown"
 

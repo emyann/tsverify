@@ -115,7 +115,7 @@ const judged = async (
       else if (r === undefined || lawHolds(contract, law, args, r.out))
         wrong.push(`false alarm: ${law} refuted at ${show(args)}, where running it does not break it`)
     } else if (GAP[status] === undefined) wrong.push(`${law}: ${status}${result?.reason === undefined ? "" : `, ${result.reason}`}`)
-    // Read and not judged is one gap, whether the solver ran out of time (`unknown`) or not (`bounded`).
+    // Read and not judged is one gap, whether the solver ran out of work (`unknown`) or not (`bounded`).
     const unjudged = (g: Gap | undefined) => (g === "bounded" || g === "unknown" ? "unjudged" : g)
     if (gap !== undefined && unjudged(GAP[status]) !== unjudged(gap))
       wrong.push(`${law}: the case says ${gap}, tsverify says ${status}: update the case`)
