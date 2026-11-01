@@ -94,11 +94,11 @@ const running = async <A, E>(
   return { out: result._tag === "Success" ? { _tag: "Success", value: result.success } : { _tag: "Failure", error: result.failure }, calls }
 }
 
-// `any`: each contract's laws take its own arguments, and a run passes them back as they came.
-type Laws = Readonly<Record<string, (...a: any[]) => boolean>>
+// `any`: each contract's laws take a run of its own arguments, and a run passes them back as they came.
+type Laws = Readonly<Record<string, (run: any) => boolean>>
 const broken = (laws: Laws, args: ReadonlyArray<unknown>, ran: { out: Out; calls: Array<Call> }) =>
   Object.entries(laws)
-    .filter(([, law]) => !law(...args, ran.out, ran.calls))
+    .filter(([, law]) => !law({ input: args, output: ran.out, calls: ran.calls }))
     .map(([l]) => l)
 
 it("the laws hold when the programs run", async () => {

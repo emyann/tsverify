@@ -79,17 +79,17 @@ const FILES = {
   "grade.ts":
     `import { contract } from "@emyann/tsverify"\n\n` +
     `export const grade = (x: bigint): "low" | "high" => (x < 50n ? "low" : "high")\n\n` +
-    `export const gradeIsLowBelowFifty = contract(grade, { ensures: { low: (x, out) => x >= 50n || out === "low" } })\n`,
+    `export const gradeIsLowBelowFifty = contract(grade, { ensures: { low: ({ input: [x], output }) => x >= 50n || output === "low" } })\n`,
   "score.contract.ts":
     `import { spec } from "@emyann/tsverify"\n\n` +
-    `const scoreSpec = spec<(x: bigint) => bigint>({ ensures: { inRange: (_x, out) => out >= 0n && out <= 100n } })\n` +
+    `const scoreSpec = spec<(x: bigint) => bigint>({ ensures: { inRange: ({ output }) => output >= 0n && output <= 100n } })\n` +
     `export type ScoreSpec = typeof scoreSpec\n`,
   "score.ts":
     `import type { Implementation } from "@emyann/tsverify"\nimport { clamp } from "./math.ts"\nimport type { ScoreSpec } from "./score.contract.ts"\n\n` +
     `export const score: Implementation<ScoreSpec> = (x) => clamp(x, 0n, 100n)\n`,
   "even.contract.ts":
     `import { spec } from "@emyann/tsverify"\n\n` +
-    `const evenSpec = spec<(x: bigint) => bigint>({ ensures: { even: (_x, out) => out % 2n === 0n } })\n` +
+    `const evenSpec = spec<(x: bigint) => bigint>({ ensures: { even: ({ output }) => output % 2n === 0n } })\n` +
     `export type EvenSpec = typeof evenSpec\n`,
   "even.ts":
     `import type { Implementation } from "@emyann/tsverify"\nimport type { EvenSpec } from "./even.contract.ts"\n\n` +

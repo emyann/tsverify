@@ -41,7 +41,7 @@ const project = (files: Readonly<Record<string, string>>): string => {
 }
 const clamp = (body: string) =>
   `import { contract } from "@emyann/tsverify"\n\nexport const clamp = (n: bigint): bigint => ${body}\n\n` +
-  `export const clampNeverNegative = contract(clamp, { ensures: { notNegative: (_n, out) => out >= 0n } })\n`
+  `export const clampNeverNegative = contract(clamp, { ensures: { notNegative: ({ output }) => output >= 0n } })\n`
 
 it("verifies every contract under a folder, and exits 1 on a vacuous law", () => {
   const r = cli("fixtures/vacuous")

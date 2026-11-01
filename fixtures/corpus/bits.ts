@@ -10,31 +10,31 @@ export function absAddXor(v: number): number {
   return (v + m) ^ m
 }
 export const branchlessAbs = contract(absAddXor, {
-  requires: (v) => v === (v | 0),
-  ensures: { isAbs: (v, out) => out === (v > 0 ? v : -v) },
+  requires: ({ input: [v] }) => v === (v | 0),
+  ensures: { isAbs: ({ input: [v], output }) => output === (v > 0 ? v : -v) },
 })
 // bv-pow2
 export function isPow2(x: number): boolean {
   return x !== 0 && (x & (x - 1)) === 0
 }
 export const powerOfTwoIsPositive = contract(isPow2, {
-  requires: (x) => x === (x | 0),
-  ensures: { positive: (x, out) => !out || x > 0 },
+  requires: ({ input: [x] }) => x === (x | 0),
+  ensures: { positive: ({ input: [x], output }) => !output || x > 0 },
 })
 // js-ushr
 export function toU32(x: number): number {
   return x >>> 0
 }
 export const unsignedShift = contract(toU32, {
-  ensures: { inRange: (_x, out) => out >= 0 && out <= 4294967295, sameAsI32: (x, out) => out === (x | 0) },
+  ensures: { inRange: ({ output }) => output >= 0 && output <= 4294967295, sameAsI32: ({ input: [x], output }) => output === (x | 0) },
 })
 // vf-bloch-midpoint, as JavaScript writes it.
 export function midpoint(lo: number, hi: number): number {
   return (lo + hi) >>> 1
 }
 export const midpointInRange = contract(midpoint, {
-  requires: (lo, hi) => Number.isInteger(lo) && Number.isInteger(hi) && 0 <= lo && lo <= hi && hi <= 2 ** 32 - 2,
-  ensures: { between: (lo, hi, out) => lo <= out && out <= hi },
+  requires: ({ input: [lo, hi] }) => Number.isInteger(lo) && Number.isInteger(hi) && 0 <= lo && lo <= hi && hi <= 2 ** 32 - 2,
+  ensures: { between: ({ input: [lo, hi], output }) => lo <= output && output <= hi },
 })
 
 // --- In `bigint`, C's wrap-around written out.
@@ -49,36 +49,36 @@ export function add32(a: bigint, b: bigint) {
   return { s, overflow: b >= 0n ? s < a : s > a }
 }
 export const signedAddition = contract(add32, {
-  requires: (a, b) => isI32(a) && isI32(b),
-  ensures: { noWrap: (a, b, out) => out.s === a + b, detects: (a, b, out) => out.overflow === (out.s !== a + b) },
+  requires: ({ input: [a, b] }) => isI32(a) && isI32(b),
+  ensures: { noWrap: ({ input: [a, b], output }) => output.s === a + b, detects: ({ input: [a, b], output }) => output.overflow === (output.s !== a + b) },
 })
 // ssbe-mul1024-overflow: `a * 1024` before `malloc`.
 export function times1024(a: bigint): bigint {
   return i32(a * 1024n)
 }
-export const mul1024Unchecked = contract(times1024, { requires: (a) => isI32(a), ensures: { noOverflow: (a, out) => out === a * 1024n } })
+export const mul1024Unchecked = contract(times1024, { requires: ({ input: [a] }) => isI32(a), ensures: { noOverflow: ({ input: [a], output }) => output === a * 1024n } })
 export const mul1024BelowHundred = contract(times1024, {
-  requires: (a) => isI32(a) && a < 100n,
-  ensures: { noOverflow: (a, out) => out === a * 1024n },
+  requires: ({ input: [a] }) => isI32(a) && a < 100n,
+  ensures: { noOverflow: ({ input: [a], output }) => output === a * 1024n },
 })
 export const mul1024PositiveBelowHundred = contract(times1024, {
-  requires: (a) => isI32(a) && a > 0n && a < 100n,
-  ensures: { noOverflow: (a, out) => out === a * 1024n },
+  requires: ({ input: [a] }) => isI32(a) && a > 0n && a < 100n,
+  ensures: { noOverflow: ({ input: [a], output }) => output === a * 1024n },
 })
 // vf-bloch-midpoint: Java's `(low + high) / 2`, and its fix.
 export function midJava(lo: bigint, hi: bigint): bigint {
   return i32(lo + hi) / 2n
 }
 export const javaMidpoint = contract(midJava, {
-  requires: (lo, hi) => 0n <= lo && lo <= hi && hi <= 2147483647n,
-  ensures: { between: (lo, hi, out) => lo <= out && out <= hi },
+  requires: ({ input: [lo, hi] }) => 0n <= lo && lo <= hi && hi <= 2147483647n,
+  ensures: { between: ({ input: [lo, hi], output }) => lo <= output && output <= hi },
 })
 export function midFixed(lo: bigint, hi: bigint): bigint {
   return i32(lo + i32(hi - lo) / 2n)
 }
 export const fixedMidpoint = contract(midFixed, {
-  requires: (lo, hi) => 0n <= lo && lo <= hi && hi <= 2147483647n,
-  ensures: { between: (lo, hi, out) => lo <= out && out <= hi },
+  requires: ({ input: [lo, hi] }) => 0n <= lo && lo <= hi && hi <= 2147483647n,
+  ensures: { between: ({ input: [lo, hi], output }) => lo <= output && output <= hi },
 })
 // vf-verus-octuple: on `i8`, right only for -16 <= x < 16.
 const I8 = 256n
@@ -88,15 +88,15 @@ export function octuple(x: bigint): bigint {
   const x4 = i8(x2 + x2)
   return i8(x4 + x4)
 }
-export const octupleInRange = contract(octuple, { requires: (x) => -16n <= x && x < 16n, ensures: { eightTimes: (x, out) => out === 8n * x } })
-export const octupleWider = contract(octuple, { requires: (x) => -64n <= x && x < 64n, ensures: { eightTimes: (x, out) => out === 8n * x } })
+export const octupleInRange = contract(octuple, { requires: ({ input: [x] }) => -16n <= x && x < 16n, ensures: { eightTimes: ({ input: [x], output }) => output === 8n * x } })
+export const octupleWider = contract(octuple, { requires: ({ input: [x] }) => -64n <= x && x < 64n, ensures: { eightTimes: ({ input: [x], output }) => output === 8n * x } })
 // pz3-bmc-counter: a 4-bit counter stepping by 3 reaches 10; unbounded, it never does.
 export function counter4(n: bigint): bigint {
   let x = 0n
   for (let i = 0n; i < n; i = i + 1n) x = (x + 3n) % 16n
   return x
 }
-export const fourBitCounter = contract(counter4, { requires: (n) => n >= 0n, ensures: { never10: (_n, out) => out !== 10n } })
+export const fourBitCounter = contract(counter4, { requires: ({ input: [n] }) => n >= 0n, ensures: { never10: ({ output }) => output !== 10n } })
 export function counter(n: bigint): bigint {
   let x = 0n
   for (let i = 0n; i < n; i = i + 1n) {
@@ -105,20 +105,20 @@ export function counter(n: bigint): bigint {
   }
   return x
 }
-export const unboundedCounter = contract(counter, { requires: (n) => n >= 0n, ensures: { never10: (_n, out) => out !== 10n } })
+export const unboundedCounter = contract(counter, { requires: ({ input: [n] }) => n >= 0n, ensures: { never10: ({ output }) => output !== 10n } })
 // ssbe-swap: the add/sub swap, valid on integers.
 export function swapAddSub(x: bigint, y: bigint) {
   const a = x + y
   const b = a - y
   return { x: a - b, y: b }
 }
-export const addSubSwap = contract(swapAddSub, { ensures: { swapped: (x, y, out) => out.x === y && out.y === x } })
+export const addSubSwap = contract(swapAddSub, { ensures: { swapped: ({ input: [x, y], output }) => output.x === y && output.y === x } })
 // bv-div-by-constant: dividing by 10 as a multiply by 0xCCCCCCCCCCCCCCCD and a shift by 67, on 64-bit inputs.
 export function div10(x: bigint): bigint {
   return (x * 0xcccccccccccccccdn) / 147573952589676412928n
 }
-export const divideByTen = contract(div10, { requires: (x) => 0n <= x && x < 18446744073709551616n, ensures: { isTenth: (x, out) => out === x / 10n } })
-export const divideByTenAnySize = contract(div10, { requires: (x) => 0n <= x, ensures: { isTenth: (x, out) => out === x / 10n } })
+export const divideByTen = contract(div10, { requires: ({ input: [x] }) => 0n <= x && x < 18446744073709551616n, ensures: { isTenth: ({ input: [x], output }) => output === x / 10n } })
+export const divideByTenAnySize = contract(div10, { requires: ({ input: [x] }) => 0n <= x, ensures: { isTenth: ({ input: [x], output }) => output === x / 10n } })
 // ssbe-school-equation over 32-bit words: four solutions where the integers have one.
 export function school32(c: bigint, s: bigint, t: bigint): boolean {
   return i32(c + c) === 10n && i32(i32(c * s) + s) === 12n && i32(i32(c * s) - i32(t * c)) === c
@@ -126,8 +126,8 @@ export function school32(c: bigint, s: bigint, t: bigint): boolean {
 // The circle fixed at 5, which the first equation allows (with 5 + 2^31): the products are then linear. Left free, the
 // search takes 16 s alone, and times out under a suite's load.
 export const schoolEquation32 = contract(school32, {
-  requires: (c, s, t) => c === 5n && isI32(s) && isI32(t),
-  ensures: { onlyFiveTwoOne: (c, s, t, out) => !out || (c === 5n && s === 2n && t === 1n) },
+  requires: ({ input: [c, s, t] }) => c === 5n && isI32(s) && isI32(t),
+  ensures: { onlyFiveTwoOne: ({ input: [c, s, t], output }) => !output || (c === 5n && s === 2n && t === 1n) },
 })
 
 const BIG32 = [-2147483648n, -1n, 0n, 1n, 99n, 2097152n, 1073741824n, 2147483647n]

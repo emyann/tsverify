@@ -31,9 +31,9 @@ export class Users extends Context.Service<
 >()("Users") {}
 ```
 
-The spec is `spec` from `@emyann/tsverify/effect`, over the program's type, `(...args) => Effect.Effect<A, E, R>`. Each law takes
-the arguments, the outcome (`Success` with a value of `A`, `Failure` with an error of `E`) and the calls the program made
-to the services of `R`, typed from each service's methods:
+The spec is `spec` from `@emyann/tsverify/effect`, over the program's type, `(...args) => Effect.Effect<A, E, R>`. Each law reads
+one run: `input`, the arguments, `output`, the outcome (`Success` with a value of `A`, `Failure` with an error of `E`),
+and `calls`, the calls the program made to the services of `R`, typed from each service's methods:
 
 <!-- file: src/rename.contract.ts -->
 ```ts
@@ -43,17 +43,17 @@ import type { NotFound, StoreDown, Users } from "./users.ts"
 
 const renameSpec = spec<(id: string, name: string) => Effect.Effect<void, NotFound | StoreDown, Users>>({
   ensures: {
-    readsTheUserFirst: (id, _name, _out, calls) => {
+    readsTheUserFirst: ({ input: [id], calls }) => {
       const first = calls.at(0)
       return first !== undefined && first.op === "get" && first.args[0] === id
     },
-    failsAsNotFoundWhenMissing: (id, _name, out, calls) => {
+    failsAsNotFoundWhenMissing: ({ input: [id], output, calls }) => {
       const first = calls.at(0)
       if (first === undefined || first.op !== "get" || first.outcome._tag !== "Success" || first.outcome.value !== undefined) return true
-      return out._tag === "Failure" && out.error._tag === "NotFound" && out.error.id === id && calls.length === 1
+      return output._tag === "Failure" && output.error._tag === "NotFound" && output.error.id === id && calls.length === 1
     },
-    writesTheUserItReadRenamed: (_id, name, out, calls) => {
-      if (out._tag !== "Success") return true
+    writesTheUserItReadRenamed: ({ input: [, name], output, calls }) => {
+      if (output._tag !== "Success") return true
       const read = calls.at(0)
       const write = calls.at(1)
       if (read === undefined || read.op !== "get" || read.outcome._tag !== "Success" || read.outcome.value === undefined) return false
@@ -119,14 +119,14 @@ import type { BadAmount } from "./amount.ts"
 
 const amountSpec = spec<(text: string) => Effect.Effect<bigint, BadAmount>>({
   ensures: {
-    namesTheText: (text, out) => (out._tag === "Failure" ? out.error.text === text : true),
+    namesTheText: ({ input: [text], output }) => (output._tag === "Failure" ? output.error.text === text : true),
   },
 })
 export type AmountSpec = typeof amountSpec
 
 const looseAmountSpec = spec<(text: string) => Effect.Effect<bigint, unknown>>({
   ensures: {
-    failsWithSomething: (_text, out) => (out._tag === "Failure" ? out.error !== undefined : true),
+    failsWithSomething: ({ output }) => (output._tag === "Failure" ? output.error !== undefined : true),
   },
 })
 export type LooseAmountSpec = typeof looseAmountSpec
@@ -155,7 +155,7 @@ src/amount.ts
     ✓ namesTheText  (139 ms)
   ! looseAmountOf  1 unsupported  (12 ms)
     ! failsWithSomething  (0 ms)
-      src/amount.contract.ts:14:67: `===` of a value of type `unknown` is not modeled: such a value is carried and never read; give it a type where it is made (for an error, a `catch` that builds a typed one)
+      src/amount.contract.ts:14:70: `===` of a value of type `unknown` is not modeled: such a value is carried and never read; give it a type where it is made (for an error, a `catch` that builds a typed one)
 
 ! 1 unsupported
 ✓ 1 law proved
@@ -202,7 +202,7 @@ import type { StoreDown, Users } from "./users.ts"
 
 const renameAllSpec = spec<(ids: ReadonlyArray<string>, name: string) => Effect.Effect<void, StoreDown, Users>>({
   ensures: {
-    readsBeforeWriting: (_ids, _name, _out, calls) => calls.at(0)?.op !== "put",
+    readsBeforeWriting: ({ calls }) => calls.at(0)?.op !== "put",
   },
 })
 export type RenameAllSpec = typeof renameAllSpec
@@ -286,7 +286,7 @@ import { spec } from "@emyann/tsverify/effect"
 
 const halfSpec = spec<(n: bigint) => Effect.Effect<bigint>>({
   ensures: {
-    doubledIsN: (n, out) => out._tag === "Success" && out.value * 2n === n,
+    doubledIsN: ({ input: [n], output }) => output._tag === "Success" && output.value * 2n === n,
   },
 })
 export type HalfSpec = typeof halfSpec

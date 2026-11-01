@@ -8,5 +8,5 @@ export const firstIsA = contract((xs: ReadonlyArray<string>) => xs[0] === "a", {
 export const entryIsA = contract((t: Readonly<Record<string, string>>, k: string) => t[k] === "a", { ensures: { holds: () => true } })
 export const checkedEntryIsA = contract(
   (t: Readonly<Record<string, string | undefined>>, k: string) => t[k] === "a",
-  { requires: (t, k) => Object.hasOwn(t, k), ensures: { holds: () => true } },
+  { requires: ({ input: [t, k] }) => Object.hasOwn(t, k), ensures: { holds: () => true } },
 )

@@ -280,6 +280,21 @@ export const implementedSpec = (
   return { name, ...lawsOf(checker, lawsArg) }
 }
 
+/**
+ * A law, or a `requires`, as it reads a run: one object, never the arguments in a row. A law written before 0.2 takes
+ * them so; it is refused with its rewrite.
+ */
+export const oneRun = (fn: FunctionNode, what: "law" | "requires"): FunctionNode => {
+  if (fn.parameters.length <= 1) return fn
+  const names = fn.parameters.map((p) => p.name.getText())
+  const [inputs, last] = what === "requires" ? [names, undefined] : [names.slice(0, -1), names.at(-1)]
+  const run = what === "requires" ? `{ input: [${inputs.join(", ")}] }` : `{ input: [${inputs.join(", ")}], output: ${last} }`
+  throw new Unsupported(
+    `a ${what === "law" ? "law" : "`requires`"} reads one run of the function, as one object: write \`(${names.join(", ")}) =>\` as \`(${run}) =>\`, a hole for an argument it does not read (\`[, amount]\`)${what === "law" ? ", and `calls` beside `output` for a computation's calls" : ""}`,
+    fn,
+  )
+}
+
 /** A contract's or a spec's `{ requires?, ensures: { law: pred, ... } }`, written in place. */
 const lawsOf = (checker: ts.TypeChecker, lawsArg: ts.Expression): Pick<ContractSource, "requires" | "ensures"> => {
   let requires: FunctionNode | undefined
@@ -287,7 +302,7 @@ const lawsOf = (checker: ts.TypeChecker, lawsArg: ts.Expression): Pick<ContractS
   for (const p of (unwrap(lawsArg) as ts.ObjectLiteralExpression).properties) {
     const value = ts.isPropertyAssignment(p) ? p.initializer : ts.isShorthandPropertyAssignment(p) ? p.name : undefined
     if (value === undefined || !ts.isIdentifier(p.name!)) throw new Unsupported("a contract's parts are `requires` and `ensures`", p)
-    if (p.name.text === "requires") requires = functionOf(checker, value)
+    if (p.name.text === "requires") requires = oneRun(functionOf(checker, value), "requires")
     else if (p.name.text === "ensures") {
       const laws = unwrap(value)
       if (!ts.isObjectLiteralExpression(laws)) throw new Unsupported("`ensures` is an object of named laws, written in place", p)
@@ -295,7 +310,7 @@ const lawsOf = (checker: ts.TypeChecker, lawsArg: ts.Expression): Pick<ContractS
         if (ts.isShorthandPropertyAssignment(q)) ensures.push({ name: q.name.text, ...lawOf(checker, q.name) })
         else if (ts.isPropertyAssignment(q) && (ts.isIdentifier(q.name) || ts.isStringLiteral(q.name)))
           ensures.push({ name: q.name.text, ...lawOf(checker, q.initializer) })
-        else throw new Unsupported("a law is `name: (args..., result) => boolean`, or `name: { says, holds }`", q)
+        else throw new Unsupported("a law is `name: ({ input: [args...], output }) => boolean`, or `name: { says, holds }`", q)
       }
     } else throw new Unsupported(`a contract has no part \`${p.name.text}\``, p)
   }
@@ -309,7 +324,7 @@ const lawsOf = (checker: ts.TypeChecker, lawsArg: ts.Expression): Pick<ContractS
 const lawOf = (checker: ts.TypeChecker, e: ts.Expression): { readonly law: FunctionNode; readonly says?: string } => {
   const x = unwrap(e)
   const written = ts.isObjectLiteralExpression(x) ? x : constObject(checker, x)
-  if (written === undefined) return { law: functionOf(checker, e) }
+  if (written === undefined) return { law: oneRun(functionOf(checker, e), "law") }
   let says: string | undefined
   let law: FunctionNode | undefined
   for (const p of written.properties) {
@@ -321,9 +336,10 @@ const lawOf = (checker: ts.TypeChecker, e: ts.Expression): { readonly law: Funct
       says = text.text
     } else if (name === "holds" && ts.isPropertyAssignment(p)) law = functionOf(checker, p.initializer)
     else if (name === "holds" && ts.isShorthandPropertyAssignment(p)) law = functionOf(checker, p.name)
-    else throw new Unsupported('a law written as an object is `{ says: "…", holds: (args..., result) => boolean }`', p)
+    else throw new Unsupported('a law written as an object is `{ says: "…", holds: ({ input: [args...], output }) => boolean }`', p)
   }
   if (law === undefined) throw new Unsupported("a law written as an object has its predicate in `holds`", written)
+  oneRun(law, "law")
   return says === undefined ? { law } : { law, says }
 }
 

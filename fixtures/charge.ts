@@ -19,10 +19,10 @@ export const chargeRewritten = ({ balance, amount }: ChargeInput): bigint => {
   return balance - amount
 }
 
-const requires = ({ balance, amount }: ChargeInput) => balance >= 0n && amount >= 0n
-const nonNegative = (_: ChargeInput, r: bigint) => r >= 0n
-const leavesTheRest = ({ balance, amount }: ChargeInput, r: bigint) => amount > balance || r + amount === balance
-const zeroWhenShort = ({ balance, amount }: ChargeInput, r: bigint) => amount <= balance || r === 0n
+const requires = ({ input: [{ balance, amount }] }: { readonly input: readonly [ChargeInput] }) => balance >= 0n && amount >= 0n
+const nonNegative = ({ output }: { readonly output: bigint }) => output >= 0n
+const leavesTheRest = ({ input: [{ balance, amount }], output }: { readonly input: readonly [ChargeInput]; readonly output: bigint }) => amount > balance || output + amount === balance
+const zeroWhenShort = ({ input: [{ balance, amount }], output }: { readonly input: readonly [ChargeInput]; readonly output: bigint }) => amount <= balance || output === 0n
 
 export const right = contract(charge, { requires, ensures: { nonNegative, leavesTheRest, zeroWhenShort } })
 export const zero = contract(chargeZero, { requires, ensures: { nonNegative, leavesTheRest, zeroWhenShort } })

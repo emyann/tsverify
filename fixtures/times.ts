@@ -12,13 +12,13 @@ export function secondsSince(since: string, now: Date): number {
 const stamped = (ms: number): boolean => Number.isInteger(ms) && ms >= 0 && ms <= 2 ** 52
 
 export const secondsShown = contract(secondsSince, {
-  requires: (since, now) => stamped(Date.parse(since)) && stamped(now.getTime()),
+  requires: ({ input: [since, now] }) => stamped(Date.parse(since)) && stamped(now.getTime()),
   ensures: {
-    whole: (_since, _now, out) => Number.isInteger(out),
-    noneAtOnce: (since, now, out) => now.getTime() !== Date.parse(since) || out === 0,
-    aSecondIsOne: (since, now, out) => now.getTime() - Date.parse(since) !== 1000 || out === 1,
-    halfRoundsUp: (since, now, out) => now.getTime() - Date.parse(since) !== 1500 || out === 2,
-    signed: (since, now, out) => now.getTime() >= Date.parse(since) || out <= 0,
+    whole: ({ output }) => Number.isInteger(output),
+    noneAtOnce: ({ input: [since, now], output }) => now.getTime() !== Date.parse(since) || output === 0,
+    aSecondIsOne: ({ input: [since, now], output }) => now.getTime() - Date.parse(since) !== 1000 || output === 1,
+    halfRoundsUp: ({ input: [since, now], output }) => now.getTime() - Date.parse(since) !== 1500 || output === 2,
+    signed: ({ input: [since, now], output }) => now.getTime() >= Date.parse(since) || output <= 0,
   },
 })
 
@@ -28,11 +28,11 @@ export function overdue(ranForMs: number, deadlineSeconds: number | undefined): 
 }
 
 export const overdueOnlyPastIt = contract(overdue, {
-  requires: (ranForMs, deadlineSeconds) =>
+  requires: ({ input: [ranForMs, deadlineSeconds] }) =>
     stamped(ranForMs) && (deadlineSeconds === undefined || (Number.isInteger(deadlineSeconds) && deadlineSeconds >= 0 && deadlineSeconds <= 2 ** 31)),
   ensures: {
-    neverWithout: (_ran, deadline, out) => deadline !== undefined || !out,
-    pastIt: (ran, deadline, out) => deadline === undefined || out === ran > deadline * 1000,
+    neverWithout: ({ input: [, deadline], output }) => deadline !== undefined || !output,
+    pastIt: ({ input: [ran, deadline], output }) => deadline === undefined || output === ran > deadline * 1000,
   },
 })
 
@@ -42,10 +42,10 @@ export function middle(lo: number, hi: number): number {
 }
 
 export const middleBetween = contract(middle, {
-  requires: (lo, hi) => Number.isInteger(lo) && Number.isInteger(hi) && lo >= 0 && lo <= hi && hi <= 2 ** 40,
+  requires: ({ input: [lo, hi] }) => Number.isInteger(lo) && Number.isInteger(hi) && lo >= 0 && lo <= hi && hi <= 2 ** 40,
   ensures: {
-    notBelow: (lo, _hi, out) => out >= lo,
-    notAbove: (_lo, hi, out) => out <= hi,
-    whole: (_lo, _hi, out) => Number.isInteger(out),
+    notBelow: ({ input: [lo], output }) => output >= lo,
+    notAbove: ({ input: [, hi], output }) => output <= hi,
+    whole: ({ output }) => Number.isInteger(output),
   },
 })

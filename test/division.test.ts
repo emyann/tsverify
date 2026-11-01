@@ -85,7 +85,7 @@ describe("bigint division", () => {
     assert.equal(law?.status, "counterexample")
     const [a, b] = law.args as [bigint, bigint]
     const same = division.lawUnguarded.ensures.same
-    assert.throws(() => same(a, b, division.lawUnguarded.fn(a, b)), RangeError)
+    assert.throws(() => same({ input: [a, b], output: division.lawUnguarded.fn(a, b) }), RangeError)
   })
 
   it("a division inside `.every` is refused, saying where to divide instead", async () => {

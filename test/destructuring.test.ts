@@ -64,8 +64,8 @@ const brokenBy = async (f: Fixture, name: Contract): Promise<Set<string>> => {
   const broken = new Set<string>()
   const laws = (fixture[name] as unknown as { ensures: Record<string, Parameters<typeof holds>[0]> }).ensures
   for (const r of await RUNS[name](f)) {
-    const after = "calls" in r ? [r.out, r.calls] : [r.out]
-    for (const [law, l] of Object.entries(laws)) if (!(holds(l) as (...a: Array<unknown>) => boolean)(...r.args, ...after)) broken.add(law)
+    const run = "calls" in r ? { input: r.args, output: r.out, calls: r.calls } : { input: r.args, output: r.out }
+    for (const [law, l] of Object.entries(laws)) if (!(holds(l) as (run: unknown) => boolean)(run)) broken.add(law)
   }
   return broken
 }

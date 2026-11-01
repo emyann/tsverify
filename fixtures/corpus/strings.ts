@@ -7,13 +7,13 @@ export function splits(a: string, b: string, c: string): boolean {
   return a.startsWith(b) && a.endsWith(c) && a.length === b.length + c.length
 }
 export const prefixSuffix = contract(splits, {
-  ensures: { whole: (a, b, c, out) => !out || a === b + c },
+  ensures: { whole: ({ input: [a, b, c], output }) => !output || a === b + c },
 })
 export function splitsAnyLength(a: string, b: string, c: string): boolean {
   return a.startsWith(b) && a.endsWith(c)
 }
 export const prefixSuffixAnyLength = contract(splitsAnyLength, {
-  ensures: { whole: (a, b, c, out) => !out || a === b + c },
+  ensures: { whole: ({ input: [a, b, c], output }) => !output || a === b + c },
 })
 
 // str-length-code-units: `.length` counts UTF-16 code units; `[...s]` counts code points.
@@ -22,14 +22,14 @@ export function units(s: string): number {
 }
 export const lengthInUnits = contract(units, {
   ensures: {
-    emojiIsTwo: (s, out) => s !== "😀" || out === 2,
-    loneSurrogateIsOne: (s, out) => s !== "\uD83D" || out === 1,
+    emojiIsTwo: ({ input: [s], output }) => s !== "😀" || output === 2,
+    loneSurrogateIsOne: ({ input: [s], output }) => s !== "\uD83D" || output === 1,
   },
 })
 export const lengthAgainstCodePoints = contract(units, {
   ensures: {
-    countsCodePoints: (s, out) => out === [...s].length,
-    atMostTwiceTheCodePoints: (s, out) => out >= [...s].length && out <= 2 * [...s].length,
+    countsCodePoints: ({ input: [s], output }) => output === [...s].length,
+    atMostTwiceTheCodePoints: ({ input: [s], output }) => output >= [...s].length && output <= 2 * [...s].length,
   },
 })
 
@@ -39,21 +39,21 @@ const cprev = (s: string): string => [...s].reverse().join("")
 export function revTwice(s: string): string {
   return rev(rev(s))
 }
-export const reversedByUnitsTwice = contract(revTwice, { ensures: { identity: (s, out) => out === s } })
+export const reversedByUnitsTwice = contract(revTwice, { ensures: { identity: ({ input: [s], output }) => output === s } })
 export function cprevTwice(s: string): string {
   return cprev(cprev(s))
 }
-export const reversedByCodePointsTwice = contract(cprevTwice, { ensures: { identity: (s, out) => out === s } })
+export const reversedByCodePointsTwice = contract(cprevTwice, { ensures: { identity: ({ input: [s], output }) => output === s } })
 
 // zg-str-at-indexof: SMT-LIB's `str.at` is "" out of range, negative indices included; JavaScript's `at` counts from the end.
 export function smtAt(s: string, i: number): string {
   return i >= 0 && i < s.length ? s.charAt(i) : ""
 }
 export const atAgainstSmt = contract(smtAt, {
-  requires: (_s, i) => Number.isInteger(i),
+  requires: ({ input: [, i] }) => Number.isInteger(i),
   ensures: {
-    likeAt: (s, i, out) => out === (s.at(i) ?? ""),
-    likeCharAt: (s, i, out) => out === s.charAt(i),
+    likeAt: ({ input: [s, i], output }) => output === (s.at(i) ?? ""),
+    likeCharAt: ({ input: [s, i], output }) => output === s.charAt(i),
   },
 })
 

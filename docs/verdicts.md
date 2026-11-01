@@ -13,11 +13,11 @@ Four small specs, one law of each kind:
 import { spec } from "@emyann/tsverify"
 
 const capSpec = spec<(value: bigint, limit: bigint) => bigint>({
-  requires: (_value, limit) => limit >= 0n,
+  requires: ({ input: [, limit] }) => limit >= 0n,
   ensures: {
-    withinTheLimit: (_value, limit, capped) => capped <= limit,
-    neverNegative: (_value, _limit, capped) => capped >= 0n,
-    limitNotNegative: (_value, limit, _capped) => limit >= 0n,
+    withinTheLimit: ({ input: [, limit], output }) => output <= limit,
+    neverNegative: ({ output }) => output >= 0n,
+    limitNotNegative: ({ input: [, limit] }) => limit >= 0n,
   },
 })
 export type CapSpec = typeof capSpec
@@ -37,8 +37,8 @@ import { spec } from "@emyann/tsverify"
 
 const labelSpec = spec<(name: string) => string>({
   ensures: {
-    neverEmpty: (_name, label) => label !== "",
-    unnamedWhenEmpty: (name, label) => (name === "" ? label == "(unnamed)" : true),
+    neverEmpty: ({ output }) => output !== "",
+    unnamedWhenEmpty: ({ input: [name], output }) => (name === "" ? output == "(unnamed)" : true),
   },
 })
 export type LabelSpec = typeof labelSpec
@@ -58,8 +58,8 @@ import { spec } from "@emyann/tsverify"
 
 const largestSpec = spec<(xs: ReadonlyArray<bigint>) => bigint>({
   ensures: {
-    noneLarger: (xs, largest) => xs.every((x) => x <= largest),
-    oneOfThem: (xs, largest) => xs.length === 0 || xs.includes(largest),
+    noneLarger: ({ input: [xs], output }) => xs.every((x) => x <= output),
+    oneOfThem: ({ input: [xs], output }) => xs.length === 0 || xs.includes(output),
   },
 })
 export type LargestSpec = typeof largestSpec
@@ -82,7 +82,7 @@ export const largest: Implementation<LargestSpec> = (xs) => {
 import { spec } from "@emyann/tsverify"
 
 const scoreSpec = spec<(points: number) => number>({
-  ensures: { notNegative: (_points, score) => score >= 0 },
+  ensures: { notNegative: ({ output }) => output >= 0 },
 })
 export type ScoreSpec = typeof scoreSpec
 ```
@@ -107,7 +107,7 @@ src/cap.ts
 src/label.ts
   ! label  1 unsupported, 1 proved  (25 ms)
     ! unnamedWhenEmpty  (0 ms)
-      src/label.contract.ts:6:61: operator == is not modeled: write `===` (and `x === null || x === undefined` for a nullish check)
+      src/label.contract.ts:6:76: operator == is not modeled: write `===` (and `x === null || x === undefined` for a nullish check)
 src/largest.ts
   ~ largest  1 bounded, 1 proved · 2 obligations  (769 ms)
     ~ oneOfThem  (51 ms)

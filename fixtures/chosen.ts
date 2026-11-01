@@ -15,10 +15,10 @@ const readsTheChosenKey = (primary: boolean, key: string, calls: ReadonlyArray<{
 
 export const pickSpec = spec<(store: Store, primary: boolean, key: string) => Rejects<string, Missing>>({
   ensures: {
-    readsTheChosenKey: (_store, primary, key, _out, calls) => readsTheChosenKey(primary, key, calls),
-    givesWhatItRead: (_store, _primary, _key, out, calls) => {
+    readsTheChosenKey: ({ input: [, primary, key], calls }) => readsTheChosenKey(primary, key, calls),
+    givesWhatItRead: ({ output, calls }) => {
       const c = calls.at(0)
-      return c === undefined || c.outcome._tag !== "Success" || (out._tag === "Success" && out.value === c.outcome.value)
+      return c === undefined || c.outcome._tag !== "Success" || (output._tag === "Success" && output.value === c.outcome.value)
     },
   },
 })
@@ -32,10 +32,10 @@ export const pick: Implementation<PickSpec> = async (store, primary, key) => {
 
 export const fromSpec = spec<(store: Store, primary: boolean, backup: boolean, key: string) => Rejects<string, Missing>>({
   ensures: {
-    readsOnce: (_store, _primary, _backup, _key, _out, calls) => calls.length === 1,
-    readsWhereTold: (_store, primary, backup, key, _out, calls) =>
+    readsOnce: ({ calls }) => calls.length === 1,
+    readsWhereTold: ({ input: [, primary, backup, key], calls }) =>
       calls.at(0)?.args[0] === (primary ? key : backup ? "backup/" + key : "last/" + key),
-    failsAsTheRead: (_store, _primary, _backup, _key, out, calls) => (out._tag === "Failure") === (calls.at(0)?.outcome._tag === "Failure"),
+    failsAsTheRead: ({ output, calls }) => (output._tag === "Failure") === (calls.at(0)?.outcome._tag === "Failure"),
   },
 })
 export type FromSpec = typeof fromSpec

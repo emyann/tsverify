@@ -8,7 +8,7 @@
 // A law takes the program's arguments, its outcome and the calls it made to the
 // operations named in the type argument.
 import type { Effect } from "effect"
-import type { Call, Law, Outcome } from "../../contract.ts"
+import type { Call, ComputationRun, Given, Law, Outcome } from "../../contract.ts"
 
 /** Every call the operations of `Ops` can make, as a law reads it. */
 export type EffectCallsOf<Ops> = {
@@ -21,12 +21,12 @@ export type EffectCallsOf<Ops> = {
 
 /** A law of an Effect program: over its arguments, how it ended and the calls it made to its services. */
 type EffectContractLaw<Args extends ReadonlyArray<unknown>, A, E, Ops> = Law<
-  (...args: [...Args, Outcome<A, E>, ReadonlyArray<EffectCallsOf<Ops>>]) => boolean
+  (run: ComputationRun<Args, Outcome<A, E>, EffectCallsOf<Ops>>) => boolean
 >
 
 export interface EffectContract<Args extends ReadonlyArray<unknown>, A, E, Ops> {
   readonly fn: (...args: Args) => Effect.Effect<A, E> | Effect.Effect<A, E, any>
-  readonly requires?: (...args: Args) => boolean
+  readonly requires?: (given: Given<Args>) => boolean
   readonly ensures: Readonly<Record<string, EffectContractLaw<Args, A, E, Ops>>>
 }
 
@@ -39,7 +39,7 @@ type ServiceCallsOf<R> = R extends { readonly Service: infer S }
 
 /** The laws of a spec over an Effect program of type `F`: over its arguments, how it ended and the calls it made. */
 export type EffectLawOf<F> = F extends (...args: infer A) => Effect.Effect<infer V, infer E, infer R>
-  ? (...args: [...A, Outcome<V, E>, ReadonlyArray<ServiceCallsOf<R>>]) => boolean
+  ? (run: ComputationRun<A, Outcome<V, E>, ServiceCallsOf<R>>) => boolean
   : never
 
 // `any`: any Effect program; a spec constrains it through its laws.
@@ -47,7 +47,7 @@ type AnyProgram = (...args: any) => Effect.Effect<any, any, any>
 
 /** A spec of an Effect program: what it must do. `Implementation<S>` (from `@emyann/tsverify`) is its type. */
 export interface EffectSpec<F extends AnyProgram> {
-  readonly requires?: (...args: Parameters<F>) => boolean
+  readonly requires?: (given: Given<Parameters<F>>) => boolean
   readonly ensures: Readonly<Record<string, Law<EffectLawOf<F>>>>
   /** The program's type: only for `Implementation`, never a value. */
   readonly "~fn"?: F
@@ -55,7 +55,7 @@ export interface EffectSpec<F extends AnyProgram> {
 
 /**
  * A spec of an Effect program of type `F`, written before the code: `spec<(accountId: string) =>
- * Effect.Effect<bigint, LedgerError, Ledger>>({ ensures: { law: (accountId, out, calls) => ... } })`. The calls a law
+ * Effect.Effect<bigint, LedgerError, Ledger>>({ ensures: { law: ({ input: [accountId], output, calls }) => ... } })`. The calls a law
  * reads are those of the services `F` requires (`Ledger`'s methods), typed from them. Beside it, its type, `export
  * type BalanceSpec = typeof balanceSpec`; the code is `const balanceOf: Implementation<BalanceSpec> = ...`.
  */
@@ -65,5 +65,5 @@ export const computation =
   <Ops>() =>
   <Args extends ReadonlyArray<unknown>, A, E, R, L extends Readonly<Record<string, EffectContractLaw<Args, A, E, Ops>>>>(
     fn: (...args: Args) => Effect.Effect<A, E, R>,
-    laws: { readonly requires?: (...args: Args) => boolean; readonly ensures: L },
+    laws: { readonly requires?: (given: Given<Args>) => boolean; readonly ensures: L },
   ): Omit<EffectContract<Args, A, E, Ops>, "ensures"> & { readonly ensures: L } => ({ fn, ...laws })

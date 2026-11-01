@@ -6,10 +6,10 @@ export const units = (s: string): number => s.length
 
 export const unitsAsJavaScriptCounts = contract(units, {
   ensures: {
-    emojiIsTwo: (s, n) => s !== "😀" || n === 2,
-    accentIsOne: (s, n) => s !== "é" || n === 1,
-    neverNegative: (_s, n) => n >= 0,
+    emojiIsTwo: ({ input: [s], output }) => s !== "😀" || output === 2,
+    accentIsOne: ({ input: [s], output }) => s !== "é" || output === 1,
+    neverNegative: ({ output }) => output >= 0,
   },
 })
 
-export const unitsMiscounted = contract(units, { ensures: { emojiIsOne: (s, n) => s !== "😀" || n === 1 } })
+export const unitsMiscounted = contract(units, { ensures: { emojiIsOne: ({ input: [s], output }) => s !== "😀" || output === 1 } })

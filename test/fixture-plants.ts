@@ -20,10 +20,10 @@ export interface Plant {
   readonly contract: string
 }
 
-type Law = (...a: Array<unknown>) => boolean
+type Law = (run: { readonly input: ReadonlyArray<unknown>; readonly output: unknown }) => boolean
 interface Contract {
   readonly fn: (...a: Array<unknown>) => unknown
-  readonly requires?: Law
+  readonly requires?: (given: { readonly input: ReadonlyArray<unknown> }) => boolean
   readonly ensures: Record<string, Parameters<typeof holds>[0]>
 }
 
@@ -49,9 +49,9 @@ export const checkFixture = (
     const c = m[contract] as Contract
     const broken = new Set<string>()
     for (const args of inputs[contract] ?? []) {
-      if (c.requires !== undefined && !c.requires(...args)) continue
+      if (c.requires !== undefined && !c.requires({ input: args })) continue
       const out = c.fn(...args)
-      for (const [law, l] of Object.entries(c.ensures)) if (!(holds(l) as Law)(...args, out)) broken.add(law)
+      for (const [law, l] of Object.entries(c.ensures)) if (!(holds(l) as Law)({ input: args, output: out })) broken.add(law)
     }
     return broken
   }

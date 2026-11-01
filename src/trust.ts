@@ -9,7 +9,7 @@
 import path from "node:path"
 import ts from "typescript"
 import { packageExport } from "./adapter.ts"
-import { CONTRACT_MODULE, type Project, declared, functionOf, implementedSpec } from "./project.ts"
+import { CONTRACT_MODULE, type Project, declared, functionOf, implementedSpec, oneRun } from "./project.ts"
 import { functionIn, hasSource, symbolOf, unwrap } from "./resolve.ts"
 import { type FunctionNode, Unsupported, locate } from "./value.ts"
 
@@ -127,10 +127,10 @@ export const readAssumptions = (project: Project): Assumptions => {
             const laws = unwrap(p.initializer)
             if (!ts.isObjectLiteralExpression(laws)) throw new Unsupported("`ensures` is an object of named laws, written in place", p)
             for (const q of laws.properties) {
-              if (ts.isShorthandPropertyAssignment(q)) ensures.push({ name: q.name.text, law: functionOf(checker, q.name) })
+              if (ts.isShorthandPropertyAssignment(q)) ensures.push({ name: q.name.text, law: oneRun(functionOf(checker, q.name), "law") })
               else if (ts.isPropertyAssignment(q) && (ts.isIdentifier(q.name) || ts.isStringLiteral(q.name)))
-                ensures.push({ name: q.name.text, law: functionOf(checker, q.initializer) })
-              else throw new Unsupported("a law is `name: (args..., result) => boolean`", q)
+                ensures.push({ name: q.name.text, law: oneRun(functionOf(checker, q.initializer), "law") })
+              else throw new Unsupported("a law is `name: ({ input: [args...], output }) => boolean`", q)
             }
           } else throw new Unsupported(`an assumption has no part \`${p.name.text}\`; it has \`pure\` and \`ensures\``, p)
         }

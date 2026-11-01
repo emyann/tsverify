@@ -259,9 +259,9 @@ export const padding = (n: bigint): bigint => 8n - digits(n)
 import { assume, contract } from "@emyann/tsverify"
 import { digits, padding } from "./digits.ts"
 
-export const digitsCount = assume(digits, { pure: true, ensures: { atLeastOne: (_n, count) => count >= 1n } })
+export const digitsCount = assume(digits, { pure: true, ensures: { atLeastOne: ({ output }) => output >= 1n } })
 
-export const paddingFits = contract(padding, { ensures: { atMostSeven: (_n, spaces) => spaces <= 7n } })
+export const paddingFits = contract(padding, { ensures: { atMostSeven: ({ output }) => output <= 7n } })
 ```
 
 <!-- run -->
@@ -306,7 +306,7 @@ import { cleaned, firstTag } from "./tags.ts"
 
 export const cleanedIsPure = assume(cleaned, { pure: true })
 
-export const firstOrNone = contract(firstTag, { ensures: { neverEmpty: (_tags, tag) => tag !== "" } })
+export const firstOrNone = contract(firstTag, { ensures: { neverEmpty: ({ output }) => output !== "" } })
 ```
 
 <!-- run, exits 1 -->

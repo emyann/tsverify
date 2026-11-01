@@ -9,9 +9,9 @@ export function stripped(s: string, p: string): string {
 }
 export const strippedOfPrefix = contract(stripped, {
   ensures: {
-    rebuilt: (s, p, out) => !s.startsWith(p) || p + out === s,
-    keptOtherwise: (s, p, out) => s.startsWith(p) || out === s,
-    noLonger: (s, _p, out) => out.length <= s.length,
+    rebuilt: ({ input: [s, p], output }) => !s.startsWith(p) || p + output === s,
+    keptOtherwise: ({ input: [s, p], output }) => s.startsWith(p) || output === s,
+    noLonger: ({ input: [s], output }) => output.length <= s.length,
   },
 })
 
@@ -21,9 +21,9 @@ export function initial(name: string): string {
 }
 export const firstUnit = contract(initial, {
   ensures: {
-    oneUnit: (name, out) => (name === "" ? out === "" : out.length === 1),
-    itsFirst: (name, out) => name.startsWith(out),
-    likeIndexing: (name, out) => out === (name[0] ?? ""),
+    oneUnit: ({ input: [name], output }) => (name === "" ? output === "" : output.length === 1),
+    itsFirst: ({ input: [name], output }) => name.startsWith(output),
+    likeIndexing: ({ input: [name], output }) => output === (name[0] ?? ""),
   },
 })
 
@@ -33,9 +33,9 @@ export function last(s: string): string | undefined {
 }
 export const lastUnit = contract(last, {
   ensures: {
-    missingWhenEmpty: (s, out) => (out === undefined) === (s === ""),
-    endsWithIt: (s, out) => out === undefined || s.endsWith(out),
-    oneUnit: (_s, out) => out === undefined || out.length === 1,
+    missingWhenEmpty: ({ input: [s], output }) => (output === undefined) === (s === ""),
+    endsWithIt: ({ input: [s], output }) => output === undefined || s.endsWith(output),
+    oneUnit: ({ output }) => output === undefined || output.length === 1,
   },
 })
 
@@ -44,7 +44,7 @@ export function plausible(email: string): boolean {
   return email.includes("@") && !email.startsWith("@") && !email.endsWith("@")
 }
 export const plausibleEmail = contract(plausible, {
-  ensures: { threeAtLeast: (email, out) => !out || email.length >= 3 },
+  ensures: { threeAtLeast: ({ input: [email], output }) => !output || email.length >= 3 },
 })
 
 /** Where `t` first is in `s`, -1 where it is not. */
@@ -53,8 +53,8 @@ export function position(s: string, t: string): number {
 }
 export const firstPosition = contract(position, {
   ensures: {
-    foundIffIncluded: (s, t, out) => out >= 0 === s.includes(t),
-    emptyAtStart: (_s, t, out) => t !== "" || out === 0,
-    inside: (s, _t, out) => out <= s.length,
+    foundIffIncluded: ({ input: [s, t], output }) => output >= 0 === s.includes(t),
+    emptyAtStart: ({ input: [, t], output }) => t !== "" || output === 0,
+    inside: ({ input: [s], output }) => output <= s.length,
   },
 })

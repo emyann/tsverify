@@ -19,8 +19,8 @@ export const readIf = Effect.fn("readIf")(function* (asked: boolean, key: string
 })
 export const readsOnlyWhenAsked = computation<Ops>()(readIf, {
   ensures: {
-    readsExactlyWhenAsked: (asked, key, _out, calls) => (calls.length === 1 && calls.at(0)?.args[0] === key) === asked,
-    falseWhenNotAsked: (asked, _key, out) => asked || (out._tag === "Success" && out.value === false),
+    readsExactlyWhenAsked: ({ input: [asked, key], calls }) => (calls.length === 1 && calls.at(0)?.args[0] === key) === asked,
+    falseWhenNotAsked: ({ input: [asked], output }) => asked || (output._tag === "Success" && output.value === false),
   },
 })
 
@@ -31,7 +31,7 @@ export const orElse = Effect.fn("orElse")(function* (key: string, fallback: stri
 })
 export const fallsBack = computation<Ops>()(orElse, {
   ensures: {
-    secondOnlyWhenNothing: (key, fallback, _out, calls) => {
+    secondOnlyWhenNothing: ({ input: [key, fallback], calls }) => {
       const first = calls.at(0)
       if (first === undefined || first.op !== "get" || first.args[0] !== key || first.outcome._tag !== "Success") return false
       const found = first.outcome.value !== undefined
@@ -49,7 +49,7 @@ export const putThenGet = Effect.fn("putThenGet")(function* (toOther: boolean, k
 })
 export const putsWhereAsked = computation<Ops>()(putThenGet, {
   ensures: {
-    writesThenReadsTheSameKey: (toOther, key, other, value, _out, calls) => {
+    writesThenReadsTheSameKey: ({ input: [toOther, key, other, value], calls }) => {
       const put = calls.at(0)
       const get = calls.at(1)
       return (
@@ -73,7 +73,7 @@ export const copy = Effect.fn("copy")(function* (from: string, to: string) {
 })
 export const copies = computation<Ops>()(copy, {
   ensures: {
-    readsThenWrites: (from, to, _out, calls) => {
+    readsThenWrites: ({ input: [from, to], calls }) => {
       const get = calls.at(0)
       const put = calls.at(1)
       if (get === undefined || get.op !== "get" || get.outcome._tag !== "Success") return false
@@ -87,14 +87,14 @@ export const afterOptional = Effect.fn("afterOptional")(function* (key: string, 
   const store = yield* Store
   return keys?.includes((yield* store.get(key)) ?? "")
 })
-export const optional = computation<Ops>()(afterOptional, { ensures: { calls: (_key, _keys, _out, calls) => calls.length <= 1 } })
+export const optional = computation<Ops>()(afterOptional, { ensures: { calls: ({ calls }) => calls.length <= 1 } })
 
 /** `JSON.parse` under `Effect.try`, what it throws passed along: an error of type `unknown`. */
 export const parse = (json: string) => Effect.try({ try: (): number => JSON.parse(json), catch: (err) => err })
 export const parsed = computation<Ops>()(parse, {
   ensures: {
-    callsNothing: (_json, _out, calls) => calls.length === 0,
-    readsTheError: (_json, out) => out._tag === "Success" || out.error !== undefined,
+    callsNothing: ({ calls }) => calls.length === 0,
+    readsTheError: ({ output }) => output._tag === "Success" || output.error !== undefined,
   },
 })
 
@@ -105,7 +105,7 @@ export const parsed = computation<Ops>()(parse, {
 export const parseTagged = (json: string) =>
   Effect.try({ try: (): number => JSON.parse(json), catch: (err) => ({ _tag: "ParseError" as const, message: String(err) }) })
 export const parsedTagged = computation<Ops>()(parseTagged, {
-  ensures: { failsAsAParseError: (_json, out) => out._tag === "Success" || out.error._tag === "ParseError" },
+  ensures: { failsAsAParseError: ({ output }) => output._tag === "Success" || output.error._tag === "ParseError" },
 })
 
 /** Reads `key` and drops what it found: the read is a call all the same, though nothing reads its value. */
@@ -115,5 +115,5 @@ export const readAndDrop = Effect.fn("readAndDrop")(function* (key: string) {
   return 0n
 })
 export const readsWhatItDrops = computation<Ops>()(readAndDrop, {
-  ensures: { readsOnce: (key, _out, calls) => calls.length === 1 && calls.at(0)?.args[0] === key },
+  ensures: { readsOnce: ({ input: [key], calls }) => calls.length === 1 && calls.at(0)?.args[0] === key },
 })

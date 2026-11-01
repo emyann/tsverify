@@ -8,7 +8,7 @@ export const sign = (x: bigint): bigint => (x > 0n ? 1n : x < 0n ? -1n : 0n)
 
 export const signContract = contract(sign, {
   ensures: {
-    oneOfThree: (_, s) => s === 1n || s === -1n || s === 0n,
-    followsTheValue: (x, s) => (x > 0n) === (s === 1n),
+    oneOfThree: ({ output }) => output === 1n || output === -1n || output === 0n,
+    followsTheValue: ({ input: [x], output }) => (x > 0n) === (output === 1n),
   },
 })

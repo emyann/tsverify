@@ -3,7 +3,7 @@
 // asks each.
 import { assert, contract, invariant, lemma } from "../src/contract.ts"
 
-const nonNegative = (xs: ReadonlyArray<bigint>) => xs.every((x) => x >= 0n)
+const nonNegative = ({ input: [xs] }: { readonly input: readonly [ReadonlyArray<bigint>] }) => xs.every((x) => x >= 0n)
 
 /** A sum, and what it keeps: never negative while every element is not. */
 export function sum(xs: ReadonlyArray<bigint>): bigint {
@@ -14,7 +14,7 @@ export function sum(xs: ReadonlyArray<bigint>): bigint {
   }
   return total
 }
-export const sumNonNegative = contract(sum, { requires: nonNegative, ensures: { nonNegative: (_xs, out) => out >= 0n } })
+export const sumNonNegative = contract(sum, { requires: nonNegative, ensures: { nonNegative: ({ output }) => output >= 0n } })
 
 /** The same loop with no invariant written: the verifier guesses the law of the elements gone through, `total >= 0n`, and proves it. */
 export function sumBare(xs: ReadonlyArray<bigint>): bigint {
@@ -22,7 +22,7 @@ export function sumBare(xs: ReadonlyArray<bigint>): bigint {
   for (const x of xs) total += x
   return total
 }
-export const sumBareNonNegative = contract(sumBare, { requires: nonNegative, ensures: { nonNegative: (_xs, out) => out >= 0n } })
+export const sumBareNonNegative = contract(sumBare, { requires: nonNegative, ensures: { nonNegative: ({ output }) => output >= 0n } })
 
 /**
  * No invariant written, and the law's guess is wrong: true of the result, not of what the loop has built (0 on entry).
@@ -34,7 +34,7 @@ export function sumPlusOne(xs: ReadonlyArray<bigint>): bigint {
   total += 1n
   return total
 }
-export const sumPlusOneAtLeastOne = contract(sumPlusOne, { requires: nonNegative, ensures: { atLeastOne: (_xs, out) => out >= 1n } })
+export const sumPlusOneAtLeastOne = contract(sumPlusOne, { requires: nonNegative, ensures: { atLeastOne: ({ output }) => output >= 1n } })
 
 /** An invariant an iteration does not keep: the search side finds the input that breaks it. */
 export function sumCapped(xs: ReadonlyArray<bigint>): bigint {
@@ -45,7 +45,7 @@ export function sumCapped(xs: ReadonlyArray<bigint>): bigint {
   }
   return total
 }
-export const sumCappedNonNegative = contract(sumCapped, { requires: nonNegative, ensures: { nonNegative: (_xs, out) => out >= 0n } })
+export const sumCappedNonNegative = contract(sumCapped, { requires: nonNegative, ensures: { nonNegative: ({ output }) => output >= 0n } })
 
 /**
  * The largest element, starting from the first: an invariant written for one law, the other left to a guess. Writing
@@ -61,8 +61,8 @@ export function largestOf(xs: ReadonlyArray<bigint>): bigint {
 }
 export const largestOneOfThem = contract(largestOf, {
   ensures: {
-    noneLarger: (xs, best) => xs.every((x) => x <= best),
-    oneOfThem: (xs, best) => xs.length === 0 || xs.includes(best),
+    noneLarger: ({ input: [xs], output }) => xs.every((x) => x <= output),
+    oneOfThem: ({ input: [xs], output }) => xs.length === 0 || xs.includes(output),
   },
 })
 
@@ -75,7 +75,7 @@ export function sumFromNothing(xs: ReadonlyArray<bigint>): bigint {
   }
   return total
 }
-export const sumFromNothingNonNegative = contract(sumFromNothing, { requires: nonNegative, ensures: { nonNegative: (_xs, out) => out >= 0n } })
+export const sumFromNothingNonNegative = contract(sumFromNothing, { requires: nonNegative, ensures: { nonNegative: ({ output }) => output >= 0n } })
 
 /** The largest element, and an invariant over the elements done: `i` of them. */
 export function maxOf(xs: ReadonlyArray<bigint>): bigint {
@@ -86,7 +86,7 @@ export function maxOf(xs: ReadonlyArray<bigint>): bigint {
   }
   return best
 }
-export const maxIsAnUpperBound = contract(maxOf, { ensures: { aboveEvery: (xs, out) => xs.every((x) => x <= out) } })
+export const maxIsAnUpperBound = contract(maxOf, { ensures: { aboveEvery: ({ input: [xs], output }) => xs.every((x) => x <= output) } })
 
 /** A list built in a loop: never longer than what it was built from. */
 export function positives(xs: ReadonlyArray<bigint>): number {
@@ -97,7 +97,7 @@ export function positives(xs: ReadonlyArray<bigint>): number {
   }
   return out.length
 }
-export const positivesNoMore = contract(positives, { ensures: { noMore: (xs, n) => n <= xs.length } })
+export const positivesNoMore = contract(positives, { ensures: { noMore: ({ input: [xs], output }) => output <= xs.length } })
 
 /** An early return, and what the loop knows when it does not return. */
 export function firstNegative(xs: ReadonlyArray<bigint>): bigint | undefined {
@@ -109,8 +109,8 @@ export function firstNegative(xs: ReadonlyArray<bigint>): bigint | undefined {
 }
 export const firstNegativeIsNegative = contract(firstNegative, {
   ensures: {
-    negative: (_xs, out) => out === undefined || out < 0n,
-    noneWhenNone: (xs, out) => out !== undefined || xs.every((x) => x >= 0n),
+    negative: ({ output }) => output === undefined || output < 0n,
+    noneWhenNone: ({ input: [xs], output }) => output !== undefined || xs.every((x) => x >= 0n),
   },
 })
 
@@ -118,7 +118,7 @@ export const firstNegativeIsNegative = contract(firstNegative, {
  * False: `[-1n]` gives `-1n`. What the loop's invariant says at its end holds only if it gets there; read on every path
  * that entered the loop, it once made every element non-negative, and this law proved.
  */
-export const neverFindsOne = contract(firstNegative, { ensures: { neverFinds: (_xs, out) => out === undefined } })
+export const neverFindsOne = contract(firstNegative, { ensures: { neverFinds: ({ output }) => output === undefined } })
 
 /** A `while` loop left early by a `return`: the first `k` below `n` whose double passes `limit`, or -1. */
 export function firstDoubleAbove(limit: bigint, n: bigint): bigint {
@@ -132,9 +132,9 @@ export function firstDoubleAbove(limit: bigint, n: bigint): bigint {
 }
 export const doubleAbove = contract(firstDoubleAbove, {
   ensures: {
-    found: (limit, _n, out) => out === -1n || out + out > limit,
+    found: ({ input: [limit], output }) => output === -1n || output + output > limit,
     /** False: `limit` 0 and `n` 2 give 1. The same trap as `neverFindsOne`, in a `while` loop. */
-    neverFinds: (_limit, _n, out) => out === -1n,
+    neverFinds: ({ output }) => output === -1n,
   },
 })
 
@@ -147,15 +147,15 @@ export function countTo(n: bigint): bigint {
   }
   return k
 }
-export const countReaches = contract(countTo, { ensures: { reaches: (n, out) => out === (n > 0n ? n : 0n) } })
+export const countReaches = contract(countTo, { ensures: { reaches: ({ input: [n], output }) => output === (n > 0n ? n : 0n) } })
 
 /** An assert: proved where the precondition gives it, broken where nothing does. */
 export function halve(n: bigint): bigint {
   assert(() => n >= 0n)
   return n
 }
-export const halveGiven = contract(halve, { requires: (n) => n >= 0n, ensures: { same: (n, out) => out === n } })
-export const halveAnything = contract(halve, { ensures: { same: (n, out) => out === n } })
+export const halveGiven = contract(halve, { requires: ({ input: [n] }) => n >= 0n, ensures: { same: ({ input: [n], output }) => output === n } })
+export const halveAnything = contract(halve, { ensures: { same: ({ input: [n], output }) => output === n } })
 
 /** A lemma, proved once, used where a product is. */
 export const productNonNegative = lemma((a: bigint, b: bigint) => a * b >= 0n, { requires: (a, b) => a >= 0n && b >= 0n })
@@ -163,8 +163,8 @@ export function area(w: bigint, h: bigint): bigint {
   productNonNegative(w, h)
   return w * h
 }
-export const areaNonNegative = contract(area, { requires: (w, h) => w >= 0n && h >= 0n, ensures: { nonNegative: (_w, _h, out) => out >= 0n } })
-export const areaOfAnything = contract(area, { ensures: { nonNegative: (_w, _h, out) => out >= 0n } })
+export const areaNonNegative = contract(area, { requires: ({ input: [w, h] }) => w >= 0n && h >= 0n, ensures: { nonNegative: ({ output }) => output >= 0n } })
+export const areaOfAnything = contract(area, { ensures: { nonNegative: ({ output }) => output >= 0n } })
 
 /** A false lemma: the law that leans on it is not proved, and the lemma's counterexample is given. */
 export const everyNumberPositive = lemma((a: bigint) => a > 0n)
@@ -172,4 +172,4 @@ export function trusting(a: bigint): bigint {
   everyNumberPositive(a)
   return a
 }
-export const leansOnAFalseLemma = contract(trusting, { ensures: { positive: (_a, out) => out > 0n } })
+export const leansOnAFalseLemma = contract(trusting, { ensures: { positive: ({ output }) => output > 0n } })

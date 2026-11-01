@@ -17,10 +17,10 @@ export function pending(jobs: ReadonlyArray<Job>): { readonly first: Job | undef
 
 export const pendingOnes = contract(pending, {
   ensures: {
-    firstNotDone: (_jobs, out) => out.first === undefined || !out.first.done,
-    lastNotDone: (_jobs, out) => out.last === undefined || !out.last.done,
-    noneWhenAllDone: (jobs, out) => !jobs.every((j) => j.done) || out.first === undefined,
-    someWhenOneOpen: (jobs, out) => !jobs.some((j) => !j.done) || out.first !== undefined,
+    firstNotDone: ({ output }) => output.first === undefined || !output.first.done,
+    lastNotDone: ({ output }) => output.last === undefined || !output.last.done,
+    noneWhenAllDone: ({ input: [jobs], output }) => !jobs.every((j) => j.done) || output.first === undefined,
+    someWhenOneOpen: ({ input: [jobs], output }) => !jobs.some((j) => !j.done) || output.first !== undefined,
   },
 })
 
@@ -31,8 +31,8 @@ export function ownerOf(owners: ReadonlyMap<string, string>, job: Job): string {
 
 export const ownedOrNobody = contract(ownerOf, {
   ensures: {
-    theTables: (owners, job, out) => !owners.has(job.id) || out === owners.get(job.id),
-    nobodyOtherwise: (owners, job, out) => owners.has(job.id) || out === "nobody",
+    theTables: ({ input: [owners, job], output }) => !owners.has(job.id) || output === owners.get(job.id),
+    nobodyOtherwise: ({ input: [owners, job], output }) => owners.has(job.id) || output === "nobody",
   },
 })
 
@@ -45,10 +45,10 @@ export function finished(state: string, skipped: ReadonlySet<string>): boolean {
 
 export const finishedStates = contract(finished, {
   ensures: {
-    doneIs: (state, _skipped, out) => state !== "done" || out,
-    failedIs: (state, _skipped, out) => state !== "failed" || out,
-    skippedIs: (state, skipped, out) => !skipped.has(state) || out,
-    nothingElse: (state, skipped, out) => !out || state === "done" || state === "failed" || skipped.has(state),
+    doneIs: ({ input: [state], output }) => state !== "done" || output,
+    failedIs: ({ input: [state], output }) => state !== "failed" || output,
+    skippedIs: ({ input: [state, skipped], output }) => !skipped.has(state) || output,
+    nothingElse: ({ input: [state, skipped], output }) => !output || state === "done" || state === "failed" || skipped.has(state),
   },
 })
 
@@ -59,9 +59,9 @@ export function lastWithTurn(jobs: ReadonlyArray<Job>): Job | undefined {
 
 export const lastWithATurn = contract(lastWithTurn, {
   ensures: {
-    hasATurn: (_jobs, out) => out === undefined || out.turn !== undefined,
-    theLastWhenItHasOne: (jobs, out) => jobs.at(-1)?.turn === undefined || out?.id === jobs.at(-1)?.id,
-    foundWhenOneHas: (jobs, out) => !jobs.some((j) => j.turn !== undefined) || out !== undefined,
+    hasATurn: ({ output }) => output === undefined || output.turn !== undefined,
+    theLastWhenItHasOne: ({ input: [jobs], output }) => jobs.at(-1)?.turn === undefined || output?.id === jobs.at(-1)?.id,
+    foundWhenOneHas: ({ input: [jobs], output }) => !jobs.some((j) => j.turn !== undefined) || output !== undefined,
   },
 })
 
@@ -71,11 +71,11 @@ export function lastIds(ids: ReadonlyArray<string>, n: number): ReadonlyArray<st
 }
 
 export const lastIdsKept = contract(lastIds, {
-  requires: (_ids, n) => Number.isInteger(n) && n >= 1 && n <= 3,
+  requires: ({ input: [, n] }) => Number.isInteger(n) && n >= 1 && n <= 3,
   ensures: {
-    atMostN: (_ids, n, out) => out.length <= n,
-    allWhenFewer: (ids, n, out) => ids.length > n || out.length === ids.length,
-    endsTheSame: (ids, _n, out) => out.length === 0 || out.at(-1) === ids.at(-1),
+    atMostN: ({ input: [, n], output }) => output.length <= n,
+    allWhenFewer: ({ input: [ids, n], output }) => ids.length > n || output.length === ids.length,
+    endsTheSame: ({ input: [ids], output }) => output.length === 0 || output.at(-1) === ids.at(-1),
   },
 })
 
@@ -87,7 +87,7 @@ export function said(moved: Moved): string {
 }
 
 export const saidOfAMove = contract(said, {
-  ensures: { theDestination: (moved, out) => "refused" in moved || out === moved.to },
+  ensures: { theDestination: ({ input: [moved], output }) => "refused" in moved || output === moved.to },
 })
 
 /** A record the code builds holds the keys it wrote: `in` asks it. */
@@ -97,7 +97,7 @@ export function tagged(withNote: boolean): boolean {
 }
 
 export const taggedWhenAsked = contract(tagged, {
-  ensures: { exactlyWhenAsked: (withNote, out) => out === withNote },
+  ensures: { exactlyWhenAsked: ({ input: [withNote], output }) => output === withNote },
 })
 
 /** A label for an id, from a naming function the caller gives: the id itself where it names nothing. */
@@ -107,7 +107,7 @@ export function labelOf(id: string, name: (id: string) => string): string {
 }
 
 export const labelNeverEmpty = contract(labelOf, {
-  ensures: { notEmptyOfAnId: (id, _name, out) => id === "" || out !== "" },
+  ensures: { notEmptyOfAnId: ({ input: [id], output }) => id === "" || output !== "" },
 })
 
 export type Step = { readonly kind: "even"; readonly half: bigint } | { readonly kind: "odd" } | { readonly kind: "never" }
@@ -118,23 +118,23 @@ export function stepOf(n: bigint): Step {
 }
 
 export const stepsOfACount = contract(stepOf, {
-  ensures: { halfOfAnEven: (n, out) => out.kind !== "even" || out.half * 2n === n },
+  ensures: { halfOfAnEven: ({ input: [n], output }) => output.kind !== "even" || output.half * 2n === n },
 })
 
 /** Refused: `.reverse()` turns around the array it is called on, here the caller's. */
 export function reversedInPlace(xs: Array<string>): Array<string> {
   return xs.reverse()
 }
-export const reversedRefused = contract(reversedInPlace, { ensures: { same: (xs, out) => out.length === xs.length } })
+export const reversedRefused = contract(reversedInPlace, { ensures: { same: ({ input: [xs], output }) => output.length === xs.length } })
 
 /** Refused: an optional key's presence, which `in` asks and an absent key and one holding `undefined` do not tell. */
 export function hasNote(job: { readonly id: string; readonly note?: string }): boolean {
   return "note" in job
 }
-export const optionalKeyRefused = contract(hasNote, { ensures: { any: (_job, out) => out || !out } })
+export const optionalKeyRefused = contract(hasNote, { ensures: { any: ({ output }) => output || !output } })
 
 /** Refused: a `Map`'s size, which counts its keys, not its entries. */
 export function owners(table: ReadonlyMap<string, string>): number {
   return table.size
 }
-export const sizeRefused = contract(owners, { ensures: { counted: (_t, out) => out >= 0 } })
+export const sizeRefused = contract(owners, { ensures: { counted: ({ output }) => output >= 0 } })

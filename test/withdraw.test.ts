@@ -151,7 +151,8 @@ const runAsync = async (program: typeof asyncProgram, r: Run): Promise<Ran> => {
 }
 
 /** The laws a run breaks. */
-const broken = (r: Run, ran: Ran): Array<string> => LAWS.filter((l) => !laws[l](r.accountId, "w1", r.amount, ran.out, ran.calls))
+const broken = (r: Run, ran: Ran): Array<string> =>
+  LAWS.filter((l) => !laws[l]({ input: [r.accountId, "w1", r.amount], output: ran.out, calls: ran.calls }))
 
 describe("the laws hold when the programs run", () => {
   it(`the Effect program, on ${RUNS.length} runs`, async () => {

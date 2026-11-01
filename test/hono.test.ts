@@ -166,14 +166,14 @@ describe("the apps, run through Hono", () => {
         answers.push({ status: res.status, body, calls: store.calls, held: [...store.held.values()] })
         assert.equal(res.status, status, JSON.stringify(body))
         // The handler's outcome, as its laws read it: a 503 is the store's failure passed through, any other reply its own.
-        type Out = Parameters<typeof laws.readsTheUserOnce>[1]
+        type Out = Parameters<typeof laws.readsTheUserOnce>[0]["output"]
         const out = (
           res.status === 503 ? { _tag: "Failure", error: { _tag: "StoreDown" } } : { _tag: "Success", value: { status: res.status, body } }
         ) as Out
         const name = ask.body === undefined ? undefined : (JSON.parse(ask.body.startsWith("{") ? ask.body : "{}") as { name?: string }).name
         if (ask.method === "GET")
           for (const law of [laws.readsTheUserOnce, laws.answersWhatItFound, laws.getFailsAsTheStoreFails])
-            assert.ok(law(ask.id, out, store.calls), `${law.name} broken`)
+            assert.ok(law({ input: [ask.id], output: out, calls: store.calls }), `${law.name} broken`)
         else if (name !== undefined)
           for (const law of [
             laws.emptyNameTouchesNothing,
@@ -182,7 +182,7 @@ describe("the apps, run through Hono", () => {
             laws.renamedAsWritten,
             laws.renameFailsAsTheStoreFails,
           ])
-            assert.ok(law(ask.id, name, out, store.calls), `${law.name} broken`)
+            assert.ok(law({ input: [ask.id, name], output: out, calls: store.calls }), `${law.name} broken`)
         else assert.deepEqual(store.calls, [], "a body that is no name reaches no handler")
       }
       assert.deepEqual(answers[0], answers[1])

@@ -105,7 +105,7 @@ describe("a read narrowed by a check of its tag", () => {
     assert.equal(ev.type, "sub")
     assert.equal(typeof ev.n, "bigint")
     const plantedFn = (t: bigint, e: narrow.Event) => (e.type === "add" ? t + e.n : e.type === "sub" ? t + e.n : t)
-    assert.equal(narrow.applied.ensures.subsSub(total, ev, plantedFn(total, ev)), false)
+    assert.equal(narrow.applied.ensures.subsSub({ input: [total, ev], output: plantedFn(total, ev) }), false)
   })
 
   it("a union in an array, destructured in a loop: each element is a member, and the planted code breaks the law on them", async () => {

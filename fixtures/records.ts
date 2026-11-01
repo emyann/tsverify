@@ -17,11 +17,11 @@ export function filedAs(steps: Steps, name: string): string | null {
 
 export const filedAsItsRecordSays = contract(filedAs, {
   /** A step's name is no name of `Object.prototype`'s: `steps["toString"]` finds Object's own function. */
-  requires: (steps, name) => Object.hasOwn(steps, name) || (name !== "toString" && name !== "constructor" && name.startsWith("s")),
+  requires: ({ input: [steps, name] }) => Object.hasOwn(steps, name) || (name !== "toString" && name !== "constructor" && name.startsWith("s")),
   ensures: {
-    itsRecords: (steps, name, out) => !Object.hasOwn(steps, name) || out === steps[name]?.taskId,
-    noneWithoutOne: (steps, name, out) => Object.hasOwn(steps, name) || out === null,
-    aStepIsIn: (steps, name, out) => out === null || name in steps,
+    itsRecords: ({ input: [steps, name], output }) => !Object.hasOwn(steps, name) || output === steps[name]?.taskId,
+    noneWithoutOne: ({ input: [steps, name], output }) => Object.hasOwn(steps, name) || output === null,
+    aStepIsIn: ({ input: [steps, name], output }) => output === null || name in steps,
   },
 })
 
@@ -29,8 +29,8 @@ export const filedAsItsRecordSays = contract(filedAs, {
 export const anyNameRead = contract(filedAs, { ensures: { always: () => true } })
 /** False: a counterexample reads the dictionary back as a plain object. */
 export const neverFiled = contract(filedAs, {
-  requires: (steps, name) => Object.hasOwn(steps, name),
-  ensures: { never: (_steps, _name, out) => out === null },
+  requires: ({ input: [steps, name] }) => Object.hasOwn(steps, name),
+  ensures: { never: ({ output }) => output === null },
 })
 
 export type Phase = "waiting" | "running" | "done"
@@ -43,9 +43,9 @@ export function said(phase: Phase): string {
 
 export const saidOfEachPhase = contract(said, {
   ensures: {
-    waiting: (p, out) => p !== "waiting" || out === "not filed",
-    running: (p, out) => p !== "running" || out === "still running",
-    done: (p, out) => p !== "done" || out === "other",
+    waiting: ({ input: [p], output }) => p !== "waiting" || output === "not filed",
+    running: ({ input: [p], output }) => p !== "running" || output === "still running",
+    done: ({ input: [p], output }) => p !== "done" || output === "other",
   },
 })
 
@@ -57,14 +57,14 @@ export function modeOf(setting: boolean | "strict" | "loose"): string {
 
 export const modeOfASetting = contract(modeOf, {
   ensures: {
-    aNameIsItself: (s, out) => typeof s !== "string" || out === s,
-    onIsStrict: (s, out) => s !== true || out === "strict",
-    offIsOff: (s, out) => s !== false || out === "off",
+    aNameIsItself: ({ input: [s], output }) => typeof s !== "string" || output === s,
+    onIsStrict: ({ input: [s], output }) => s !== true || output === "strict",
+    offIsOff: ({ input: [s], output }) => s !== false || output === "off",
   },
 })
 
 /** False: a counterexample gives a switch or a name, as JavaScript holds it. */
-export const neverStrict = contract(modeOf, { ensures: { never: (_s, out) => out !== "strict" } })
+export const neverStrict = contract(modeOf, { ensures: { never: ({ output }) => output !== "strict" } })
 
 /** What kind of value a field holds, as `typeof` says it. */
 export function kindOf(v: string | number | undefined | null): string {
@@ -73,9 +73,9 @@ export function kindOf(v: string | number | undefined | null): string {
 
 export const kindOfAField = contract(kindOf, {
   ensures: {
-    aMissingOne: (v, out) => v !== undefined || out === "undefined",
-    nullIsAnObject: (v, out) => v !== null || out === "object",
-    aNumber: (v, out) => typeof v !== "number" || out === "number",
+    aMissingOne: ({ input: [v], output }) => v !== undefined || output === "undefined",
+    nullIsAnObject: ({ input: [v], output }) => v !== null || output === "object",
+    aNumber: ({ input: [v], output }) => typeof v !== "number" || output === "number",
   },
 })
 
@@ -86,10 +86,10 @@ export function blank(message: string | undefined): boolean {
 
 export const blankWords = contract(blank, {
   ensures: {
-    emptyIsBlank: (m, out) => m !== "" || out,
-    spacesAreBlank: (m, out) => m !== " \t\n" || out,
-    aLetterIsNot: (m, out) => m === undefined || !m.includes("a") || !out,
-    noneIsNot: (m, out) => m !== undefined || !out,
+    emptyIsBlank: ({ input: [m], output }) => m !== "" || output,
+    spacesAreBlank: ({ input: [m], output }) => m !== " \t\n" || output,
+    aLetterIsNot: ({ input: [m], output }) => m === undefined || !m.includes("a") || !output,
+    noneIsNot: ({ input: [m], output }) => m !== undefined || !output,
   },
 })
 
@@ -99,7 +99,7 @@ export function listsA(xs: ReadonlyArray<string> | undefined): boolean {
 }
 
 export const listsAWhenGiven = contract(listsA, {
-  ensures: { exactly: (xs, out) => out === (xs !== undefined && xs.includes("a")) },
+  ensures: { exactly: ({ input: [xs], output }) => output === (xs !== undefined && xs.includes("a")) },
 })
 
 export type Run = { readonly id: string; readonly pruned?: { readonly at: string; readonly files: number } }
@@ -112,7 +112,7 @@ export function prunedAt(run: Run): string {
 }
 
 export const prunedAtItsTime = contract(prunedAt, {
-  ensures: { itsTime: (run, out) => run.pruned === undefined || out === run.pruned.at },
+  ensures: { itsTime: ({ input: [run], output }) => run.pruned === undefined || output === run.pruned.at },
 })
 
 /** The try a step is on, from 1: one past the tries its record keeps. */
@@ -130,9 +130,9 @@ export function askedPast(
 }
 
 export const askedPastTheNext = contract(askedPast, {
-  requires: (steps, name) => Object.hasOwn(steps, name),
+  requires: ({ input: [steps, name] }) => Object.hasOwn(steps, name),
   ensures: {
-    thatTry: (steps, name, asks, out) => out === asks.some((a) => a.step === name && a.try === (steps[name]?.tries?.length ?? 0) + 2),
+    thatTry: ({ input: [steps, name, asks], output }) => output === asks.some((a) => a.step === name && a.try === (steps[name]?.tries?.length ?? 0) + 2),
   },
 })
 
@@ -152,9 +152,9 @@ export function quote(jobs: ReadonlyArray<Job>, id: string, weigh?: (job: Job) =
 
 export const quotedAtItsPrice = contract(quote, {
   ensures: {
-    itsPrice: (jobs, id, weigh, out) => {
+    itsPrice: ({ input: [jobs, id, weigh], output }) => {
       const job = jobs.find((j) => j.id === id)
-      return job === undefined ? out === 0 : Object.is(out, priceOf(job, weigh ?? (() => 1)))
+      return job === undefined ? output === 0 : Object.is(output, priceOf(job, weigh ?? (() => 1)))
     },
   },
 })
@@ -166,10 +166,10 @@ export function namesOf(steps: Steps): ReadonlyArray<string> {
 
 export const namesOfItsOwn = contract(namesOf, {
   ensures: {
-    itsOwn: (steps, out) => out.every((k) => Object.hasOwn(steps, k)),
-    eachOnce: (_steps, out) => out.every((k, i) => out.every((j, m) => m === i || j !== k)),
+    itsOwn: ({ input: [steps], output }) => output.every((k) => Object.hasOwn(steps, k)),
+    eachOnce: ({ output }) => output.every((k, i) => output.every((j, m) => m === i || j !== k)),
     /** An array position comes first, ascending: none is less than "0". */
-    zeroFirst: (_steps, out) => out.every((k, i) => k !== "0" || i === 0),
+    zeroFirst: ({ output }) => output.every((k, i) => k !== "0" || i === 0),
   },
 })
 
@@ -181,7 +181,7 @@ export function filedSteps(steps: Steps): ReadonlyArray<string> {
 }
 
 export const filedStepsAreFiled = contract(filedSteps, {
-  ensures: { filed: (steps, out) => out.every((n) => Object.hasOwn(steps, n) && steps[n]?.taskId !== null) },
+  ensures: { filed: ({ input: [steps], output }) => output.every((n) => Object.hasOwn(steps, n) && steps[n]?.taskId !== null) },
 })
 
 /** A literal's keys and values: positions first, ascending, then names as they were written. */
@@ -192,16 +192,16 @@ export function written(): ReadonlyArray<string> {
 
 export const writtenInOrder = contract(written, {
   ensures: {
-    keysThenValues: (out) =>
-      out.length === 8 &&
-      out[0] === "1" &&
-      out[1] === "2" &&
-      out[2] === "b" &&
-      out[3] === "a" &&
-      out[4] === "z" &&
-      out[5] === "x" &&
-      out[6] === "w" &&
-      out[7] === "y",
+    keysThenValues: ({ output }) =>
+      output.length === 8 &&
+      output[0] === "1" &&
+      output[1] === "2" &&
+      output[2] === "b" &&
+      output[3] === "a" &&
+      output[4] === "z" &&
+      output[5] === "x" &&
+      output[6] === "w" &&
+      output[7] === "y",
   },
 })
 
@@ -213,18 +213,18 @@ export function kindOfAnything(v: unknown): string {
 
 export const kindOfAnythingIsJavaScripts = contract(kindOfAnything, {
   ensures: {
-    oneOfEight: (_v, out) =>
-      out === "undefined" ||
-      out === "object" ||
-      out === "boolean" ||
-      out === "number" ||
-      out === "bigint" ||
-      out === "string" ||
-      out === "symbol" ||
-      out === "function",
-    aFunctionIsOne: (v, out) => typeof v !== "function" || out === "function",
+    oneOfEight: ({ output }) =>
+      output === "undefined" ||
+      output === "object" ||
+      output === "boolean" ||
+      output === "number" ||
+      output === "bigint" ||
+      output === "string" ||
+      output === "symbol" ||
+      output === "function",
+    aFunctionIsOne: ({ input: [v], output }) => typeof v !== "function" || output === "function",
   },
 })
 
 /** False: a counterexample gives a function, read back as one. */
-export const neverAFunction = contract(kindOfAnything, { ensures: { never: (_v, out) => out !== "function" } })
+export const neverAFunction = contract(kindOfAnything, { ensures: { never: ({ output }) => output !== "function" } })

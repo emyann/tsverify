@@ -13,64 +13,64 @@ type Ops = { ledger: LedgerShape }
 
 export const balance = computation<Ops>()(balanceOf, {
   ensures: {
-    readsOnce: (accountId, _out, calls) => calls.length === 1 && calls.at(0)?.op === "read" && calls.at(0)?.args[0] === accountId,
-    theFoldsBalance: (_accountId, out, calls) => {
+    readsOnce: ({ input: [accountId], calls }) => calls.length === 1 && calls.at(0)?.op === "read" && calls.at(0)?.args[0] === accountId,
+    theFoldsBalance: ({ output, calls }) => {
       const read = calls.at(0)
       if (read === undefined || read.op !== "read" || read.outcome._tag !== "Success") return true
-      return out._tag === "Success" && out.value === accountOf(read.outcome.value).balance
+      return output._tag === "Success" && output.value === accountOf(read.outcome.value).balance
     },
-    failsAsTheReadFails: (_accountId, out, calls) => {
+    failsAsTheReadFails: ({ output, calls }) => {
       const read = calls.at(0)
       if (read === undefined || read.outcome._tag !== "Failure") return true
-      return out._tag === "Failure" && out.error._tag === read.outcome.error._tag
+      return output._tag === "Failure" && output.error._tag === read.outcome.error._tag
     },
   },
 })
 
 export const balanceOrNothing = computation<Ops>()(balanceOrZero, {
   ensures: {
-    neverFails: (_accountId, out) => out._tag === "Success",
-    zeroWhenUnreadable: (_accountId, out, calls) => {
+    neverFails: ({ output }) => output._tag === "Success",
+    zeroWhenUnreadable: ({ output, calls }) => {
       const read = calls.at(0)
-      return read === undefined || read.outcome._tag !== "Failure" || (out._tag === "Success" && out.value === 0n)
+      return read === undefined || read.outcome._tag !== "Failure" || (output._tag === "Success" && output.value === 0n)
     },
-    theFoldsBalanceOtherwise: (_accountId, out, calls) => {
+    theFoldsBalanceOtherwise: ({ output, calls }) => {
       const read = calls.at(0)
       if (read === undefined || read.op !== "read" || read.outcome._tag !== "Success") return true
-      return out._tag === "Success" && out.value === accountOf(read.outcome.value).balance
+      return output._tag === "Success" && output.value === accountOf(read.outcome.value).balance
     },
   },
 })
 
 export const doubled = computation<Ops>()(doubledBalance, {
   ensures: {
-    twiceTheFoldsBalance: (_accountId, out, calls) => {
+    twiceTheFoldsBalance: ({ output, calls }) => {
       const read = calls.at(0)
       if (read === undefined || read.op !== "read" || read.outcome._tag !== "Success") return true
       const b = accountOf(read.outcome.value).balance
-      return out._tag === "Success" && out.value === b + b
+      return output._tag === "Success" && output.value === b + b
     },
   },
 })
 
 export const deposited = computation<Ops>()(deposit, {
   ensures: {
-    readsFirst: (accountId, _id, _amount, _out, calls) => calls.at(0)?.op === "read" && calls.at(0)?.args[0] === accountId,
-    unreadableIsRefused: (_accountId, _id, _amount, out, calls) => {
+    readsFirst: ({ input: [accountId], calls }) => calls.at(0)?.op === "read" && calls.at(0)?.args[0] === accountId,
+    unreadableIsRefused: ({ output, calls }) => {
       const read = calls.at(0)
       if (read === undefined || read.outcome._tag !== "Failure") return true
-      return out._tag === "Failure" && out.error._tag === "DepositRefused" && calls.length === 1
+      return output._tag === "Failure" && output.error._tag === "DepositRefused" && calls.length === 1
     },
-    refusedWritesNothing: (_accountId, _id, _amount, out, calls) =>
-      !(out._tag === "Failure" && out.error._tag === "DepositRefused") || !calls.some((c) => c.op === "append"),
-    refusedExactlyWhenTheGuardSaysOrUnreadable: (_accountId, _id, amount, out, calls) => {
+    refusedWritesNothing: ({ output, calls }) =>
+      !(output._tag === "Failure" && output.error._tag === "DepositRefused") || !calls.some((c) => c.op === "append"),
+    refusedExactlyWhenTheGuardSaysOrUnreadable: ({ input: [, , amount], output, calls }) => {
       const read = calls.at(0)
       if (read === undefined || read.op !== "read") return true
       const refused = read.outcome._tag === "Failure" || depositRefusalOf(accountOf(read.outcome.value), amount) !== undefined
-      return refused === (out._tag === "Failure" && out.error._tag === "DepositRefused")
+      return refused === (output._tag === "Failure" && output.error._tag === "DepositRefused")
     },
-    paidWritesOneDeposit: (accountId, id, amount, out, calls) => {
-      if (out._tag !== "Success") return true
+    paidWritesOneDeposit: ({ input: [accountId, id, amount], output, calls }) => {
+      if (output._tag !== "Success") return true
       const last = calls.at(-1)
       return (
         calls.filter((c) => c.op === "append").length === 1 &&
@@ -82,10 +82,10 @@ export const deposited = computation<Ops>()(deposit, {
         last.args[1].amount === amount
       )
     },
-    writeFailureIsTheLedgers: (_accountId, _id, _amount, out, calls) => {
+    writeFailureIsTheLedgers: ({ output, calls }) => {
       const last = calls.at(-1)
       if (last === undefined || last.op !== "append" || last.outcome._tag !== "Failure") return true
-      return out._tag === "Failure" && out.error._tag === "LedgerError"
+      return output._tag === "Failure" && output.error._tag === "LedgerError"
     },
   },
 })

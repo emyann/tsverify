@@ -19,8 +19,8 @@ type None = Record<never, never>
 export const readCount = (read: () => number) => tried(read)
 export const refusesOrDies = computation<None>()(readCount, {
   ensures: {
-    failsOnlyWithARefusal: (_read, out) => out._tag !== "Failure" || out.error._tag === "Missing" || out.error._tag === "Conflict",
-    neverConflicts: (_read, out) => out._tag !== "Failure" || out.error._tag !== "Conflict",
+    failsOnlyWithARefusal: ({ output }) => output._tag !== "Failure" || output.error._tag === "Missing" || output.error._tag === "Conflict",
+    neverConflicts: ({ output }) => output._tag !== "Failure" || output.error._tag !== "Conflict",
   },
 })
 
@@ -34,8 +34,8 @@ export const kindOf = (read: () => number) =>
   )
 export const tellsTheClassesApart = computation<None>()(kindOf, {
   ensures: {
-    neverThree: (_read, out) => out._tag !== "Success" || out.value !== 3,
-    neverTwo: (_read, out) => out._tag !== "Success" || out.value !== 2,
+    neverThree: ({ output }) => output._tag !== "Success" || output.value !== 3,
+    neverTwo: ({ output }) => output._tag !== "Success" || output.value !== 2,
   },
 })
 
@@ -48,9 +48,9 @@ export const endOf = (read: () => number) =>
   })
 export const exitsSay = computation<None>()(endOf, {
   ensures: {
-    alwaysSucceeds: (_read, out) => out._tag === "Success",
-    oneReason: (_read, out) => out._tag === "Success" && out.value !== "none" && out.value !== "Interrupt",
-    neverDies: (_read, out) => out._tag === "Success" && out.value !== "Die",
+    alwaysSucceeds: ({ output }) => output._tag === "Success",
+    oneReason: ({ output }) => output._tag === "Success" && output.value !== "none" && output.value !== "Interrupt",
+    neverDies: ({ output }) => output._tag === "Success" && output.value !== "Die",
   },
 })
 
@@ -58,15 +58,15 @@ export const exitsSay = computation<None>()(endOf, {
 export const passed = (read: () => number) => tried(read).pipe(Effect.catchCause((cause) => Effect.failCause(cause)))
 export const passesItsCause = computation<None>()(passed, {
   ensures: {
-    failsOnlyWithARefusal: (_read, out) => out._tag !== "Failure" || out.error._tag === "Missing" || out.error._tag === "Conflict",
+    failsOnlyWithARefusal: ({ output }) => output._tag !== "Failure" || output.error._tag === "Missing" || output.error._tag === "Conflict",
   },
 })
 
 /** The read, every failure a defect: through `orDie`, and through `catchCause` and `Cause.squash`. */
 export const orDied = (read: () => number) => tried(read).pipe(Effect.orDie)
 export const squashed = (read: () => number) => tried(read).pipe(Effect.catchCause((cause) => Effect.die(Cause.squash(cause))))
-export const diesOfItsFailures = computation<None>()(orDied, { ensures: { neverFails: (_read, out) => out._tag !== "Failure" } })
-export const diesOfItsCause = computation<None>()(squashed, { ensures: { neverFails: (_read, out) => out._tag !== "Failure" } })
+export const diesOfItsFailures = computation<None>()(orDied, { ensures: { neverFails: ({ output }) => output._tag !== "Failure" } })
+export const diesOfItsCause = computation<None>()(squashed, { ensures: { neverFails: ({ output }) => output._tag !== "Failure" } })
 
 /** `n`, or a defect where it is negative: a `throw` in a generator. */
 export const nonNegative = Effect.fn("nonNegative")(function* (n: number) {
@@ -76,8 +76,8 @@ export const nonNegative = Effect.fn("nonNegative")(function* (n: number) {
 export const throwsADefect = computation<None>()(nonNegative, {
   ensures: {
     // Proved: a run that dies is judged by no law.
-    alwaysSucceeds: (_n, out) => out._tag === "Success",
-    notNegative: (_n, out) => out._tag !== "Success" || !(out.value < 0),
+    alwaysSucceeds: ({ output }) => output._tag === "Success",
+    notNegative: ({ output }) => output._tag !== "Success" || !(output.value < 0),
   },
 })
 
@@ -99,13 +99,13 @@ export const writtenBack = Effect.fn("writtenBack")(function* (key: string) {
 })
 export const combines = computation<Ops>()(writtenBack, {
   ensures: {
-    conflictKeepsTheMessage: (_key, out, calls) => {
+    conflictKeepsTheMessage: ({ output, calls }) => {
       const get = calls.at(0)
-      return out._tag !== "Failure" || (get?.outcome._tag === "Failure" && out.error.message === get.outcome.error.message)
+      return output._tag !== "Failure" || (get?.outcome._tag === "Failure" && output.error.message === get.outcome.error.message)
     },
-    writesBackWhatItRead: (key, out, calls) => {
+    writesBackWhatItRead: ({ input: [key], output, calls }) => {
       const [get, put] = [calls.at(0), calls.at(1)]
-      if (out._tag !== "Success") return calls.length === 1
+      if (output._tag !== "Success") return calls.length === 1
       if (get === undefined || get.op !== "get" || get.outcome._tag !== "Success") return false
       return (
         calls.length === 2 &&
@@ -113,7 +113,7 @@ export const combines = computation<Ops>()(writtenBack, {
         put.op === "put" &&
         put.args[0] === key &&
         put.args[1] === get.outcome.value &&
-        out.value === get.outcome.value.length
+        output.value === get.outcome.value.length
       )
     },
   },
@@ -133,10 +133,10 @@ export const voided = (key: string) =>
     return yield* store.get(key)
   }).pipe(Effect.andThen(Effect.succeed(5)), Effect.asVoid)
 export const touches = computation<Ops>()(touched, {
-  ensures: { writesOnceThenOne: (key, out, calls) => calls.length === 1 && calls.at(0)?.args[0] === key && out._tag === "Success" && out.value === 1 },
+  ensures: { writesOnceThenOne: ({ input: [key], output, calls }) => calls.length === 1 && calls.at(0)?.args[0] === key && output._tag === "Success" && output.value === 1 },
 })
 export const voids = computation<Ops>()(voided, {
-  ensures: { readsOnceAndNoMore: (key, _out, calls) => calls.length === 1 && calls.at(0)?.op === "get" && calls.at(0)?.args[0] === key },
+  ensures: { readsOnceAndNoMore: ({ input: [key], calls }) => calls.length === 1 && calls.at(0)?.op === "get" && calls.at(0)?.args[0] === key },
 })
 
 const reads = Metric.counter("reads")
@@ -148,7 +148,7 @@ export const observed = Effect.fn("observed")(function* (key: string) {
   return yield* store.get(key).pipe(Effect.annotateLogs({ key }), Effect.withSpan("get"))
 })
 export const observes = computation<Ops>()(observed, {
-  ensures: { readsOnce: (key, _out, calls) => calls.length === 1 && calls.at(0)?.args[0] === key },
+  ensures: { readsOnce: ({ input: [key], calls }) => calls.length === 1 && calls.at(0)?.args[0] === key },
 })
 
 const seen = { n: 0 }
@@ -157,7 +157,7 @@ export const loud = Effect.fn("loud")(function* (key: string) {
   yield* Effect.logInfo(String(seen.n++))
   return key
 })
-export const logsLoudly = computation<None>()(loud, { ensures: { same: (key, out) => out._tag === "Success" && out.value === key } })
+export const logsLoudly = computation<None>()(loud, { ensures: { same: ({ input: [key], output }) => output._tag === "Success" && output.value === key } })
 
 /** Whether `x` is a string or an object: narrowed to `{}`, which a string is too. */
 const someThing = (x: unknown): x is {} => typeof x === "string" || typeof x === "object"
@@ -168,7 +168,7 @@ export const thrownKind = (read: () => number) =>
     Effect.catch((err) => Effect.succeed(someThing(err) ? typeof err : "other")),
   )
 export const keepsWhatWasThrownOpen = computation<None>()(thrownKind, {
-  ensures: { neverAString: (_read, out) => out._tag !== "Success" || out.value !== "string" },
+  ensures: { neverAString: ({ output }) => output._tag !== "Success" || output.value !== "string" },
 })
 
 /** The length of what a read gave, 0 where it gave nothing: read as `string | undefined`, then as `string`. */
@@ -179,5 +179,5 @@ export const lengthOf = (read: () => string | undefined) =>
     return v.length
   })
 export const narrowsAGenericValue = computation<None>()(lengthOf, {
-  ensures: { notNegative: (_read, out) => out._tag !== "Success" || out.value >= 0 },
+  ensures: { notNegative: ({ output }) => output._tag !== "Success" || output.value >= 0 },
 })

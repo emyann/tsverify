@@ -9,8 +9,8 @@ export function labels(items: ReadonlyArray<{ readonly label: string }>): Array<
 }
 export const labelsOf = contract(labels, {
   ensures: {
-    sameLength: (items, out) => out.length === items.length,
-    each: (items, out) => out.every((l, i) => l === items[i]?.label),
+    sameLength: ({ input: [items], output }) => output.length === items.length,
+    each: ({ input: [items], output }) => output.every((l, i) => l === items[i]?.label),
   },
 })
 
@@ -19,7 +19,7 @@ export function seconds(pairs: ReadonlyArray<readonly [bigint, bigint]>): Array<
   return pairs.map(([, b]) => b)
 }
 export const secondsOf = contract(seconds, {
-  ensures: { each: (pairs, out) => out.length === pairs.length && out.every((b, i) => b === pairs[i]?.[1]) },
+  ensures: { each: ({ input: [pairs], output }) => output.length === pairs.length && output.every((b, i) => b === pairs[i]?.[1]) },
 })
 
 /** A line of cells, comma-separated. */
@@ -28,8 +28,8 @@ export function line(cells: ReadonlyArray<string>): string {
 }
 export const csvLine = contract(line, {
   ensures: {
-    emptyIsEmpty: (cells, out) => cells.length > 0 || out === "",
-    oneIsItself: (cells, out) => cells.length !== 1 || out === cells[0],
+    emptyIsEmpty: ({ input: [cells], output }) => cells.length > 0 || output === "",
+    oneIsItself: ({ input: [cells], output }) => cells.length !== 1 || output === cells[0],
   },
 })
 
@@ -38,7 +38,7 @@ export function flat(pairs: ReadonlyArray<readonly [bigint, bigint]>): Array<big
   return pairs.flatMap(([a, b]) => [a, b])
 }
 export const flattened = contract(flat, {
-  ensures: { emptyIsEmpty: (pairs, out) => pairs.length > 0 || out.length === 0 },
+  ensures: { emptyIsEmpty: ({ input: [pairs], output }) => pairs.length > 0 || output.length === 0 },
 })
 
 /** Everything but the first. */
@@ -48,8 +48,8 @@ export function tail(xs: ReadonlyArray<string>): ReadonlyArray<string> {
 }
 export const tailOf = contract(tail, {
   ensures: {
-    oneLess: (xs, out) => (xs.length === 0 ? out.length === 0 : out.length === xs.length - 1),
-    shifted: (xs, out) => out.every((y, i) => y === xs[i + 1]),
+    oneLess: ({ input: [xs], output }) => (xs.length === 0 ? output.length === 0 : output.length === xs.length - 1),
+    shifted: ({ input: [xs], output }) => output.every((y, i) => y === xs[i + 1]),
   },
 })
 
@@ -59,7 +59,7 @@ export function firstOr(xs: ReadonlyArray<string>, fallback: string): string {
   return first
 }
 export const firstOrFallback = contract(firstOr, {
-  ensures: { theFirst: (xs, fallback, out) => out === (xs[0] ?? fallback) },
+  ensures: { theFirst: ({ input: [xs, fallback], output }) => output === (xs[0] ?? fallback) },
 })
 
 /** The two of a pair the other way round. */
@@ -68,7 +68,7 @@ export function swapped(pair: readonly [bigint, bigint]): readonly [bigint, bigi
   return [b, a]
 }
 export const swapOf = contract(swapped, {
-  ensures: { swapped: (pair, out) => out[0] === pair[1] && out[1] === pair[0] },
+  ensures: { swapped: ({ input: [pair], output }) => output[0] === pair[1] && output[1] === pair[0] },
 })
 
 /** What the positive amounts add up to. */
@@ -78,5 +78,5 @@ export function credited(entries: ReadonlyArray<readonly [string, bigint]>): big
   return total
 }
 export const creditedNonNegative = contract(credited, {
-  ensures: { nonNegative: (_entries, out) => out >= 0n },
+  ensures: { nonNegative: ({ output }) => output >= 0n },
 })

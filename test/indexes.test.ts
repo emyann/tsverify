@@ -40,14 +40,15 @@ const INPUTS: Readonly<Record<Contract, ReadonlyArray<ReadonlyArray<unknown>>>> 
 const brokenBy = (f: Fixture, name: Contract): Set<string> => {
   const c = f[name] as unknown as {
     fn: (...a: Array<unknown>) => unknown
-    requires?: (...a: Array<unknown>) => boolean
+    requires?: (given: { readonly input: ReadonlyArray<unknown> }) => boolean
     ensures: Record<string, Parameters<typeof holds>[0]>
   }
   const broken = new Set<string>()
   for (const args of INPUTS[name]) {
-    if (c.requires !== undefined && !c.requires(...args)) continue
+    if (c.requires !== undefined && !c.requires({ input: args })) continue
     const out = c.fn(...args)
-    for (const [law, l] of Object.entries(c.ensures)) if (!(holds(l) as (...a: Array<unknown>) => boolean)(...args, out)) broken.add(law)
+    for (const [law, l] of Object.entries(c.ensures))
+      if (!(holds(l) as (run: unknown) => boolean)({ input: args, output: out })) broken.add(law)
   }
   return broken
 }

@@ -112,9 +112,9 @@ describe("a declaration of a function that implements a spec", () => {
   const CLAMP = {
     "clamp.contract.ts":
       `import { spec } from "@emyann/tsverify"\n\n` +
-      `/** At most \`hi\`. */\nexport const atMostHi = (_x: bigint, hi: bigint, out: bigint): boolean => out <= hi\n\n` +
+      `/** At most \`hi\`. */\nexport const atMostHi = ({ input: [, hi], output }: { readonly input: readonly [bigint, bigint]; readonly output: bigint }): boolean => output <= hi\n\n` +
       `const clampSpec = spec<(x: bigint, hi: bigint) => bigint>({\n` +
-      `  requires: (_x, hi) => hi >= 0n,\n  ensures: { atMostHi, notNegative: (_x, _hi, out) => out >= 0n },\n})\n` +
+      `  requires: ({ input: [, hi] }) => hi >= 0n,\n  ensures: { atMostHi, notNegative: ({ output }) => output >= 0n },\n})\n` +
       `export type ClampSpec = typeof clampSpec\n`,
     "clamp.ts":
       `import type { Implementation } from "@emyann/tsverify"\nimport type { ClampSpec } from "./clamp.contract.ts"\n\n` +
@@ -146,9 +146,9 @@ describe("a declaration of a function that implements a spec", () => {
         `import { assume, contract } from "@emyann/tsverify"\nimport { atMostHi } from "./clamp.contract.ts"\nimport { clamp } from "./clamp.ts"\n\n` +
         `export const clampAssumed = assume(clamp, { pure: true, ensures: { atMostHi } })\n\n` +
         `export const capped = (x: bigint): bigint => clamp(x, 10n)\n` +
-        `export const cappedAtTen = contract(capped, { ensures: { atMostTen: (_x, out) => out <= 10n } })\n\n` +
+        `export const cappedAtTen = contract(capped, { ensures: { atMostTen: ({ output }) => output <= 10n } })\n\n` +
         `export const anyCap = (x: bigint, hi: bigint): bigint => clamp(x, hi)\n` +
-        `export const anyCapAtMostHi = contract(anyCap, { ensures: { atMostHi: (_x, hi, out) => out <= hi } })\n`,
+        `export const anyCapAtMostHi = contract(anyCap, { ensures: { atMostHi: ({ input: [, hi], output }) => output <= hi } })\n`,
     })
     try {
       const ten = await verified(dir, "cappedAtTen")
@@ -171,9 +171,9 @@ describe("a declaration of a function that implements a spec", () => {
     const dir = projectOf({
       "use.ts":
         `import { assume, contract } from "@emyann/tsverify"\nimport { clamp } from "./clamp.ts"\n\n` +
-        `export const clampAssumed = assume(clamp, { pure: true, ensures: { atMostHi: (_x, hi, out) => out <= hi } })\n\n` +
+        `export const clampAssumed = assume(clamp, { pure: true, ensures: { atMostHi: ({ input: [, hi], output }) => output <= hi } })\n\n` +
         `export const capped = (x: bigint): bigint => clamp(x, 10n)\n` +
-        `export const cappedAtTen = contract(capped, { ensures: { atMostTen: (_x, out) => out <= 10n } })\n`,
+        `export const cappedAtTen = contract(capped, { ensures: { atMostTen: ({ output }) => output <= 10n } })\n`,
     })
     try {
       const v = await verified(dir, "cappedAtTen")

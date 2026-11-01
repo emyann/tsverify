@@ -200,9 +200,9 @@ const brokenBy = async (p: Programs, a: AsyncPrograms, r: Run): Promise<Record<C
   const out = Object.fromEntries(CONTRACTS.map((c) => [c, []])) as unknown as Record<Contract, Array<string>>
   for (const name of CONTRACTS) {
     const [args, { out: o, calls }] = ran[name]
-    const laws = (spec as unknown as Record<string, { ensures: Record<string, (...a: unknown[]) => boolean> }>)[name]!.ensures
+    const laws = (spec as unknown as Record<string, { ensures: Record<string, (run: unknown) => boolean> }>)[name]!.ensures
     out[name] = Object.entries(laws)
-      .filter(([, law]) => !law(...args, o, calls))
+      .filter(([, law]) => !law({ input: args, output: o, calls }))
       .map(([l]) => l)
   }
   return out

@@ -8,10 +8,10 @@ export function clamp(x: number, lo: number, hi: number): number {
   return Math.min(Math.max(x, lo), hi)
 }
 export const clamped = contract(clamp, {
-  requires: (x, lo, hi) => !Number.isNaN(x) && !Number.isNaN(lo) && !Number.isNaN(hi) && lo <= hi,
+  requires: ({ input: [x, lo, hi] }) => !Number.isNaN(x) && !Number.isNaN(lo) && !Number.isNaN(hi) && lo <= hi,
   ensures: {
-    inside: (_x, lo, hi, out) => lo <= out && out <= hi,
-    itselfInside: (x, lo, hi, out) => !(lo <= x && x <= hi) || out === x,
+    inside: ({ input: [, lo, hi], output }) => lo <= output && output <= hi,
+    itselfInside: ({ input: [x, lo, hi], output }) => !(lo <= x && x <= hi) || output === x,
   },
 })
 
@@ -20,10 +20,10 @@ export function distance(a: number, b: number): number {
   return Math.abs(a - b)
 }
 export const distanceApart = contract(distance, {
-  requires: (a, b) => Number.isSafeInteger(a) && Number.isSafeInteger(b) && Math.abs(a) < 1099511627776 && Math.abs(b) < 1099511627776,
+  requires: ({ input: [a, b] }) => Number.isSafeInteger(a) && Number.isSafeInteger(b) && Math.abs(a) < 1099511627776 && Math.abs(b) < 1099511627776,
   ensures: {
-    notNegative: (_a, _b, out) => out >= 0 && !Object.is(out, -0),
-    zeroIffEqual: (a, b, out) => (out === 0) === (a === b),
+    notNegative: ({ output }) => output >= 0 && !Object.is(output, -0),
+    zeroIffEqual: ({ input: [a, b], output }) => (output === 0) === (a === b),
   },
 })
 
@@ -33,9 +33,9 @@ export function same(a: number, b: number): boolean {
 }
 export const sameValue = contract(same, {
   ensures: {
-    nanIsItself: (a, b, out) => !(Number.isNaN(a) && Number.isNaN(b)) || out,
-    zerosApart: (a, b, out) => !(Object.is(a, 0) && Object.is(b, -0)) || !out,
-    likeEqualElsewhere: (a, _b, out) => a === 0 || Number.isNaN(a) || out === (a === _b),
+    nanIsItself: ({ input: [a, b], output }) => !(Number.isNaN(a) && Number.isNaN(b)) || output,
+    zerosApart: ({ input: [a, b], output }) => !(Object.is(a, 0) && Object.is(b, -0)) || !output,
+    likeEqualElsewhere: ({ input: [a, _b], output }) => a === 0 || Number.isNaN(a) || output === (a === _b),
   },
 })
 
@@ -44,7 +44,7 @@ export function negated(x: number): number {
   return -x
 }
 export const signFlipped = contract(negated, {
-  ensures: { zeroFlips: (x, out) => x !== 0 || Object.is(out, -0) === Object.is(x, 0) },
+  ensures: { zeroFlips: ({ input: [x], output }) => x !== 0 || Object.is(output, -0) === Object.is(x, 0) },
 })
 
 /** The whole part of `x`, toward 0. */
@@ -53,7 +53,7 @@ export function wholePart(x: number): number {
 }
 export const towardZero = contract(wholePart, {
   ensures: {
-    noFarther: (x, out) => !Number.isFinite(x) || Math.abs(out) <= Math.abs(x),
-    negZeroBetween: (x, out) => !(x > -1 && x < 0) || Object.is(out, -0),
+    noFarther: ({ input: [x], output }) => !Number.isFinite(x) || Math.abs(output) <= Math.abs(x),
+    negZeroBetween: ({ input: [x], output }) => !(x > -1 && x < 0) || Object.is(output, -0),
   },
 })

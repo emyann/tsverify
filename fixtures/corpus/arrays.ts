@@ -9,8 +9,8 @@ export function readBack(a: Array<number>, x: number, y: number): number | undef
   return b[y - 2]
 }
 export const storeThenSelect = contract(readBack, {
-  requires: (a, x, y) => Number.isInteger(x) && 0 <= x && x < a.length && y === x + 2,
-  ensures: { readsTheWrite: (_a, x, y, out) => out === y - x + 1 },
+  requires: ({ input: [a, x, y] }) => Number.isInteger(x) && 0 <= x && x < a.length && y === x + 2,
+  ensures: { readsTheWrite: ({ input: [, x, y], output }) => output === y - x + 1 },
 })
 
 // pz3-seq-unit: `s ++ [2]` is never `[1] ++ s`.
@@ -18,7 +18,7 @@ export function ends(s: ReadonlyArray<bigint>) {
   return { a: [...s, 2n], b: [1n, ...s] }
 }
 export const neverEqual = contract(ends, {
-  ensures: { differ: (_s, out) => !(out.a.length === out.b.length && out.a.every((e, i) => e === out.b[i])) },
+  ensures: { differ: ({ output }) => !(output.a.length === output.b.length && output.a.every((e, i) => e === output.b[i])) },
 })
 
 // vf-dafny-binary-search: Dafny's binary search, its midpoint on whole numbers, with Dafny's invariants; `sorted` as
@@ -40,10 +40,10 @@ export function binarySearch(a: ReadonlyArray<bigint>, value: bigint): number {
   return -1
 }
 export const binarySearchFinds = contract(binarySearch, {
-  requires: (a) => sorted(a),
+  requires: ({ input: [a] }) => sorted(a),
   ensures: {
-    foundIsThere: (a, value, out) => out < 0 || (out < a.length && a[out] === value),
-    missingIsAbsent: (a, value, out) => out >= 0 || !a.includes(value),
+    foundIsThere: ({ input: [a, value], output }) => output < 0 || (output < a.length && a[output] === value),
+    missingIsAbsent: ({ input: [a, value], output }) => output >= 0 || !a.includes(value),
   },
 })
 
@@ -62,7 +62,7 @@ export function bubblePass(a: ReadonlyArray<bigint>): Array<bigint> {
   }
   return b
 }
-export const onePassSorts = contract(bubblePass, { ensures: { sorted: (_a, out) => isSorted(out) } })
+export const onePassSorts = contract(bubblePass, { ensures: { sorted: ({ output }) => isSorted(output) } })
 export function bubbleSort(a: ReadonlyArray<bigint>): Array<bigint> {
   const b = [...a]
   for (let n = b.length; n > 1; n--) {
@@ -84,7 +84,7 @@ export function bubbleSort(a: ReadonlyArray<bigint>): Array<bigint> {
   return b
 }
 export const bubbleSortSorts = contract(bubbleSort, {
-  ensures: { sorted: (_a, out) => isSorted(out), sameLength: (a, out) => out.length === a.length },
+  ensures: { sorted: ({ output }) => isSorted(output), sameLength: ({ input: [a], output }) => output.length === a.length },
 })
 
 const ARRAYS: ReadonlyArray<ReadonlyArray<bigint>> = [[], [1n], [2n, 1n], [3n, 2n, 1n], [1n, 2n, 3n], [2n, 2n, 1n], [5n, -1n, 3n, 0n]]

@@ -87,7 +87,7 @@ describe("the pack, against lodash", () => {
   it("a law lodash does not keep is caught: clamp within its bounds whatever they are", () => {
     const naive = assume<[n: number, lower: number, upper: number], number>(clamp, {
       pure: true,
-      ensures: { within: (_n, lower, upper, out) => lower <= out && out <= upper },
+      ensures: { within: ({ input: [, lower, upper], output }) => lower <= output && output <= upper },
     })
     const broken = brokenOn(naive, numbers).map((b) => b.input)
     assert.deepEqual(broken, [

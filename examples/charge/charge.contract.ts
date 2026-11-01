@@ -3,10 +3,10 @@
 import { spec } from "@emyann/tsverify"
 
 export const chargeSpec = spec<(balance: bigint, amount: bigint) => bigint>({
-  requires: (balance, amount) => balance >= 0n && amount >= 0n,
+  requires: ({ input: [balance, amount] }) => balance >= 0n && amount >= 0n,
   ensures: {
-    neverNegative: (_balance, _amount, left) => left >= 0n,
-    takesWhatItCan: (balance, amount, left) => (amount > balance ? left === 0n : left === balance - amount),
+    neverNegative: ({ output }) => output >= 0n,
+    takesWhatItCan: ({ input: [balance, amount], output }) => (amount > balance ? output === 0n : output === balance - amount),
   },
 })
 export type ChargeSpec = typeof chargeSpec

@@ -16,9 +16,9 @@ export function largestAt(xs: ReadonlyArray<bigint>): number {
 }
 export const theLargest = contract(largestAt, {
   ensures: {
-    noneWhenEmpty: (xs, out) => xs.length > 0 || out === -1,
-    inside: (xs, out) => xs.length === 0 || (Number.isInteger(out) && 0 <= out && out < xs.length),
-    noneLarger: (xs, out) => xs.every((x) => x <= (xs[out] ?? x)),
+    noneWhenEmpty: ({ input: [xs], output }) => xs.length > 0 || output === -1,
+    inside: ({ input: [xs], output }) => xs.length === 0 || (Number.isInteger(output) && 0 <= output && output < xs.length),
+    noneLarger: ({ input: [xs], output }) => xs.every((x) => x <= (xs[output] ?? x)),
   },
 })
 
@@ -36,8 +36,8 @@ export function reversed(xs: ReadonlyArray<bigint>): Array<bigint> {
 }
 export const reversesIt = contract(reversed, {
   ensures: {
-    sameLength: (xs, out) => out.length === xs.length,
-    mirrored: (xs, out) => out.every((y, j) => y === xs[xs.length - 1 - j]),
+    sameLength: ({ input: [xs], output }) => output.length === xs.length,
+    mirrored: ({ input: [xs], output }) => output.every((y, j) => y === xs[xs.length - 1 - j]),
   },
 })
 
@@ -47,9 +47,9 @@ export function nth(xs: ReadonlyArray<string>, i: number): string | undefined {
 }
 export const atCounts = contract(nth, {
   ensures: {
-    fromTheStart: (xs, i, out) => !(Number.isInteger(i) && 0 <= i && i < xs.length) || out === xs[i],
-    fromTheEnd: (xs, i, out) => !(Number.isInteger(i) && -xs.length <= i && i < 0) || out === xs[xs.length + i],
-    missingOutside: (xs, i, out) => !(Number.isInteger(i) && (i >= xs.length || i < -xs.length)) || out === undefined,
+    fromTheStart: ({ input: [xs, i], output }) => !(Number.isInteger(i) && 0 <= i && i < xs.length) || output === xs[i],
+    fromTheEnd: ({ input: [xs, i], output }) => !(Number.isInteger(i) && -xs.length <= i && i < 0) || output === xs[xs.length + i],
+    missingOutside: ({ input: [xs, i], output }) => !(Number.isInteger(i) && (i >= xs.length || i < -xs.length)) || output === undefined,
   },
 })
 
@@ -57,8 +57,8 @@ export const atCounts = contract(nth, {
 export function next(i: number): number {
   return i + 1
 }
-export const nextOfAny = contract(next, { ensures: { larger: (i, out) => out > i } })
+export const nextOfAny = contract(next, { ensures: { larger: ({ input: [i], output }) => output > i } })
 export const nextOfWhole = contract(next, {
-  requires: (i) => Number.isSafeInteger(i) && i < 9007199254740991,
-  ensures: { larger: (i, out) => out > i, whole: (_i, out) => Number.isInteger(out) },
+  requires: ({ input: [i] }) => Number.isSafeInteger(i) && i < 9007199254740991,
+  ensures: { larger: ({ input: [i], output }) => output > i, whole: ({ output }) => Number.isInteger(output) },
 })

@@ -22,12 +22,12 @@ export const renamed = computation<{ names: Names }, Error>()(
   {
     ensures: {
       // `c.args[1]` exists only on a `set`: at the place of the `get`, no run reads it.
-      writesWhatWasAsked: (_names, id, name, _out, calls) =>
+      writesWhatWasAsked: ({ input: [, id, name], calls }) =>
         calls.every((c) => c.op !== "set" || (c.args[0] === id && c.args[1] === name)),
       // Read further: at the `get`'s place, what stands for `c.args[1]` is a string too.
-      writesNoEmptyName: (_names, _id, _name, _out, calls) => calls.every((c) => c.op !== "set" || c.args[1].length > 0),
-      lastIsTheWrite: (_names, id, name, out, calls) => {
-        if (out._tag !== "Success" || !out.value) return true
+      writesNoEmptyName: ({ calls }) => calls.every((c) => c.op !== "set" || c.args[1].length > 0),
+      lastIsTheWrite: ({ input: [, id, name], output, calls }) => {
+        if (output._tag !== "Success" || !output.value) return true
         const last = calls.at(-1)
         return last !== undefined && last.op === "set" && last.args[0] === id && last.args[1] === name
       },
@@ -54,11 +54,11 @@ export const renamedUser = computation<{ users: Users }, Error>()(
   {
     ensures: {
       // A `get`'s `args[0]` is a string, a `put`'s a user: once `op === "put"`, the user.
-      lastWritesTheName: (_users, _id, name, out, calls) => {
+      lastWritesTheName: ({ input: [, , name], output, calls }) => {
         const last = calls.at(-1)
-        return out._tag !== "Success" || !out.value || (last !== undefined && last.op === "put" && last.args[0].name === name)
+        return output._tag !== "Success" || !output.value || (last !== undefined && last.op === "put" && last.args[0].name === name)
       },
-      everyPutTheName: (_users, _id, name, _out, calls) => calls.every((c) => c.op !== "put" || c.args[0].name === name),
+      everyPutTheName: ({ input: [, , name], calls }) => calls.every((c) => c.op !== "put" || c.args[0].name === name),
     },
   },
 )
@@ -78,19 +78,19 @@ export const touched = computation<{ store: Store }, Error>()(
     return await store.bump(by)
   },
   {
-    requires: (_store, _id, by) => by > 0n,
+    requires: ({ input: [, , by] }) => by > 0n,
     ensures: {
       // A `label`'s first argument is a string, a `bump`'s a bigint: each read takes the operation its check left.
-      bumpsUp: (_store, _id, _by, _out, calls) => calls.every((c) => c.op !== "bump" || c.args[0] > 0n),
-      labelsTheId: (_store, id, _by, _out, calls) => calls.every((c) => c.op !== "label" || c.args[0] === id),
-      lastBumpIsBy: (_store, _id, by, _out, calls) => {
+      bumpsUp: ({ calls }) => calls.every((c) => c.op !== "bump" || c.args[0] > 0n),
+      labelsTheId: ({ input: [, id], calls }) => calls.every((c) => c.op !== "label" || c.args[0] === id),
+      lastBumpIsBy: ({ input: [, , by], calls }) => {
         const last = calls.at(-1)
         return last === undefined || last.op !== "bump" || last.args[0] === by
       },
-      returnsTheBump: (_store, _id, _by, out, calls) => {
+      returnsTheBump: ({ output, calls }) => {
         const last = calls.at(-1)
         if (last === undefined || last.op !== "bump" || last.outcome._tag !== "Success") return true
-        return out._tag !== "Success" || out.value === last.outcome.value
+        return output._tag !== "Success" || output.value === last.outcome.value
       },
     },
   },
@@ -105,9 +105,9 @@ export type Event =
 export const apply = (total: bigint, ev: Event): bigint => (ev.type === "add" ? total + ev.n : ev.type === "sub" ? total - ev.n : total)
 export const applied = contract(apply, {
   ensures: {
-    namesKeep: (total, ev, out) => ev.type !== "name" || out === total,
-    addsAdd: (total, ev, out) => ev.type !== "add" || out === total + ev.n,
-    subsSub: (total, ev, out) => ev.type !== "sub" || out === total - ev.n,
+    namesKeep: ({ input: [total, ev], output }) => ev.type !== "name" || output === total,
+    addsAdd: ({ input: [total, ev], output }) => ev.type !== "add" || output === total + ev.n,
+    subsSub: ({ input: [total, ev], output }) => ev.type !== "sub" || output === total - ev.n,
   },
 })
 
@@ -121,12 +121,12 @@ export function sum(events: ReadonlyArray<Event>): bigint {
   return total
 }
 export const summed = contract(sum, {
-  requires: (events) => events.every((e) => e.type !== "add" || e.n >= 0n),
-  ensures: { notNegative: (_events, out) => out >= 0n },
+  requires: ({ input: [events] }) => events.every((e) => e.type !== "add" || e.n >= 0n),
+  ensures: { notNegative: ({ output }) => output >= 0n },
 })
 
 /** Read where the checker has not narrowed it, `n` is a bigint or a string: a value of either kind, which `===` tells apart. */
 export const either = contract((ev: Event): boolean => ev.n === 0n, {
-  ensures: { onlyACount: (ev, out) => !out || ev.type !== "name" },
+  ensures: { onlyACount: ({ input: [ev], output }) => !output || ev.type !== "name" },
 })
-export const eitherZero = contract((ev: Event): boolean => ev.n === 0n, { ensures: { never: (_ev, out) => !out } })
+export const eitherZero = contract((ev: Event): boolean => ev.n === 0n, { ensures: { never: ({ output }) => !output } })

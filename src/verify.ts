@@ -33,7 +33,7 @@ import {
   trustOf,
 } from "./lower.ts"
 import { slice } from "./lower/arrays.ts"
-import { strictEq, truthy } from "./ops.ts"
+import { runOf, strictEq, truthy } from "./ops.ts"
 import { type ContractSource, type Project, readContract } from "./project.ts"
 import { unwrap } from "./resolve.ts"
 import { symbolicOf } from "./symbolic.ts"
@@ -205,7 +205,24 @@ export const lowerSide = (
   const preOf = (args: ReadonlyArray<Val>) =>
     source.requires === undefined
       ? z3.Bool.val(true)
-      : definedSpec(L, () => inSpec(L, () => truthy(u, lowerCall(L, source.requires!, emptyEnv, args, source.requires!))), "requires")
+      : definedSpec(
+          L,
+          () =>
+            inSpec(L, () =>
+              truthy(
+                u,
+                // A lemma's `requires` reads its statement's variables; a contract's, the arguments of a run.
+                lowerCall(
+                  L,
+                  source.requires!,
+                  emptyEnv,
+                  source.kind === "lemma" ? args : [runOf(u, source.requires!, args)],
+                  source.requires!,
+                ),
+              ),
+            ),
+          "requires",
+        )
   if (source.kind === "lemma") {
     const t = source.target as FunctionNode
     const { params, args } = symbolicArgs(t)
@@ -267,7 +284,7 @@ const guesser =
     const result = unwrap(returned.expression!) as ts.Identifier
     const count = (term: Arith): Val => ({ kind: "int", origin: "count", term })
     return source.ensures
-      .filter((law) => laws.has(law.name) && law.law.parameters.length === args.length + 1)
+      .filter((law) => laws.has(law.name) && law.law.parameters.length <= 1)
       .map((law) => ({
         law: law.name,
         key: `invariant@${locate(loop)}:${law.name}`,
@@ -279,7 +296,13 @@ const guesser =
               const seen = slice(L, xs, [count(L.u.z3.Int.val(0)), count(i)], loop)
               return truthy(
                 L.u,
-                lowerCall(L, law.law, emptyEnv, [...args.slice(0, p), seen, ...args.slice(p + 1), lowerExpr(L, result, env)], law.law),
+                lowerCall(
+                  L,
+                  law.law,
+                  emptyEnv,
+                  [runOf(L.u, loop, [...args.slice(0, p), seen, ...args.slice(p + 1)], lowerExpr(L, result, env))],
+                  law.law,
+                ),
               )
             })
           } catch (e) {
@@ -300,16 +323,7 @@ const lawOn = (side: Lowered, law: ContractSource["ensures"][number]): Bool =>
     ? truthy(side.u, side.result)
     : definedSpec(side.L, () =>
         inSpec(side.L, () =>
-          truthy(
-            side.u,
-            lowerCall(
-              side.L,
-              law.law,
-              emptyEnv,
-              side.trace === undefined ? [...side.args, side.result] : [...side.args, side.result, side.trace],
-              law.law,
-            ),
-          ),
+          truthy(side.u, lowerCall(side.L, law.law, emptyEnv, [runOf(side.u, law.law, side.args, side.result, side.trace)], law.law)),
         ),
       )
 
@@ -318,19 +332,23 @@ const lawOn = (side: Lowered, law: ContractSource["ensures"][number]): Bool =>
  * `undefined` when such a value cannot be built.
  */
 const lawOnAnyResult = (side: Lowered, law: ContractSource["ensures"][number]): Bool | undefined => {
-  const params = law.law.parameters
-  const k = side.args.length
+  const run = law.law.parameters[0]
+  const checker = side.L.checker
   try {
-    const any = (i: number): Val => {
-      const p = params[i]
-      // A law that does not name it cannot read it: any value will do.
-      if (p === undefined) return i === k ? side.result : side.trace!
-      return symbolicOf(side.L, side.L.checker.getTypeAtLocation(p), [side.u.fresh("any-result")], side.u.openBounds(), p)
+    const any = (field: "output" | "calls", given: Val): Val => {
+      const p = run === undefined ? undefined : checker.getPropertyOfType(checker.getTypeAtLocation(run), field)
+      // A law that does not take it cannot read it: any value will do.
+      if (run === undefined || p === undefined) return given
+      return symbolicOf(side.L, checker.getTypeOfSymbol(p), [side.u.fresh("any-result")], side.u.openBounds(), run)
     }
-    const replaced = side.trace === undefined ? [any(k)] : [any(k), any(k + 1)]
-    return definedSpec(side.L, () =>
-      inSpec(side.L, () => truthy(side.u, lowerCall(side.L, law.law, emptyEnv, [...side.args, ...replaced], law.law))),
+    const replaced = runOf(
+      side.u,
+      law.law,
+      side.args,
+      any("output", side.result),
+      side.trace === undefined ? undefined : any("calls", side.trace),
     )
+    return definedSpec(side.L, () => inSpec(side.L, () => truthy(side.u, lowerCall(side.L, law.law, emptyEnv, [replaced], law.law))))
   } catch (e) {
     if (e instanceof Unsupported) return undefined
     throw e

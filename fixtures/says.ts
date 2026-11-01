@@ -12,23 +12,23 @@ export const shipping = (total: number): number => (total >= 50 ? 0 : 5)
 /** A law kept in a `const`, its sentence with it. */
 const smallOrdersPay = {
   says: "A smaller order pays 5",
-  holds: (total: number, cost: number) => (total < 50 ? cost === 5 : true),
+  holds: ({ input: [total], output }: { readonly input: readonly [number]; readonly output: number }) => (total < 50 ? output === 5 : true),
 }
 
 export const shipped = contract(shipping, {
-  requires: (total) => total >= 0,
+  requires: ({ input: [total] }) => total >= 0,
   ensures: {
-    freeFrom50: { says: "An order of 50 or more ships free", holds: (total, cost) => (total >= 50 ? cost === 0 : true) },
+    freeFrom50: { says: "An order of 50 or more ships free", holds: ({ input: [total], output }) => (total >= 50 ? output === 0 : true) },
     smallOrdersPay,
-    notNegative: (_total, cost) => cost >= 0,
+    notNegative: ({ output }) => output >= 0,
   },
 })
 
 /** The same laws over a planted bug, `>` for `>=`: the law that says so is broken, at 50. */
 export const shippedLate = contract((total: number): number => (total > 50 ? 0 : 5), {
-  requires: (total) => total >= 0,
+  requires: ({ input: [total] }) => total >= 0,
   ensures: {
-    freeFrom50: { says: "An order of 50 or more ships free", holds: (total, cost) => (total >= 50 ? cost === 0 : true) },
+    freeFrom50: { says: "An order of 50 or more ships free", holds: ({ input: [total], output }) => (total >= 50 ? output === 0 : true) },
   },
 })
 
@@ -43,7 +43,7 @@ export const renamed = computation<{ names: Names }, Error>()(
     ensures: {
       emptyNameTouchesNothing: {
         says: "An empty name never reaches the store",
-        holds: (_names, _id, name, _out, calls) => (name === "" ? calls.length === 0 : true),
+        holds: ({ input: [, , name], calls }) => (name === "" ? calls.length === 0 : true),
       },
     },
   },
@@ -59,12 +59,12 @@ export const readIf = Effect.fn("readIf")(function* (asked: boolean, key: string
 })
 export const readsWhenAsked = effectComputation<{ store: StoreShape }>()(readIf, {
   ensures: {
-    readsOnlyWhenAsked: { says: "It reads the store only when asked to", holds: (asked, _key, _out, calls) => asked || calls.length === 0 },
+    readsOnlyWhenAsked: { says: "It reads the store only when asked to", holds: ({ input: [asked], calls }) => asked || calls.length === 0 },
   },
 })
 
 const what = "free"
 /** A sentence that is not written in place: refused, saying how to write it. */
 export const saysComputed = contract(shipping, {
-  ensures: { freeFrom50: { says: `An order of 50 or more ships ${what}`, holds: (total, cost) => (total >= 50 ? cost === 0 : true) } },
+  ensures: { freeFrom50: { says: `An order of 50 or more ships ${what}`, holds: ({ input: [total], output }) => (total >= 50 ? output === 0 : true) } },
 })

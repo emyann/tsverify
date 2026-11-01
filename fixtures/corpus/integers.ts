@@ -12,16 +12,16 @@ export function divmod(a: bigint, b: bigint) {
   return { q: a / b, r: a % b }
 }
 export const divisionAsJavaScript = contract(divmod, {
-  requires: (_a, b) => b !== 0n,
+  requires: ({ input: [, b] }) => b !== 0n,
   ensures: {
-    truncates: (a, b, out) => a === b * out.q + out.r && abs(out.r) < abs(b) && (out.r === 0n || out.r < 0n === a < 0n),
-    euclid: (a, b, out) => a === b * out.q + out.r && 0n <= out.r && out.r < abs(b),
-    remLikeZ3: (a, b, out) => out.r === (b > 0n ? emod(a, b) : -emod(a, b)),
+    truncates: ({ input: [a, b], output }) => a === b * output.q + output.r && abs(output.r) < abs(b) && (output.r === 0n || output.r < 0n === a < 0n),
+    euclid: ({ input: [a, b], output }) => a === b * output.q + output.r && 0n <= output.r && output.r < abs(b),
+    remLikeZ3: ({ input: [a, b], output }) => output.r === (b > 0n ? emod(a, b) : -emod(a, b)),
   },
 })
 export const euclideanRemainder = contract(emod, {
-  requires: (_a, b) => b !== 0n,
-  ensures: { isEuclid: (a, b, out) => 0n <= out && out < abs(b) && (a - out) % b === 0n },
+  requires: ({ input: [, b] }) => b !== 0n,
+  ensures: { isEuclid: ({ input: [a, b], output }) => 0n <= output && output < abs(b) && (a - output) % b === 0n },
 })
 
 // vf-dafny-compute-fib: the iterative Fibonacci meets the recursive one, and fails at 0 without its guard.
@@ -42,8 +42,8 @@ export function computeFib(n: bigint): bigint {
   return b
 }
 export const fibMeetsItsDefinition = contract(computeFib, {
-  requires: (n) => n >= 0n,
-  ensures: { isFib: (n, out) => out === fib(n) },
+  requires: ({ input: [n] }) => n >= 0n,
+  ensures: { isFib: ({ input: [n], output }) => output === fib(n) },
 })
 export function computeFibUnguarded(n: bigint): bigint {
   let i = 1n
@@ -58,8 +58,8 @@ export function computeFibUnguarded(n: bigint): bigint {
   return b
 }
 export const fibUnguarded = contract(computeFibUnguarded, {
-  requires: (n) => n >= 0n,
-  ensures: { zeroAtZero: (n, out) => n !== 0n || out === 0n },
+  requires: ({ input: [n] }) => n >= 0n,
+  ensures: { zeroAtZero: ({ input: [n], output }) => n !== 0n || output === 0n },
 })
 
 // pz3-mc91: McCarthy's 91 function, as a loop, meets its closed form.
@@ -80,7 +80,7 @@ export function mc91(n: bigint): bigint {
   return m
 }
 export const mc91ClosedForm = contract(mc91, {
-  ensures: { closedForm: (n, out) => out === (n <= 101n ? 91n : n - 10n) },
+  ensures: { closedForm: ({ input: [n], output }) => output === (n <= 101n ? 91n : n - 10n) },
 })
 
 // zg-dog-cat-mouse: 100 animals for 100 dollars, in cents.
@@ -89,8 +89,8 @@ export function buys(dog: bigint, cat: bigint, mouse: bigint): boolean {
 }
 export const dogCatMouse = contract(buys, {
   ensures: {
-    noSolution: (_d, _c, _m, out) => !out,
-    unique: (d, c, m, out) => !out || (d === 3n && c === 41n && m === 56n),
+    noSolution: ({ output }) => !output,
+    unique: ({ input: [d, c, m], output }) => !output || (d === 3n && c === 41n && m === 56n),
   },
 })
 
@@ -107,13 +107,13 @@ export function sendMoreMoney(s: bigint, e: bigint, n: bigint, d: bigint, m: big
 const classic = (s: bigint, e: bigint, n: bigint, d: bigint, m: bigint, o: bigint, r: bigint, y: bigint) =>
   s === 9n && e === 5n && n === 6n && d === 7n && m === 1n && o === 0n && r === 8n && y === 2n
 export const sendMoreMoneyAnyM = contract(sendMoreMoney, {
-  ensures: { onlyTheClassic: (s, e, n, d, m, o, r, y, out) => !out || classic(s, e, n, d, m, o, r, y) },
+  ensures: { onlyTheClassic: ({ input: [s, e, n, d, m, o, r, y], output }) => !output || classic(s, e, n, d, m, o, r, y) },
 })
 export const sendMoreMoneyMNotZero = contract(sendMoreMoney, {
-  requires: (_s, _e, _n, _d, m) => m !== 0n,
+  requires: ({ input: [, , , , m] }) => m !== 0n,
   ensures: {
-    noSolution: (_s, _e, _n, _d, _m, _o, _r, _y, out) => !out,
-    onlyTheClassic: (s, e, n, d, m, o, r, y, out) => !out || classic(s, e, n, d, m, o, r, y),
+    noSolution: ({ output }) => !output,
+    onlyTheClassic: ({ input: [s, e, n, d, m, o, r, y], output }) => !output || classic(s, e, n, d, m, o, r, y),
   },
 })
 
@@ -122,8 +122,8 @@ export function stamps(x: bigint, y: bigint): bigint {
   return 5n * x + 7n * y
 }
 export const stampAmounts = contract(stamps, {
-  requires: (x, y) => x >= 0n && y >= 0n,
-  ensures: { never23: (_x, _y, out) => out !== 23n, never22: (_x, _y, out) => out !== 22n },
+  requires: ({ input: [x, y] }) => x >= 0n && y >= 0n,
+  ensures: { never23: ({ output }) => output !== 23n, never22: ({ output }) => output !== 22n },
 })
 /** How many of each stamp pay `n`: as many 7s as `n`'s remainder by 5 needs, then 5s. */
 export function changeFor(n: bigint) {
@@ -132,12 +132,12 @@ export function changeFor(n: bigint) {
   return { fives: (n - 7n * sevens) / 5n, sevens }
 }
 export const changeFrom24 = contract(changeFor, {
-  requires: (n) => n >= 24n,
-  ensures: { pays: (n, out) => 5n * out.fives + 7n * out.sevens === n && out.fives >= 0n && out.sevens >= 0n },
+  requires: ({ input: [n] }) => n >= 24n,
+  ensures: { pays: ({ input: [n], output }) => 5n * output.fives + 7n * output.sevens === n && output.fives >= 0n && output.sevens >= 0n },
 })
 export const changeFrom23 = contract(changeFor, {
-  requires: (n) => n >= 23n,
-  ensures: { pays: (n, out) => 5n * out.fives + 7n * out.sevens === n && out.fives >= 0n && out.sevens >= 0n },
+  requires: ({ input: [n] }) => n >= 23n,
+  ensures: { pays: ({ input: [n], output }) => 5n * output.fives + 7n * output.sevens === n && output.fives >= 0n && output.sevens >= 0n },
 })
 
 // ssbe-xkcd287: appetizers for $15.05, in cents: two orders.
@@ -145,13 +145,13 @@ export function total(a: bigint, b: bigint, c: bigint, d: bigint, e: bigint, f: 
   return 215n * a + 275n * b + 335n * c + 355n * d + 420n * e + 580n * f
 }
 export const xkcd287 = contract(total, {
-  requires: (a, b, c, d, e, f) => a >= 0n && b >= 0n && c >= 0n && d >= 0n && e >= 0n && f >= 0n,
+  requires: ({ input: [a, b, c, d, e, f] }) => a >= 0n && b >= 0n && c >= 0n && d >= 0n && e >= 0n && f >= 0n,
   ensures: {
-    twoOrders: (a, b, c, d, e, f, out) =>
-      out !== 1505n ||
+    twoOrders: ({ input: [a, b, c, d, e, f], output }) =>
+      output !== 1505n ||
       (a === 7n && b === 0n && c === 0n && d === 0n && e === 0n && f === 0n) ||
       (a === 1n && b === 0n && c === 0n && d === 2n && e === 0n && f === 1n),
-    oneOrder: (a, b, c, d, e, f, out) => out !== 1505n || (a === 1n && b === 0n && c === 0n && d === 2n && e === 0n && f === 1n),
+    oneOrder: ({ input: [a, b, c, d, e, f], output }) => output !== 1505n || (a === 1n && b === 0n && c === 0n && d === 2n && e === 0n && f === 1n),
   },
 })
 
@@ -160,7 +160,7 @@ export function school(circle: bigint, square: bigint, triangle: bigint): boolea
   return circle + circle === 10n && circle * square + square === 12n && circle * square - triangle * circle === circle
 }
 export const schoolEquation = contract(school, {
-  ensures: { onlyFiveTwoOne: (c, s, t, out) => !out || (c === 5n && s === 2n && t === 1n) },
+  ensures: { onlyFiveTwoOne: ({ input: [c, s, t], output }) => !output || (c === 5n && s === 2n && t === 1n) },
 })
 
 // zg-install-problem: a forced profile, and none once g is wanted too.
@@ -169,9 +169,9 @@ export function installable(a: boolean, b: boolean, c: boolean, d: boolean, e: b
 }
 export const installProblem = contract(installable, {
   ensures: {
-    forced: (a, b, c, d, e, f, g, z, out) => !(out && a && z) || (b && c && d && f && !e && !g),
-    notWithG: (a, _b, _c, _d, _e, _f, g, z, out) => !(out && a && z && g),
-    noProfile: (a, _b, _c, _d, _e, _f, _g, z, out) => !(out && a && z),
+    forced: ({ input: [a, b, c, d, e, f, g, z], output }) => !(output && a && z) || (b && c && d && f && !e && !g),
+    notWithG: ({ input: [a, , , , , , g, z], output }) => !(output && a && z && g),
+    noProfile: ({ input: [a, , , , , , , z], output }) => !(output && a && z),
   },
 })
 

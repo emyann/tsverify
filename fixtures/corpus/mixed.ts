@@ -21,8 +21,8 @@ export function loopTriangle(n: bigint): bigint {
   return sum
 }
 export const triangleWhileItFits = contract(loopTriangle, {
-  requires: (n) => n >= 0n && n <= 92681n,
-  ensures: { isTriangle: (n, out) => out === (n * (n + 1n)) / 2n },
+  requires: ({ input: [n] }) => n >= 0n && n <= 92681n,
+  ensures: { isTriangle: ({ input: [n], output }) => output === (n * (n + 1n)) / 2n },
 })
 export function loopTriangleUnbounded(n: bigint): bigint {
   let sum = 0n
@@ -34,8 +34,8 @@ export function loopTriangleUnbounded(n: bigint): bigint {
   return sum
 }
 export const triangleAnyN = contract(loopTriangleUnbounded, {
-  requires: (n) => n >= 0n,
-  ensures: { isTriangle: (n, out) => out === (n * (n + 1n)) / 2n },
+  requires: ({ input: [n] }) => n >= 0n,
+  ensures: { isTriangle: ({ input: [n], output }) => output === (n * (n + 1n)) / 2n },
 })
 
 export const cases: Readonly<Record<string, Case>> = {

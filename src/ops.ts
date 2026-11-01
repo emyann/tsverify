@@ -5,7 +5,7 @@
 // string's truthiness is its being non-empty.
 import type { Arith, Bool } from "z3-solver"
 import type { Universe } from "./universe.ts"
-import { KIND, NUM, Unsupported, type Val, jsString, lazyRecord, memoElems, termId } from "./value.ts"
+import { KIND, NUM, UNDEFINED, Unsupported, type Val, jsString, lazyRecord, memoElems, termId } from "./value.ts"
 import type ts from "typescript"
 
 /** A read of a value of type `unknown`, refused: it may be anything. */
@@ -361,4 +361,25 @@ export const ite = (u: Universe, c: Bool, a: Val, b: Val, at: ts.Node): Val => {
     return { kind: "mixed", tag: z3.If(c, pa.tag, pb.tag), parts }
   }
   throw new Unsupported(`a value that is a ${describe(a)} on one path and a ${describe(b)} on another is not modeled`, at)
+}
+
+/**
+ * What a law reads of one run, as one object: `input`, the arguments as a tuple, `output`, the result, and for a
+ * computation `calls`, the calls it made. A `requires` is given `input` alone.
+ */
+export const runOf = (u: Universe, at: ts.Node, input: ReadonlyArray<Val>, output?: Val, calls?: Val): Val => {
+  const z3 = u.z3
+  const tuple: Val = {
+    kind: "array",
+    length: z3.Int.val(input.length),
+    size: input.length,
+    maxSize: input.length,
+    elem: memoElems((i) => {
+      if (z3.isIntVal(i)) return input[Number(i.value())] ?? UNDEFINED
+      let v: Val = UNDEFINED
+      for (let k = input.length - 1; k >= 0; k--) v = ite(u, i.eq(k), input[k]!, v, at)
+      return v
+    }),
+  }
+  return lazyRecord((name) => (name === "input" ? tuple : name === "output" ? output : name === "calls" ? calls : undefined))
 }

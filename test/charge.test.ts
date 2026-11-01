@@ -45,6 +45,22 @@ describe("charge, written against its spec", () => {
     assert.deepEqual(statuses(v), { neverNegative: "proved", takesWhatItCan: "proved" })
   })
 
+  it("a law or a `requires` written with the arguments in a row, as 0.1 took them, is refused with its rewrite", async () => {
+    const spec = path.join(root, "examples/charge/charge.contract.ts")
+    const written = readFileSync(spec, "utf8")
+    const asLaw = written.replace("neverNegative: ({ output }) => output >= 0n", "neverNegative: (_balance, _amount, left) => left >= 0n")
+    const asRequires = written.replace("requires: ({ input: [balance, amount] }) =>", "requires: (balance, amount) =>")
+    for (const [text, rewrite] of [
+      [asLaw, "write `(_balance, _amount, left) =>` as `({ input: [_balance, _amount], output: left }) =>`"],
+      [asRequires, "write `(balance, amount) =>` as `({ input: [balance, amount] }) =>`"],
+    ] as const) {
+      assert.notEqual(text, written)
+      const v = await verify(z3, loadProject([source], tsconfig, new Map([[spec, text]])), source, "charge")
+      assert.deepEqual(v.laws, [])
+      assert.ok(v.unsupported?.includes(rewrite), v.unsupported)
+    }
+  })
+
   it("a body that type-checks and is wrong is refuted, on an input the real code breaks on", async () => {
     const text = withBody("0n")
     const project = loadProject([source], tsconfig, new Map([[source, text]]))
@@ -59,7 +75,7 @@ describe("charge, written against its spec", () => {
     try {
       const { charge } = (await import(pathToFileURL(planted).href)) as { charge: (b: bigint, a: bigint) => bigint }
       const [balance, amount] = law.args as [bigint, bigint]
-      assert.equal(holds(chargeSpec.ensures.takesWhatItCan!)(balance, amount, charge(balance, amount)), false)
+      assert.equal(holds(chargeSpec.ensures.takesWhatItCan!)({ input: [balance, amount], output: charge(balance, amount) }), false)
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
@@ -72,7 +88,7 @@ describe("charge, written against its spec", () => {
 
   it("a spec of a function whose result is a union types each law over the whole union", () => {
     const spec = path.join(root, "examples/charge/light.contract.ts")
-    const text = `import { spec } from "@emyann/tsverify"\nexport const NextSpec = spec<(light: "red" | "green") => "red" | "green">({ ensures: { changes: (light, next) => next !== light } })\n`
+    const text = `import { spec } from "@emyann/tsverify"\nexport const NextSpec = spec<(light: "red" | "green") => "red" | "green">({ ensures: { changes: ({ input: [light], output }) => output !== light } })\n`
     assert.deepEqual(diagnostics(loadProject([spec], tsconfig, new Map([[spec, text]])), spec), [])
   })
 

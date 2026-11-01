@@ -84,7 +84,7 @@ const brokenBy = async (f: Fixture, name: Contract): Promise<Set<string>> => {
   const broken = new Set<string>()
   for (const r of await RUNS[name](f))
     for (const [law, l] of Object.entries(lawsOf(f, name)))
-      if (!(holds(l) as (...a: Array<unknown>) => boolean)(...r.args, r.out, r.calls)) broken.add(law)
+      if (!(holds(l) as (run: unknown) => boolean)({ input: r.args, output: r.out, calls: r.calls })) broken.add(law)
   return broken
 }
 

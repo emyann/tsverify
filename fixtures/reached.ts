@@ -4,5 +4,5 @@
 import { contract } from "../src/contract.ts"
 
 export const stamp = (late: boolean): string => (late ? new Date().toISOString() : "on time")
-export const neverOnTime = contract(stamp, { ensures: { neverOnTime: (_late, out) => out !== "on time" } })
-export const alwaysOnTime = contract(stamp, { ensures: { alwaysOnTime: (_late, out) => out === "on time" } })
+export const neverOnTime = contract(stamp, { ensures: { neverOnTime: ({ output }) => output !== "on time" } })
+export const alwaysOnTime = contract(stamp, { ensures: { alwaysOnTime: ({ output }) => output === "on time" } })

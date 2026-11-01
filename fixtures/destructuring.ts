@@ -12,7 +12,7 @@ export function next(n: bigint = 1n): bigint {
 }
 
 export const nextOfOne = contract(next, {
-  ensures: { fromOneWhenNotGiven: (n, out) => out === (n === undefined ? 2n : n + 1n) },
+  ensures: { fromOneWhenNotGiven: ({ input: [n], output }) => output === (n === undefined ? 2n : n + 1n) },
 })
 
 /** A page's size: 20 unless the options say. */
@@ -21,7 +21,7 @@ export function pageSize({ size = 20n }: { size?: bigint } = {}): bigint {
 }
 
 export const pageOfTwenty = contract(pageSize, {
-  ensures: { twentyUnlessSaid: (options, out) => out === (options === undefined || options.size === undefined ? 20n : options.size) },
+  ensures: { twentyUnlessSaid: ({ input: [options], output }) => output === (options === undefined || options.size === undefined ? 20n : options.size) },
 })
 
 /** A label, `"none"` when it is `undefined`; a `null` one is kept, as JavaScript keeps it. */
@@ -32,9 +32,9 @@ export function labelled(item: { label?: string | null }): string | null {
 
 export const labelOrNone = contract(labelled, {
   ensures: {
-    noneWhenUndefined: (item, out) => item.label !== undefined || out === "none",
-    nullKept: (item, out) => item.label !== null || out === null,
-    theLabelOtherwise: (item, out) => item.label === undefined || item.label === null || out === item.label,
+    noneWhenUndefined: ({ input: [item], output }) => item.label !== undefined || output === "none",
+    nullKept: ({ input: [item], output }) => item.label !== null || output === null,
+    theLabelOtherwise: ({ input: [item], output }) => item.label === undefined || item.label === null || output === item.label,
   },
 })
 
@@ -51,7 +51,7 @@ export function shown(user: User) {
 }
 
 export const shownWithoutTheSecret = contract(shown, {
-  ensures: { theRestKept: (user, out) => out.id === user.id && out.name === user.name },
+  ensures: { theRestKept: ({ input: [user], output }) => output.id === user.id && output.name === user.name },
 })
 
 /** A record of the code's own, its rest taken: what it holds but the key left out. */
@@ -62,9 +62,9 @@ export function renamed(user: User, name: string) {
 
 export const renamedKeepsTheSecret = contract(renamed, {
   ensures: {
-    theNewName: (_user, name, out) => out.name === name,
-    theSecretKept: (user, _name, out) => out.secret === user.secret,
-    theIdMarked: (user, _name, out) => out.id === user.id + "-renamed",
+    theNewName: ({ input: [, name], output }) => output.name === name,
+    theSecretKept: ({ input: [user], output }) => output.secret === user.secret,
+    theIdMarked: ({ input: [user], output }) => output.id === user.id + "-renamed",
   },
 })
 
@@ -81,7 +81,7 @@ export const listed = Effect.fn("listed")(function* (prefix: string, { limit = 1
 
 export const listedTen = effectComputation<{ store: StoreShape }>()(listed, {
   ensures: {
-    asksForTheLimit: (_prefix, options, _out, calls) => {
+    asksForTheLimit: ({ input: [, options], calls }) => {
       const call = calls.at(0)
       return call !== undefined && call.args[1] === (options === undefined || options.limit === undefined ? 10n : options.limit)
     },

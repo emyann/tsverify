@@ -10,20 +10,20 @@ code takes the spec as its type, so a spec is also where the code's signature co
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="../media/anatomy-dark.svg">
-    <img src="../media/anatomy-light.svg" width="100%" alt="A spec, part by part: spec of the function type (total: number) =&gt; number; requires, what every caller promises; ensures, the laws by name, each given the arguments and then the result, true for every input, written alone or with what it says in words; and its type, which the code takes as Implementation of ShippingSpec.">
+    <img src="../media/anatomy-light.svg" width="100%" alt="A spec, part by part: spec of the function type (total: number) =&gt; number; requires, what every caller promises; ensures, the laws by name, each given one run, its input and its output, true for every input, written alone or with what it says in words; and its type, which the code takes as Implementation of ShippingSpec.">
   </picture>
 </p>
 
 | Part | What it is |
 | --- | --- |
 | `F`, in `spec<F>` | The function's type: what it takes, and what it returns. The code gets it as its type. |
-| `requires` | What every caller promises, `(...args) => boolean`. The laws are checked only on the inputs that meet it. It may be left out. |
-| `ensures` | The laws, each named for what it says: the report gives each its own line. A law of a pure function is `(...args, result) => boolean`, typed from `F`, so its parameters need no annotation. A law of async code is `(...args, outcome, calls) => boolean` (*Async code*, below). A law may also say what it means in words, `{ says: "…", holds: (...args, result) => boolean }`: the report prints the sentence on its line. |
+| `requires` | What every caller promises, `({ input: [args...] }) => boolean`. The laws are checked only on the inputs that meet it. It may be left out. |
+| `ensures` | The laws, each named for what it says: the report gives each its own line. A law reads one run of the function, as one object typed from `F`, so it needs no annotation: a pure function's is `({ input: [args...], output }) => boolean`, its arguments a tuple, a name for each the law reads and a hole for the rest (`[, amount]`), and its result. A law of async code reads `calls` beside them, and its `output` is the outcome (*Async code*, below). A law may also say what it means in words, `{ says: "…", holds: ({ input, output }) => boolean }`: the report prints the sentence on its line. |
 | `export type StatusSpec = typeof statusSpec` | The spec's type, and all the code imports: it is typed `Implementation<StatusSpec>`, which is `F`. `Implementation<typeof statusSpec>` is the same without the line, the spec exported. |
 
 **"If A, then B" is `A ? B : true`.** A law has nothing to say of an input where A is false, so it is true there.
-`!A || B` says the same, the property-testing way, its premise turned around: `total < 50 || cost === 0` is
-`total >= 50 ? cost === 0 : true`. The type checker narrows in either: once `c.op === "put"`, `c.args[0]` is the `put`'s.
+`!A || B` says the same, the property-testing way, its premise turned around: `total < 50 || output === 0` is
+`total >= 50 ? output === 0 : true`. The type checker narrows in either: once `c.op === "put"`, `c.args[0]` is the `put`'s.
 
 A parcel's status, from a record with two dates that may be missing:
 
@@ -33,11 +33,11 @@ import { spec } from "@emyann/tsverify"
 import type { Parcel, Status } from "./parcel.ts"
 
 const statusSpec = spec<(parcel: Parcel) => Status>({
-  requires: (parcel) => (parcel.deliveredAt !== null ? parcel.shippedAt !== null && parcel.deliveredAt >= parcel.shippedAt : true),
+  requires: ({ input: [parcel] }) => (parcel.deliveredAt !== null ? parcel.shippedAt !== null && parcel.deliveredAt >= parcel.shippedAt : true),
   ensures: {
-    deliveredWins: (parcel, status) => (parcel.deliveredAt !== null ? status === "delivered" : true),
-    lostOnlyIfNotDelivered: (parcel, status) => (status === "lost" ? parcel.lost && parcel.deliveredAt === null : true),
-    waitingUntilShipped: (parcel, status) => (status === "waiting") === (parcel.shippedAt === null && !parcel.lost),
+    deliveredWins: ({ input: [parcel], output }) => (parcel.deliveredAt !== null ? output === "delivered" : true),
+    lostOnlyIfNotDelivered: ({ input: [parcel], output }) => (output === "lost" ? parcel.lost && parcel.deliveredAt === null : true),
+    waitingUntilShipped: ({ input: [parcel], output }) => (output === "waiting") === (parcel.shippedAt === null && !parcel.lost),
   },
 })
 export type StatusSpec = typeof statusSpec
@@ -134,17 +134,17 @@ import type { NotFound, StoreDown, Users } from "./users.ts"
 
 const renameSpec = spec<(users: Users, id: string, name: string) => Rejects<void, NotFound | StoreDown>>({
   ensures: {
-    readsTheUserFirst: (_users, id, _name, _out, calls) => {
+    readsTheUserFirst: ({ input: [, id], calls }) => {
       const first = calls.at(0)
       return first !== undefined && first.op === "get" && first.args[0] === id
     },
-    writesNothingWhenMissing: (_users, _id, _name, out, calls) => {
+    writesNothingWhenMissing: ({ output, calls }) => {
       const first = calls.at(0)
       if (first === undefined || first.op !== "get" || first.outcome._tag !== "Success" || first.outcome.value !== undefined) return true
-      return out._tag === "Failure" && out.error._tag === "NotFound" && !calls.some((c) => c.op === "put")
+      return output._tag === "Failure" && output.error._tag === "NotFound" && !calls.some((c) => c.op === "put")
     },
-    writesTheNewName: (_users, id, name, out, calls) => {
-      if (out._tag !== "Success") return true
+    writesTheNewName: ({ input: [, id, name], output, calls }) => {
+      if (output._tag !== "Success") return true
       const write = calls.at(1)
       return calls.length === 2 && write !== undefined && write.op === "put" && write.args[0].id === id && write.args[0].name === name
     },
@@ -193,17 +193,17 @@ import type { NotFound, StoreDown, Users } from "./users.ts"
 
 const renameSpec = spec<(users: Users, id: string, name: string) => Rejects<void, NotFound | StoreDown>>({
   ensures: {
-    readsTheUserFirst: (_users, id, _name, _out, calls) => {
+    readsTheUserFirst: ({ input: [, id], calls }) => {
       const first = calls.at(0)
       return first !== undefined && first.op === "get" && first.args[0] === id
     },
-    writesNothingWhenMissing: (_users, _id, _name, out, calls) => {
+    writesNothingWhenMissing: ({ output, calls }) => {
       const first = calls.at(0)
       if (first === undefined || first.op !== "get" || first.outcome._tag !== "Success" || first.outcome.value !== undefined) return true
-      return out._tag === "Failure" && out.error._tag === "NotFound" && !calls.some((c) => c.op === "put")
+      return output._tag === "Failure" && output.error._tag === "NotFound" && !calls.some((c) => c.op === "put")
     },
-    writesTheUserItReadRenamed: (_users, _id, name, out, calls) => {
-      if (out._tag !== "Success") return true
+    writesTheUserItReadRenamed: ({ input: [, , name], output, calls }) => {
+      if (output._tag !== "Success") return true
       const read = calls.at(0)
       const write = calls.at(1)
       if (read === undefined || read.op !== "get" || read.outcome._tag !== "Success" || read.outcome.value === undefined) return false
@@ -259,8 +259,8 @@ import { isOverdue } from "./overdue.ts"
 
 export const overdue = contract(isOverdue, {
   ensures: {
-    neverWithoutADate: (due, _now, late) => (due === null ? !late : true),
-    lateOnlyAfter: (due, now, late) => (late ? due !== null && now > due : true),
+    neverWithoutADate: ({ input: [due], output }) => (due === null ? !output : true),
+    lateOnlyAfter: ({ input: [due, now], output }) => (output ? due !== null && now > due : true),
   },
 })
 ```

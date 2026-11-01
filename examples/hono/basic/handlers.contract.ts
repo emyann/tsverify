@@ -8,9 +8,9 @@ import type { StoreDown, UsersPort } from "./store.ts"
 /** GET /users/:id */
 const getUserSpec = spec<(users: UsersPort, id: string) => Rejects<Reply, StoreDown>>({
   ensures: {
-    readsTheUserOnce: (_users, id, out, calls) => laws.readsTheUserOnce(id, out, calls),
-    answersWhatItFound: (_users, id, out, calls) => laws.answersWhatItFound(id, out, calls),
-    failsAsTheStoreFails: (_users, id, out, calls) => laws.getFailsAsTheStoreFails(id, out, calls),
+    readsTheUserOnce: ({ input: [, id], output, calls }) => laws.readsTheUserOnce({ input: [id], output, calls }),
+    answersWhatItFound: ({ input: [, id], output, calls }) => laws.answersWhatItFound({ input: [id], output, calls }),
+    failsAsTheStoreFails: ({ input: [, id], output, calls }) => laws.getFailsAsTheStoreFails({ input: [id], output, calls }),
   },
 })
 export type GetUserSpec = typeof getUserSpec
@@ -18,11 +18,11 @@ export type GetUserSpec = typeof getUserSpec
 /** PATCH /users/:id with `{ name }` */
 const renameUserSpec = spec<(users: UsersPort, id: string, name: string) => Rejects<Reply, StoreDown>>({
   ensures: {
-    emptyNameTouchesNothing: (_users, id, name, out, calls) => laws.emptyNameTouchesNothing(id, name, out, calls),
-    readsTheUserFirst: (_users, id, name, out, calls) => laws.readsTheUserFirst(id, name, out, calls),
-    missingWritesNothing: (_users, id, name, out, calls) => laws.missingWritesNothing(id, name, out, calls),
-    renamedAsWritten: (_users, id, name, out, calls) => laws.renamedAsWritten(id, name, out, calls),
-    failsAsTheStoreFails: (_users, id, name, out, calls) => laws.renameFailsAsTheStoreFails(id, name, out, calls),
+    emptyNameTouchesNothing: ({ input: [, id, name], output, calls }) => laws.emptyNameTouchesNothing({ input: [id, name], output, calls }),
+    readsTheUserFirst: ({ input: [, id, name], output, calls }) => laws.readsTheUserFirst({ input: [id, name], output, calls }),
+    missingWritesNothing: ({ input: [, id, name], output, calls }) => laws.missingWritesNothing({ input: [id, name], output, calls }),
+    renamedAsWritten: ({ input: [, id, name], output, calls }) => laws.renamedAsWritten({ input: [id, name], output, calls }),
+    failsAsTheStoreFails: ({ input: [, id, name], output, calls }) => laws.renameFailsAsTheStoreFails({ input: [id, name], output, calls }),
   },
 })
 export type RenameUserSpec = typeof renameUserSpec

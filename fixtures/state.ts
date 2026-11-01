@@ -15,7 +15,7 @@ export function twice(): bigint {
   bump(s.c)
   return s.c.n
 }
-export const twiceIsTwo = contract(twice, { ensures: { two: (out) => out === 2n } })
+export const twiceIsTwo = contract(twice, { ensures: { two: ({ output }) => output === 2n } })
 
 /** A change through what `.find` found. */
 export function mark(id: bigint): boolean {
@@ -27,7 +27,7 @@ export function mark(id: bigint): boolean {
   if (it) it.done = true
   return items.some((x) => x.done)
 }
-export const markedWhenFound = contract(mark, { ensures: { found: (id, out) => out === (id === 1n || id === 2n) } })
+export const markedWhenFound = contract(mark, { ensures: { found: ({ input: [id], output }) => output === (id === 1n || id === 2n) } })
 
 /** `switch`, cases that share a body, a fall-through and a `break`. */
 export function kindOf(k: "a" | "b" | "c" | "d"): bigint {
@@ -45,7 +45,7 @@ export function kindOf(k: "a" | "b" | "c" | "d"): bigint {
   }
   return n
 }
-export const kinds = contract(kindOf, { ensures: { each: (k, out) => out === (k === "a" || k === "b" ? 1n : k === "c" ? 12n : 10n) } })
+export const kinds = contract(kindOf, { ensures: { each: ({ input: [k], output }) => output === (k === "a" || k === "b" ? 1n : k === "c" ? 12n : 10n) } })
 
 /** An optional field set, deleted, and set again only when absent (`??=`). */
 export function stamps(at: string): string | undefined {
@@ -56,7 +56,7 @@ export function stamps(at: string): string | undefined {
   s.seen ??= "later"
   return s.at ?? s.seen
 }
-export const stampKept = contract(stamps, { ensures: { first: (at, out) => out === at } })
+export const stampKept = contract(stamps, { ensures: { first: ({ input: [at], output }) => output === at } })
 
 /** A closure kept for later over a value that what runs before its call only reads: a part passed, or the whole to a pure function. */
 function sizeOf(c: { xs: ReadonlyArray<bigint>; name: string }): number {
@@ -75,7 +75,7 @@ export function keptOverRead(
   return { same: counted(c, has) >= 0 && f() === sizeOf(c), named: known }
 }
 export const readOnly = contract(keptOverRead, {
-  ensures: { same: (_c, _has, _named, out) => out.same },
+  ensures: { same: ({ output }) => output.same },
 })
 
 // Refused.
@@ -133,7 +133,7 @@ export function keptShorthand(): bigint {
   return f().n
 }
 // Runs to 1n: a closure is read with what it captures where it is written, so this would read as 0n.
-export const shorthand = contract(keptShorthand, { ensures: { isZero: (r) => r === 0n } })
+export const shorthand = contract(keptShorthand, { ensures: { isZero: ({ output }) => output === 0n } })
 
 export function keptOverLent(): bigint {
   const s = { n: 0n }

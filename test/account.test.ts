@@ -79,7 +79,7 @@ describe("the account fold, verified", () => {
     const law = v.laws.find((l) => l.name === "noDebtWithoutWithdrawals")!
     assert.equal(law.status, "counterexample", JSON.stringify(statuses(v)))
     const [entries] = law.args as [Entry[]]
-    assert.equal(folded.ensures.noDebtWithoutWithdrawals(entries, accountOf(entries)), false)
+    assert.equal(folded.ensures.noDebtWithoutWithdrawals({ input: [entries], output: accountOf(entries) }), false)
   })
 
   it("the laws hold on 2,000 random ledgers, run for real", () => {
@@ -88,7 +88,10 @@ describe("the account fold, verified", () => {
       const entries = ledger(r)
       const a = accountOf(entries)
       for (const [name, law] of Object.entries(folded.ensures))
-        assert.ok(law(entries, a), `${name} broken on ${JSON.stringify(entries, (_, x) => (typeof x === "bigint" ? `${x}n` : x))}`)
+        assert.ok(
+          law({ input: [entries], output: a }),
+          `${name} broken on ${JSON.stringify(entries, (_, x) => (typeof x === "bigint" ? `${x}n` : x))}`,
+        )
     }
   })
 })
@@ -161,7 +164,7 @@ describe("the account fold, with a bug planted", () => {
         const planted = ((await import(pathToFileURL(file).href)) as { accountOf: typeof accountOf }).accountOf
         const [entries] = law.args as [Entry[]]
         assert.equal(
-          folded.ensures[p.breaks](entries, planted(entries)),
+          folded.ensures[p.breaks]({ input: [entries], output: planted(entries) }),
           false,
           JSON.stringify(law.args, (_, x) => (typeof x === "bigint" ? `${x}n` : x)),
         )

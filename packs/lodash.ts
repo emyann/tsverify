@@ -9,10 +9,10 @@ import { assume } from "@emyann/tsverify"
 export const uniqOfStrings = assume<[xs: ReadonlyArray<string>], string[]>(uniq, {
   pure: true,
   ensures: {
-    emptyExactlyWhenEmpty: (xs, out) => (out.length === 0) === (xs.length === 0),
-    noLonger: (xs, out) => out.length <= xs.length,
-    keepsEvery: (xs, out) => xs.every((x) => out.includes(x)),
-    addsNothing: (xs, out) => out.every((x) => xs.includes(x)),
+    emptyExactlyWhenEmpty: ({ input: [xs], output }) => (output.length === 0) === (xs.length === 0),
+    noLonger: ({ input: [xs], output }) => output.length <= xs.length,
+    keepsEvery: ({ input: [xs], output }) => xs.every((x) => output.includes(x)),
+    addsNothing: ({ input: [xs], output }) => output.every((x) => xs.includes(x)),
   },
 })
 
@@ -23,7 +23,7 @@ export const uniqOfStrings = assume<[xs: ReadonlyArray<string>], string[]>(uniq,
 export const clampOfNumbers = assume<[n: number, lower: number, upper: number], number>(clamp, {
   pure: true,
   ensures: {
-    within: (n, lower, upper, out) => !(lower <= upper && n === n) || (lower <= out && out <= upper),
-    keepsWhatFits: (n, lower, upper, out) => !(lower <= n && n <= upper) || out === n,
+    within: ({ input: [n, lower, upper], output }) => !(lower <= upper && n === n) || (lower <= output && output <= upper),
+    keepsWhatFits: ({ input: [n, lower, upper], output }) => !(lower <= n && n <= upper) || output === n,
   },
 })

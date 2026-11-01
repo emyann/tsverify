@@ -61,12 +61,12 @@ describe("a law that says what it means", () => {
     assert.equal(law?.status, "counterexample")
     assert.equal(law.says, "An order of 50 or more ships free")
     const [total] = law.args as [number]
-    assert.equal(holds(says.shippedLate.ensures.freeFrom50)(total, says.shippedLate.fn(total)), false)
+    assert.equal(holds(says.shippedLate.ensures.freeFrom50)({ input: [total], output: says.shippedLate.fn(total) }), false)
   })
 
   it("`holds` gives the predicate of a law written either way", () => {
-    assert.equal(holds(says.shipped.ensures.freeFrom50)(60, 0), true)
-    assert.equal(holds(says.shipped.ensures.notNegative)(60, -1), false)
+    assert.equal(holds(says.shipped.ensures.freeFrom50)({ input: [60], output: 0 }), true)
+    assert.equal(holds(says.shipped.ensures.notNegative)({ input: [60], output: -1 }), false)
   })
 
   it("the command prints the sentence, then the name; `--json` keeps both", () => {

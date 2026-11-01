@@ -41,8 +41,8 @@ describe("charge", () => {
     const law = v.laws.find((l) => l.name === "leavesTheRest")!
     assert.equal(law.status, "counterexample")
     const input = law.args![0] as charge.ChargeInput
-    assert.equal(charge.zero.requires!(input), true)
-    assert.equal(charge.zero.ensures["leavesTheRest"](input, charge.chargeZero(input)), false)
+    assert.equal(charge.zero.requires!({ input: [input] }), true)
+    assert.equal(charge.zero.ensures["leavesTheRest"]({ input: [input], output: charge.chargeZero(input) }), false)
   })
 
   it("refutes the code that can go negative", async () => {

@@ -30,15 +30,15 @@ import { spec } from "@emyann/tsverify"
 
 const shippingSpec = spec<(total: number) => number>({
   // What every caller promises: a cart's total is never negative.
-  requires: (total) => total >= 0,
+  requires: ({ input: [total] }) => total >= 0,
   ensures: {
     // A law, with what it means in words: the report prints them.
     freeFrom50: {
       says: "An order of 50 or more ships free",
-      holds: (total, cost) => (total >= 50 ? cost === 0 : true),
+      holds: ({ input: [total], output }) => (total >= 50 ? output === 0 : true),
     },
     // A law alone: a smaller order pays 5.
-    smallOrdersPay: (total, cost) => (total < 50 ? cost === 5 : true),
+    smallOrdersPay: ({ input: [total], output }) => (total < 50 ? output === 5 : true),
   },
 })
 // Its type, which the code takes.
@@ -102,7 +102,7 @@ agent, knows the work is not done.
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="media/anatomy-dark.svg">
-    <img src="media/anatomy-light.svg" width="100%" alt="A spec, part by part: spec of the function type (total: number) =&gt; number; requires, what every caller promises; ensures, the laws by name, each given the arguments and then the result, true for every input, written alone or with what it says in words; and its type, which the code takes as Implementation of ShippingSpec.">
+    <img src="media/anatomy-light.svg" width="100%" alt="A spec, part by part: spec of the function type (total: number) =&gt; number; requires, what every caller promises; ensures, the laws by name, each given one run, its input and its output, true for every input, written alone or with what it says in words; and its type, which the code takes as Implementation of ShippingSpec.">
   </picture>
 </p>
 
@@ -145,7 +145,7 @@ export interface Names {
 const renameSpec = spec<(names: Names, id: string, name: string) => Rejects<boolean, Error>>({
   ensures: {
     // An empty name never reaches the store: not a single call.
-    emptyNameTouchesNothing: (_names, _id, name, _out, calls) => (name === "" ? calls.length === 0 : true),
+    emptyNameTouchesNothing: ({ input: [, , name], calls }) => (name === "" ? calls.length === 0 : true),
   },
 })
 export type RenameSpec = typeof renameSpec

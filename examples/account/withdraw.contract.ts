@@ -37,12 +37,15 @@ const asyncWithdrawSpec = spec<
   (ledger: Async.LedgerPort, accountId: string, id: string, amount: bigint) => Rejects<void, Async.WithdrawalRefused | Async.LedgerError>
 >({
   ensures: {
-    readsFirst: (_, accountId, id, amount, out, calls) => readsFirst(accountId, id, amount, out, calls),
-    readFailurePassesThrough: (_, accountId, id, amount, out, calls) => readFailurePassesThrough(accountId, id, amount, out, calls),
-    refusedWritesNothing: (_, accountId, id, amount, out, calls) => refusedWritesNothing(accountId, id, amount, out, calls),
-    paidWritesOneWithdrawal: (_, accountId, id, amount, out, calls) => paidWritesOneWithdrawal(accountId, id, amount, out, calls),
-    refusedExactlyWhenTheGuardSays: (_, accountId, id, amount, out, calls) =>
-      refusedExactlyWhenTheGuardSays(accountId, id, amount, out, calls),
+    readsFirst: ({ input: [, accountId, id, amount], output, calls }) => readsFirst({ input: [accountId, id, amount], output, calls }),
+    readFailurePassesThrough: ({ input: [, accountId, id, amount], output, calls }) =>
+      readFailurePassesThrough({ input: [accountId, id, amount], output, calls }),
+    refusedWritesNothing: ({ input: [, accountId, id, amount], output, calls }) =>
+      refusedWritesNothing({ input: [accountId, id, amount], output, calls }),
+    paidWritesOneWithdrawal: ({ input: [, accountId, id, amount], output, calls }) =>
+      paidWritesOneWithdrawal({ input: [accountId, id, amount], output, calls }),
+    refusedExactlyWhenTheGuardSays: ({ input: [, accountId, id, amount], output, calls }) =>
+      refusedExactlyWhenTheGuardSays({ input: [accountId, id, amount], output, calls }),
   },
 })
 export type AsyncWithdrawSpec = typeof asyncWithdrawSpec

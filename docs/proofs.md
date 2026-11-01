@@ -14,8 +14,8 @@ import { spec } from "@emyann/tsverify"
 
 const largestSpec = spec<(xs: ReadonlyArray<bigint>) => bigint>({
   ensures: {
-    noneLarger: (xs, largest) => xs.every((x) => x <= largest),
-    oneOfThem: (xs, largest) => xs.length === 0 || xs.includes(largest),
+    noneLarger: ({ input: [xs], output }) => xs.every((x) => x <= output),
+    oneOfThem: ({ input: [xs], output }) => xs.length === 0 || xs.includes(output),
   },
 })
 export type LargestSpec = typeof largestSpec
@@ -164,8 +164,8 @@ import { contract } from "@emyann/tsverify"
 import { total } from "./total.ts"
 
 export const totalNotNegative = contract(total, {
-  requires: (each, count, discount) => each >= 0n && count >= 0n && discount >= 0n && discount <= each * count,
-  ensures: { notNegative: (_each, _count, _discount, paid) => paid >= 0n },
+  requires: ({ input: [each, count, discount] }) => each >= 0n && count >= 0n && discount >= 0n && discount <= each * count,
+  ensures: { notNegative: ({ output }) => output >= 0n },
 })
 ```
 
@@ -197,8 +197,8 @@ import { lemma, spec } from "@emyann/tsverify"
 export const productNotNegative = lemma((a: bigint, b: bigint) => a * b >= 0n, { requires: (a, b) => a >= 0n && b >= 0n })
 
 const areaSpec = spec<(width: bigint, height: bigint) => bigint>({
-  requires: (width, height) => width >= 0n && height >= 0n,
-  ensures: { notNegative: (_width, _height, area) => area >= 0n },
+  requires: ({ input: [width, height] }) => width >= 0n && height >= 0n,
+  ensures: { notNegative: ({ output }) => output >= 0n },
 })
 export type AreaSpec = typeof areaSpec
 ```

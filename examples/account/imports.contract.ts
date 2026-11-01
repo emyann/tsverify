@@ -16,16 +16,15 @@ type Ops = { ledger: LedgerShape }
 
 export const typed = computation<Ops>()(depositTyped, {
   ensures: {
-    unreadableNamesTheText: (_accountId, _id, text, out) =>
-      !(out._tag === "Failure" && out.error._tag === "AmountUnreadable") || out.error.text === text,
-    nothingCalledExactlyWhenUnreadable: (_accountId, _id, _text, out, calls) =>
-      (calls.length === 0) === (out._tag === "Failure" && out.error._tag === "AmountUnreadable"),
-    readsFirst: (accountId, _id, _text, _out, calls) =>
-      calls.length === 0 || (calls.at(0)?.op === "read" && calls.at(0)?.args[0] === accountId),
-    refusedOnlyAfterReading: (_accountId, _id, _text, out, calls) =>
-      !(out._tag === "Failure" && out.error._tag === "DepositRefused") || (calls.length === 1 && calls.at(0)?.op === "read"),
-    paidWritesOneDeposit: (accountId, id, _text, out, calls) => {
-      if (out._tag !== "Success") return true
+    unreadableNamesTheText: ({ input: [, , text], output }) =>
+      !(output._tag === "Failure" && output.error._tag === "AmountUnreadable") || output.error.text === text,
+    nothingCalledExactlyWhenUnreadable: ({ output, calls }) =>
+      (calls.length === 0) === (output._tag === "Failure" && output.error._tag === "AmountUnreadable"),
+    readsFirst: ({ input: [accountId], calls }) => calls.length === 0 || (calls.at(0)?.op === "read" && calls.at(0)?.args[0] === accountId),
+    refusedOnlyAfterReading: ({ output, calls }) =>
+      !(output._tag === "Failure" && output.error._tag === "DepositRefused") || (calls.length === 1 && calls.at(0)?.op === "read"),
+    paidWritesOneDeposit: ({ input: [accountId, id], output, calls }) => {
+      if (output._tag !== "Success") return true
       const last = calls.at(-1)
       return (
         calls.filter((c) => c.op === "append").length === 1 &&
@@ -41,22 +40,22 @@ export const typed = computation<Ops>()(depositTyped, {
 
 export const imported = computation<Ops>()(importDeposits, {
   ensures: {
-    writesOnlyDepositsHere: (accountId, _json, _out, calls) =>
+    writesOnlyDepositsHere: ({ input: [accountId], calls }) =>
       calls.every((c) => c.op === "append" && c.args[0] === accountId && c.args[1].kind === "deposited"),
-    countsWhatItWrote: (_accountId, _json, out, calls) => out._tag !== "Success" || out.value === calls.length,
-    stopsAtAFailedWrite: (_accountId, _json, _out, calls) =>
+    countsWhatItWrote: ({ output, calls }) => output._tag !== "Success" || output.value === calls.length,
+    stopsAtAFailedWrite: ({ calls }) =>
       calls.filter((c) => c.outcome._tag === "Failure").length === 0 ||
       (calls.filter((c) => c.outcome._tag === "Failure").length === 1 && calls.at(-1)?.outcome._tag === "Failure"),
     // Its error is `unknown` (what `JSON.parse` threw, or the ledger's): a law can say where it failed, not with what.
-    failsOnlyWhereItStopped: (_accountId, _json, out, calls) =>
-      out._tag !== "Failure" || calls.length === 0 || calls.at(-1)?.outcome._tag === "Failure",
+    failsOnlyWhereItStopped: ({ output, calls }) =>
+      output._tag !== "Failure" || calls.length === 0 || calls.at(-1)?.outcome._tag === "Failure",
   },
 })
 
 export const opened = computation<Ops>()(openWith, {
   ensures: {
-    opensThenDeposits: (accountId, owner, id, amount, out, calls) => {
-      if (out._tag !== "Success") return true
+    opensThenDeposits: ({ input: [accountId, owner, id, amount], output, calls }) => {
+      if (output._tag !== "Success") return true
       const first = calls.at(0)
       const second = calls.at(1)
       return (
@@ -74,9 +73,9 @@ export const opened = computation<Ops>()(openWith, {
         second.args[1].amount === amount
       )
     },
-    stopsAtAFailedWrite: (_accountId, _owner, _id, _amount, out, calls) =>
-      out._tag !== "Failure" || calls.length === 0 || (calls.at(-1)?.outcome._tag === "Failure" && calls.length <= 2),
-    refusedWritesNothing: (_accountId, _owner, _id, amount, out, calls) => amount <= 0n === (out._tag === "Failure" && calls.length === 0),
+    stopsAtAFailedWrite: ({ output, calls }) =>
+      output._tag !== "Failure" || calls.length === 0 || (calls.at(-1)?.outcome._tag === "Failure" && calls.length <= 2),
+    refusedWritesNothing: ({ input: [, , , amount], output, calls }) => amount <= 0n === (output._tag === "Failure" && calls.length === 0),
   },
 })
 
@@ -85,27 +84,27 @@ type Port = { ledger: LedgerPort }
 
 export const balanced = plainComputation<Port, LedgerError>()(balanceOf, {
   ensures: {
-    readsOnce: (_, accountId, _out, calls) => calls.length === 1 && calls.at(0)?.op === "read" && calls.at(0)?.args[0] === accountId,
-    theFoldsBalance: (_, _accountId, out, calls) => {
+    readsOnce: ({ input: [, accountId], calls }) => calls.length === 1 && calls.at(0)?.op === "read" && calls.at(0)?.args[0] === accountId,
+    theFoldsBalance: ({ output, calls }) => {
       const read = calls.at(0)
       if (read === undefined || read.op !== "read" || read.outcome._tag !== "Success") return true
-      return out._tag === "Success" && out.value === accountOf(read.outcome.value).balance
+      return output._tag === "Success" && output.value === accountOf(read.outcome.value).balance
     },
-    failsAsTheReadFails: (_, _accountId, out, calls) => {
+    failsAsTheReadFails: ({ output, calls }) => {
       const read = calls.at(0)
       if (read === undefined || read.outcome._tag !== "Failure") return true
-      return out._tag === "Failure" && out.error._tag === read.outcome.error._tag
+      return output._tag === "Failure" && output.error._tag === read.outcome.error._tag
     },
   },
 })
 
 export const copied = plainComputation<Port, LedgerError>()(copyDeposits, {
   ensures: {
-    readsTheSourceFirst: (_, from, _to, _out, calls) => calls.at(0)?.op === "read" && calls.at(0)?.args[0] === from,
-    writesOnlyDepositsToTheTarget: (_, _from, to, _out, calls) =>
+    readsTheSourceFirst: ({ input: [, from], calls }) => calls.at(0)?.op === "read" && calls.at(0)?.args[0] === from,
+    writesOnlyDepositsToTheTarget: ({ input: [, , to], calls }) =>
       calls.slice(1).every((c) => c.op === "append" && c.args[0] === to && c.args[1].kind === "deposited"),
-    countsWhatItWrote: (_, _from, _to, out, calls) => out._tag !== "Success" || out.value === calls.slice(1).length,
-    stopsAtAFailure: (_, _from, _to, _out, calls) =>
+    countsWhatItWrote: ({ output, calls }) => output._tag !== "Success" || output.value === calls.slice(1).length,
+    stopsAtAFailure: ({ calls }) =>
       calls.filter((c) => c.outcome._tag === "Failure").length === 0 ||
       (calls.filter((c) => c.outcome._tag === "Failure").length === 1 && calls.at(-1)?.outcome._tag === "Failure"),
   },

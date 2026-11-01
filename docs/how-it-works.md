@@ -12,7 +12,7 @@ A spec of a function f : A₁ × … × Aₙ → R, with `requires` P and laws Q
 ∀ x̄ ∈ A₁ × … × Aₙ.  P(x̄)  ⟹  Qᵢ(x̄, f(x̄))
 ```
 
-A law's parameters, the arguments and then the result, are x̄ and f(x̄). The README's `shipping`, over 𝔻, JavaScript's
+A law reads one run, its `input` and its `output`: x̄ and f(x̄). The README's `shipping`, over 𝔻, JavaScript's
 numbers (`NaN` and ±∞ among them):
 
 ```text
@@ -20,7 +20,7 @@ numbers (`NaN` and ±∞ among them):
 ∀ t ∈ 𝔻.  t ≥ 0  ⟹  ( t < 50 ⟹ f(t) = 5 )      smallOrdersPay
 ```
 
-JavaScript has no implication, so a law writes A ⟹ B as `A ? B : true`, or as `!A || B`: `total < 50 || cost === 0`
+JavaScript has no implication, so a law writes A ⟹ B as `A ? B : true`, or as `!A || B`: `total < 50 || output === 0`
 is ¬(t ≥ 50) ∨ f(t) = 0.
 
 The verifier never checks the ∀ itself. It lowers f's code to a term, f(t) = (t ≥ 50 ? 0 : 5), and asks Z3 whether the

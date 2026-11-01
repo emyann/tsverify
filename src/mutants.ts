@@ -156,7 +156,7 @@ export const runMutants = async (z3: Ctx, suite: MutantSuite, progress: MutantPr
       } catch {
         return { caught: true, run: k + 1, law: "(threw)" }
       }
-      for (const [name, law] of laws) if (!skip.has(name) && !law(...input, r)) return { caught: true, run: k + 1, law: name }
+      for (const [name, law] of laws) if (!skip.has(name) && !law({ input, output: r })) return { caught: true, run: k + 1, law: name }
     }
     return { caught: false }
   }
@@ -179,7 +179,7 @@ export const runMutants = async (z3: Ctx, suite: MutantSuite, progress: MutantPr
     const refuted = v.laws.filter((l) => l.status === "counterexample" && !failing.has(l.name))
     for (const l of refuted) {
       const input = l.args!
-      if (holds(suite.laws[l.name]!)(...input, fn(...input)))
+      if (holds(suite.laws[l.name]!)({ input, output: fn(...input) }))
         throw new Error(`${m.id}: the counterexample to \`${l.name}\` holds when the planted code runs: the verifier is wrong`)
     }
     const open = v.laws.filter((l) => l.status !== "proved" && l.status !== "counterexample").map((l) => `${l.name}: ${l.status}`)

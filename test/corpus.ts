@@ -43,16 +43,16 @@ export const checkCorpus = (name: string): void => {
 export const CORPUS = readdirSync(dir).filter((f) => f.endsWith(".ts") && f !== "cases.ts")
 
 type Fn = (...args: Array<unknown>) => unknown
-type Pred = (...args: Array<unknown>) => boolean
+type Pred = (run: { readonly input: ReadonlyArray<unknown>; readonly output: unknown }) => boolean
 interface Contract {
   readonly fn: Fn
-  readonly requires?: Pred
+  readonly requires?: (given: { readonly input: ReadonlyArray<unknown> }) => boolean
   readonly ensures: Readonly<Record<string, Parameters<typeof holds>[0]>>
 }
 
 /** What the function gives on `args`, where its `requires` allows them and it returns; `undefined` where not. */
 const ran = (c: Contract, args: ReadonlyArray<unknown>): { out: unknown } | undefined => {
-  if (c.requires !== undefined && !c.requires(...args)) return undefined
+  if (c.requires !== undefined && !c.requires({ input: args })) return undefined
   try {
     return { out: c.fn(...args) }
   } catch {
@@ -60,7 +60,7 @@ const ran = (c: Contract, args: ReadonlyArray<unknown>): { out: unknown } | unde
   }
 }
 const lawHolds = (c: Contract, law: string, args: ReadonlyArray<unknown>, out: unknown): boolean =>
-  (holds(c.ensures[law]!) as Pred)(...args, out)
+  (holds(c.ensures[law]!) as Pred)({ input: args, output: out })
 
 const truthOf = (t: Truth | readonly [Truth, Gap]): Truth => (typeof t === "string" ? t : t[0])
 const gapOf = (t: Truth | readonly [Truth, Gap]): Gap | undefined => (typeof t === "string" ? undefined : t[1])
