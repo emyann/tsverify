@@ -3,7 +3,7 @@
 ## Run it
 
 ```sh
-npm test            # 598 tests, ~3 min, the documentation's examples among them
+npm test            # 602 tests, ~3 min, the documentation's examples among them
 npm run verify      # every contract below here, a line each, the laws that need a look under it, then the totals
 npm run verify -- examples/account                                   # one folder, or one file
 npm run verify -- examples/account/withdraw.ts withdraw              # one contract, with all it knows
