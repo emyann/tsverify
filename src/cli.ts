@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 // tsverify [<file or folder>...] [--project tsconfig.json] [--bound 4] [--work 15000000] [--verbose] [--json] [--watch]
+//          [--cache] [--cache-location <folder>]
 //   Verifies every contract each file exports: every implementation of a spec (`const f: Implementation<S>`),
 //   and every `contract`, computation and lemma, in each file that imports tsverify under each folder (the current one
 //   by default): a line per contract, under it a line per law that needs a look (per law, of a run of one file or with
@@ -9,6 +10,10 @@
 //   Verifies one contract, with everything the verification knows: the states its result reaches, what it trusted
 //   and what it assumed.
 // --json prints one JSON document instead, of every verdict in full (`Report`), and the same exit code.
+// --cache keeps each contract's verdict between runs, and answers a contract whose program reads the same text again
+//   from it (`./cache.ts`), in node_modules/.cache/tsverify beside the nearest package.json above the current folder,
+//   or in --cache-location <folder>. A verdict not used for 14 days is removed at the end of a run. A counterexample so
+//   answered is one an earlier run found, which may not be the one a run without it would print.
 // --watch runs it again on every change to the project's TypeScript, until stopped: each run in a process of its own,
 //   the screen redrawn in a terminal, each run's report after the last one otherwise (with --json, a line per run).
 // Exits 0 when everything is proved, 1 when something is not, 2 on a usage error, 3 when the verifier itself fails.
@@ -19,6 +24,7 @@ import path from "node:path"
 import { fileURLToPath } from "node:url"
 import { styleText } from "node:util"
 import ts from "typescript"
+import { verdictsIn, prune } from "./cache.ts"
 import { contractsIn, loadProject, type Project } from "./project.ts"
 import type { Ctx } from "./value.ts"
 import { type Options, type Verification, verify, withZ3 } from "./verify.ts"
@@ -48,9 +54,9 @@ if (!process.execArgv.includes(STEADY)) {
 }
 
 const USAGE =
-  "usage: tsverify [<file or folder>...] [--project tsconfig.json] [--bound N] [--work N] [--verbose] [--json] [--watch]\n       tsverify <file.ts> <export> [--json] [--watch]"
+  "usage: tsverify [<file or folder>...] [--project tsconfig.json] [--bound N] [--work N] [--verbose] [--json] [--watch] [--cache] [--cache-location <folder>]\n       tsverify <file.ts> <export> [--json] [--watch] [--cache] [--cache-location <folder>]"
 const argv = process.argv.slice(2)
-const VALUED = new Set(["--project", "--bound", "--work"])
+const VALUED = new Set(["--project", "--bound", "--work", "--cache-location"])
 const positional = argv.filter((a, i) => !a.startsWith("--") && !VALUED.has(argv[i - 1] ?? ""))
 const flag = (f: string): string | undefined => {
   const i = argv.indexOf(f)
@@ -60,7 +66,34 @@ const verbose = argv.includes("--verbose")
 const json = argv.includes("--json")
 const bound = flag("--bound") === undefined ? undefined : Number(flag("--bound"))
 const work = flag("--work") === undefined ? undefined : Number(flag("--work"))
-const opts: Options = { ...(bound ? { bound } : {}), ...(work ? { work } : {}) }
+/** Where the verdicts are kept, with `--cache`: `--cache-location <folder>`, else the nearest package's. */
+const cacheDir = ((): string | undefined => {
+  if (!argv.includes("--cache")) return undefined
+  if (argv.includes("--cache-location")) {
+    const given = flag("--cache-location")
+    if (given === undefined || given.startsWith("--")) {
+      console.error(`--cache-location takes the folder to keep the verdicts in\n${USAGE}`)
+      process.exit(2)
+    }
+    return path.resolve(given)
+  }
+  for (let dir = process.cwd(); ; dir = path.dirname(dir)) {
+    if (existsSync(path.join(dir, "package.json"))) return path.join(dir, "node_modules", ".cache", "tsverify")
+    if (path.dirname(dir) === dir) return undefined
+  }
+})()
+/** How long a verdict is kept unused: past it, the code it was of has changed. */
+const KEPT_DAYS = 14
+const opts: Options = {
+  ...(bound ? { bound } : {}),
+  ...(work ? { work } : {}),
+  ...(cacheDir === undefined ? {} : { cache: verdictsIn(cacheDir) }),
+}
+/** Leaves with `code`, the folder of verdicts rid of what has not been asked for a while. */
+const leave = (code: number): never => {
+  if (cacheDir !== undefined) prune(cacheDir, KEPT_DAYS)
+  process.exit(code)
+}
 
 /** The watch's own lines, styled for a terminal; `styleText` leaves them plain when stdout is not one, or `NO_COLOR` is set. */
 const paint = (style: Parameters<typeof styleText>[0], text: string): string => (json ? text : styleText(style, text))
@@ -284,11 +317,14 @@ const reporting = async (files: number, single: boolean): Promise<Run> => {
   return view.run({ live: process.stdout.isTTY === true, files, verbose, single })
 }
 
-/** Verifies one contract of a program read, telling the report as it goes; and how long it took. */
-const verified = async (z3: Ctx, r: Run, project: Project, file: string, name: string): Promise<Verification> => {
+/**
+ * Verifies one contract of a program read, telling the report as it goes; and how long it took. What its result reaches
+ * is asked only when `shown`: a report of every contract under a folder leaves it out.
+ */
+const verified = async (z3: Ctx, r: Run, project: Project, file: string, name: string, shown: boolean): Promise<Verification> => {
   r.verifying(name)
   const started = performance.now()
-  const v = relative(await verify(z3, project, file, name, { ...opts, progress: r.progress }))
+  const v = relative(await verify(z3, project, file, name, { ...opts, cover: shown, progress: r.progress }))
   r.verified(v, performance.now() - started)
   return v
 }
@@ -301,10 +337,10 @@ if (positional.length === 2 && first !== undefined && second !== undefined && !e
   const r = await reporting(1, true)
   await r.reading(rel(file))
   const project = loadProject([file], config)
-  const v = await withZ3((z3) => verified(z3, r, project, file, second))
+  const v = await withZ3((z3) => verified(z3, r, project, file, second, true))
   await r.end(1)
   if (json) printReport([{ file, v }])
-  process.exit(passed(v) ? 0 : 1)
+  leave(passed(v) ? 0 : 1)
 }
 
 // Every contract of every file found.
@@ -337,7 +373,7 @@ await withZ3(async (z3) => {
     if (names.length === 0) continue
     filesRead++
     r.file(rel(file), names)
-    for (const name of names) found.push({ file, v: await verified(z3, r, project, file, name) })
+    for (const name of names) found.push({ file, v: await verified(z3, r, project, file, name, json || verbose) })
   }
 })
 if (found.length === 0) {
@@ -349,4 +385,4 @@ if (found.length === 0) {
 }
 await r.end(filesRead)
 if (json) printReport(found)
-process.exit(found.every(({ v }) => passed(v)) ? 0 : 1)
+leave(found.every(({ v }) => passed(v)) ? 0 : 1)

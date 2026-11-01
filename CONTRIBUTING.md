@@ -3,12 +3,13 @@
 ## Run it
 
 ```sh
-npm test            # 278 tests, ~55 s, the documentation's examples among them
+npm test            # 592 tests, ~3 min, the documentation's examples among them
 npm run verify      # every contract below here, a line each, the laws that need a look under it, then the totals
 npm run verify -- examples/account                                   # one folder, or one file
 npm run verify -- examples/account/withdraw.ts withdraw              # one contract, with all it knows
 npm run verify -- examples/hono                                      # a Hono API built twice, basic and with Effect
 npm run verify -- examples/charge --watch                            # again on every save
+npm run verify -- examples --cache                                   # each contract's verdict kept, answered again while its files are the same
 npm run bench       # planted bugs: the solver beside property testing (~15 s)
 npm run coverage -- <tsconfig.json> [--modular]                      # how much of a code base it reads
 npm run typecheck

@@ -9,7 +9,7 @@
 import path from "node:path"
 import ts from "typescript"
 import { packageExport } from "./adapter.ts"
-import { CONTRACT_MODULE, type Project, declared, functionOf } from "./project.ts"
+import { CONTRACT_MODULE, type Project, declared, functionOf, implementedSpec } from "./project.ts"
 import { functionIn, hasSource, symbolOf, unwrap } from "./resolve.ts"
 import { type FunctionNode, Unsupported, locate } from "./value.ts"
 
@@ -20,6 +20,11 @@ export interface View {
   /** The parameter types the laws are written for: a call is covered when its arguments' types are assignable to them. */
   readonly params: ReadonlyArray<ts.Type>
   readonly ensures: ReadonlyArray<{ readonly name: string; readonly law: FunctionNode }>
+  /**
+   * Where the function implements a spec, the spec's `requires`: its laws are what the spec proves of it, so each holds
+   * at a call only where this does.
+   */
+  readonly requires?: FunctionNode
 }
 
 /** A function declared by one or more `assume(...)`. */
@@ -131,8 +136,23 @@ export const readAssumptions = (project: Project): Assumptions => {
         }
         if (pure === undefined)
           throw new Unsupported("an assumption says whether the function is pure: `pure: true` or `pure: false`", init)
+        // A function that implements a spec is proved of that spec's laws and no others: an assumption of it takes
+        // only those, and each where the spec's `requires` holds.
+        const spec = implementedSpec(checker, sym)
+        if (spec !== undefined)
+          for (const l of ensures)
+            if (!spec.ensures.some((e) => e.law === l.law))
+              throw new Unsupported(
+                `\`${d.name.getText()}\` assumes \`${l.name}\` of \`${sym.name}\`, which implements \`${spec.name}\` and is proved of its laws alone: name one of them here (the same declaration, in a module both import), or add this law to the spec's \`ensures\``,
+                init,
+              )
         const where = where_(init)
-        const view: View = { where, params: viewParams(checker, init), ensures }
+        const view: View = {
+          where,
+          params: viewParams(checker, init),
+          ensures,
+          ...(spec?.requires === undefined ? {} : { requires: spec.requires }),
+        }
         const known = bySymbol.get(sym)
         if (known !== undefined) {
           if (known.pure !== pure)

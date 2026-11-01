@@ -1,5 +1,6 @@
 // Calls: of a function of the program, of a value that is a function, and of a function a spec declares.
 import ts from "typescript"
+import type { Bool } from "z3-solver"
 import { computationCall } from "../computation.ts"
 import { truthy } from "../ops.ts"
 import { purityOf } from "../purity.ts"
@@ -167,15 +168,25 @@ const assumedCall = (L: Lowering, a: AssumedFn, args: ReadonlyArray<Val>, at: ts
   L.assuming.push(a)
   try {
     inSpec(L, () => {
-      for (const v of views)
+      for (const v of views) {
+        // An implementation's laws are what its spec proves, which is nothing where the spec's `requires` fails.
+        let pre: Bool | undefined
+        try {
+          pre = v.requires === undefined ? undefined : truthy(u, lowerCall(L, v.requires, EMPTY, args, v.requires))
+        } catch (err) {
+          if (!(err instanceof Unsupported)) throw err
+          throw new Unsupported(`the \`requires\` of \`${a.name}\`'s spec (${v.where}) cannot be read: ${err.message}`, at)
+        }
         for (const law of v.ensures) {
           try {
-            u.assume(truthy(u, lowerCall(L, law.law, EMPTY, [...args, result], law.law)), indices)
+            const holds = truthy(u, lowerCall(L, law.law, EMPTY, [...args, result], law.law))
+            u.assume(pre === undefined ? holds : u.z3.Implies(pre, holds), indices)
           } catch (err) {
             if (!(err instanceof Unsupported)) throw err
             throw new Unsupported(`the law \`${law.name}\` of \`${a.name}\` (${v.where}) cannot be read: ${err.message}`, at)
           }
         }
+      }
     })
   } finally {
     L.assuming.pop()

@@ -1,6 +1,7 @@
 // The verifier as a program calls it: load a project, verify a contract by name,
 // read the verdicts. What a spec author writes is `@emyann/tsverify` (src/contract.ts)
 // and, for Effect programs, `@emyann/tsverify/effect`.
+export { prune, verdictsIn, type Cache } from "./cache.ts"
 export { diagnostics, loadProject, readContract, sourceFile, type ContractSource, type Project } from "./project.ts"
 export { purityOf, type Purity } from "./purity.ts"
 export { PURITY_TRUSTS, type Trusted } from "./trust.ts"

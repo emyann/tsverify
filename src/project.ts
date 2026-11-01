@@ -262,6 +262,24 @@ const implementationNamed = (project: Project, file: string, name: string): ts.V
   return undefined
 }
 
+/**
+ * The spec a function implements, when `sym` names one (`const f: Implementation<S> = ...`): its name, its `requires` and
+ * its laws, which are all an assumption of the function may take of it.
+ */
+export const implementedSpec = (
+  checker: ts.TypeChecker,
+  sym: ts.Symbol,
+): (Pick<ContractSource, "requires" | "ensures"> & { readonly name: string }) | undefined => {
+  const d = sym.valueDeclaration
+  if (d === undefined || !ts.isVariableDeclaration(d) || !isImplementation(checker, d)) return undefined
+  const { call } = specOf(checker, d)
+  const lawsArg = call.arguments[0]
+  if (lawsArg === undefined || !ts.isObjectLiteralExpression(unwrap(lawsArg)))
+    throw new Unsupported("a spec is `spec<F>({ requires?, ensures: { ... } })`, written in place", call)
+  const name = (d.type as ts.TypeReferenceNode).typeArguments![0]!.getText()
+  return { name, ...lawsOf(checker, lawsArg) }
+}
+
 /** A contract's or a spec's `{ requires?, ensures: { law: pred, ... } }`, written in place. */
 const lawsOf = (checker: ts.TypeChecker, lawsArg: ts.Expression): Pick<ContractSource, "requires" | "ensures"> => {
   let requires: FunctionNode | undefined

@@ -2,8 +2,10 @@
 // assumed at each call, a function nobody declared refused with what to write,
 // a declaration of purity checked where the source is, `pure: false` fresh per
 // call and kept out of laws, spec code kept from computations and the clock,
-// and the report's trusted base.
+// the report's trusted base, and a declaration of a function that implements a
+// spec held to that spec: its laws, and where its `requires` holds.
 import assert from "node:assert/strict"
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import path from "node:path"
 import { after, before, describe, it } from "node:test"
 import { diagnostics, loadProject } from "../src/project.ts"
@@ -103,5 +105,83 @@ describe("spec code", () => {
       v.laws.map((l) => [l.name, l.status]),
       [["keeps", "proved"]],
     )
+  })
+})
+
+describe("a declaration of a function that implements a spec", () => {
+  const CLAMP = {
+    "clamp.contract.ts":
+      `import { spec } from "@emyann/tsverify"\n\n` +
+      `/** At most \`hi\`. */\nexport const atMostHi = (_x: bigint, hi: bigint, out: bigint): boolean => out <= hi\n\n` +
+      `const clampSpec = spec<(x: bigint, hi: bigint) => bigint>({\n` +
+      `  requires: (_x, hi) => hi >= 0n,\n  ensures: { atMostHi, notNegative: (_x, _hi, out) => out >= 0n },\n})\n` +
+      `export type ClampSpec = typeof clampSpec\n`,
+    "clamp.ts":
+      `import type { Implementation } from "@emyann/tsverify"\nimport type { ClampSpec } from "./clamp.contract.ts"\n\n` +
+      `export const clamp: Implementation<ClampSpec> = (x, hi) => (x < 0n ? 0n : x > hi ? hi : x)\n`,
+  }
+  /** A project of its own under `.docs/`, a dot folder no command scans, importing `@emyann/tsverify` through this package's condition. */
+  const projectOf = (files: Readonly<Record<string, string>>): string => {
+    mkdirSync(path.join(root, ".docs"), { recursive: true })
+    const dir = mkdtempSync(path.join(root, ".docs", "trust-"))
+    const compilerOptions = {
+      module: "nodenext",
+      strict: true,
+      noEmit: true,
+      allowImportingTsExtensions: true,
+      customConditions: ["tsverify-source"],
+    }
+    writeFileSync(path.join(dir, "tsconfig.json"), JSON.stringify({ compilerOptions }))
+    for (const [name, text] of Object.entries({ ...CLAMP, ...files })) writeFileSync(path.join(dir, name), text)
+    return dir
+  }
+  const verified = async (dir: string, name: string) => {
+    const f = path.join(dir, "use.ts")
+    return verify(z3, loadProject([f], path.join(dir, "tsconfig.json")), f, name)
+  }
+
+  it("takes the spec's own law, and only where the spec's `requires` holds at the call", async () => {
+    const dir = projectOf({
+      "use.ts":
+        `import { assume, contract } from "@emyann/tsverify"\nimport { atMostHi } from "./clamp.contract.ts"\nimport { clamp } from "./clamp.ts"\n\n` +
+        `export const clampAssumed = assume(clamp, { pure: true, ensures: { atMostHi } })\n\n` +
+        `export const capped = (x: bigint): bigint => clamp(x, 10n)\n` +
+        `export const cappedAtTen = contract(capped, { ensures: { atMostTen: (_x, out) => out <= 10n } })\n\n` +
+        `export const anyCap = (x: bigint, hi: bigint): bigint => clamp(x, hi)\n` +
+        `export const anyCapAtMostHi = contract(anyCap, { ensures: { atMostHi: (_x, hi, out) => out <= hi } })\n`,
+    })
+    try {
+      const ten = await verified(dir, "cappedAtTen")
+      assert.deepEqual(
+        ten.laws.map((l) => [l.name, l.status]),
+        [["atMostTen", "proved"]],
+      )
+      // `hi` may be negative here, where the spec proves nothing of `clamp`: the law is not taken, and its run is shown.
+      const any = await verified(dir, "anyCapAtMostHi")
+      const law = any.laws[0]!
+      assert.equal(law.status, "counterexample", JSON.stringify(law.reason))
+      assert.ok((law.args![1] as bigint) < 0n, String(law.args))
+      assert.deepEqual(law.abstract, ["clamp"])
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it("refuses a law its spec does not ensure, written again or new, with what to write", async () => {
+    const dir = projectOf({
+      "use.ts":
+        `import { assume, contract } from "@emyann/tsverify"\nimport { clamp } from "./clamp.ts"\n\n` +
+        `export const clampAssumed = assume(clamp, { pure: true, ensures: { atMostHi: (_x, hi, out) => out <= hi } })\n\n` +
+        `export const capped = (x: bigint): bigint => clamp(x, 10n)\n` +
+        `export const cappedAtTen = contract(capped, { ensures: { atMostTen: (_x, out) => out <= 10n } })\n`,
+    })
+    try {
+      const v = await verified(dir, "cappedAtTen")
+      assert.deepEqual(v.laws, [])
+      assert.match(v.unsupported ?? "", /`clampAssumed` assumes `atMostHi` of `clamp`, which implements `ClampSpec`/)
+      assert.match(v.unsupported ?? "", /name one of them here .* or add this law to the spec's `ensures`/)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 })

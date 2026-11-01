@@ -11,6 +11,7 @@ import { init, killThreads } from "z3-solver"
 import type { Arith, Bool, Model } from "z3-solver"
 import ts from "typescript"
 import type { Adapter } from "./adapter.ts"
+import { type Cache, contractKey } from "./cache.ts"
 import { asyncAdapter } from "./adapters/async.ts"
 import { effectAdapter } from "./adapters/effect/index.ts"
 import { tsAdapter } from "./adapters/ts.ts"
@@ -141,6 +142,16 @@ export interface Options {
   readonly within?: ReadonlyArray<string>
   /** Decide these laws alone, and ask no cover: the check of one law, as a test of a planted bug asks it. */
   readonly only?: ReadonlyArray<string>
+  /**
+   * Whether to ask what the result reaches (`cover`), true by default: false leaves it empty, and saves a query or two
+   * for each end, most of a run's time when every law is proved. The command asks for it only where its report shows it.
+   */
+  readonly cover?: boolean
+  /**
+   * Where the verdicts of contracts verified before are kept (`verdictsIn` of `./cache.ts`): a contract whose program
+   * reads the same text under the same settings is answered from it, and not verified again. None by default.
+   */
+  readonly cache?: Cache
 }
 
 /** One side's lowering: the universe, the arguments and result, the precondition. */
@@ -327,6 +338,16 @@ const lawOnAnyResult = (side: Lowered, law: ContractSource["ensures"][number]): 
 }
 
 export const verify = async (z3: Ctx, project: Project, file: string, name: string, opts: Options = {}): Promise<Verification> => {
+  if (opts.cache === undefined) return verified(z3, project, file, name, opts)
+  const key = contractKey(project, file, name, opts)
+  const kept = opts.cache.get(key)
+  if (kept !== undefined) return kept
+  const v = await verified(z3, project, file, name, opts)
+  opts.cache.set(key, v)
+  return v
+}
+
+const verified = async (z3: Ctx, project: Project, file: string, name: string, opts: Options): Promise<Verification> => {
   // Without it a type leaves out `null` and `undefined`, and so would every proof read from it. TypeScript 6 has it on by default.
   const options = project.program.getCompilerOptions()
   if (!(options.strictNullChecks ?? options.strict ?? true))
@@ -587,7 +608,7 @@ export const judge = async (
   // An end is any run's, one that dies among them.
   const [proofEnds, searchEnds] = [returning(proof, "kept"), returning(search, "kept")]
   const cover: Array<CoverResult> = []
-  for (const { value, onProof, onSearch } of opts.only === undefined ? ends : []) {
+  for (const { value, onProof, onSearch } of opts.only === undefined && opts.cover !== false ? ends : []) {
     const found = await solve(search, [search.pre, searchEnds, onSearch], opts)
     let c: CoverResult
     if (found.status === "sat") c = { value, status: "reachable", ...found.witness }

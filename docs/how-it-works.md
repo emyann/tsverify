@@ -66,6 +66,7 @@ A counterexample's `where names.get gave ""` is the part of w the model chose.
 | `src/universe.ts` | the Z3 context, its unknowns (one function per path through arrays), assumptions and quantifier scopes |
 | `src/concrete.ts` | model to JS values (replay), and JS values to constraints (the translator check) |
 | `src/verify.ts` | the queries: laws, vacuity, reachability, the cross-check of every proof, and the loop invariants it guesses |
+| `src/cache.ts` | the verdicts kept between runs (`--cache`), keyed by the text of every file of a contract's program |
 | `src/computation.ts` | outcomes, traces, operations, and the lowering of a computation's body step by step |
 | `src/adapter.ts`, `src/adapters/` | the adapter interface and the three adapters |
 | `src/cli.ts` | `tsverify`: every contract found, or one by name; the text report and `--json` |

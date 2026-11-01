@@ -270,7 +270,8 @@ $ npx tsverify src/cap.ts cap
 
 ```text
 tsverify [<file or folder>...] [--project tsconfig.json] [--bound N] [--work N] [--verbose] [--json] [--watch]
-tsverify <file.ts> <export> [--json] [--watch]
+         [--cache] [--cache-location <folder>]
+tsverify <file.ts> <export> [--json] [--watch] [--cache] [--cache-location <folder>]
 ```
 
 | Flag | |
@@ -281,6 +282,8 @@ tsverify <file.ts> <export> [--json] [--watch]
 | `--verbose` | every law and every obligation of every contract, with what each trusted and assumed, as the one-contract form prints them |
 | `--json` | one JSON document instead of the text, and nothing else on stdout |
 | `--watch` | the same again on every change to the project's TypeScript, until stopped (below) |
+| `--cache` | keep each contract's verdict, and answer a contract verified before from it (below) |
+| `--cache-location` | the folder `--cache` keeps the verdicts in, instead of `node_modules/.cache/tsverify` beside the nearest `package.json` |
 
 | Exit | |
 | --- | --- |
@@ -294,6 +297,24 @@ set amount of the solver's work, counted in its own steps and not in seconds, an
 `--predictable-gc-schedule`, so JavaScript frees the solver's terms at the same moments and the solver meets its
 formulas in the same order. A program that calls `verify` itself (`@emyann/tsverify/api`, whose `work` option is `--work`)
 gets the same by starting Node with that flag; `NODE_OPTIONS` refuses it.
+
+### Verdicts kept between runs
+
+A run over a folder reports what each contract's laws come to and leaves out what its result reaches, which it does
+not print: most of a run's time when every law holds goes on those queries. The one-contract form, `--verbose` and
+`--json` show it, and ask it.
+
+With `--cache`, each contract's verdict is kept, keyed by the text of every file of the program it is read from (its
+own, each it imports, the declarations of the packages and of JavaScript those bring in), the settings it is verified
+under, and the verifier's own code and Z3's version. A contract whose program reads the same text again is answered
+from the folder, and not verified. A change to a file verifies again each contract whose program holds it, and only
+those: a contract that leans on a changed function is verified again, and one whose program never reads it is not. A
+verdict the solver ran out of work on is not kept, and one not used for 14 days is removed at the end of a run.
+
+A counterexample answered from the folder is one an earlier run found. The verdict is the same, but its input may not
+be the one a run without `--cache` would print, since the solver's choice among the inputs that break a law follows
+what it was asked before. In CI, keep the folder between runs (GitHub's `actions/cache`, restored after the install,
+since `npm ci` empties `node_modules`).
 
 In a terminal the report is drawn live: each contract verified stays above a line naming the one being verified and how
 far the run is, and a long line wraps to the window under its own first word. It is in colour: green for `proved`, red
