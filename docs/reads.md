@@ -234,8 +234,8 @@ package's, or a recursive one. It replaces the function's body wherever the func
 - **`ensures`**: laws over the arguments and the result, assumed at every call, without proof.
 - **The type arguments are the view** the laws are written for: `assume<[xs: ReadonlyArray<string>], string[]>(uniq, …)`
   says what `uniq` does on strings, and `tsc` checks that `uniq` can be called so. A call no view covers is refused.
-- **A function that implements a spec** (`const f: Implementation<S>`) needs none, and an `assume` of it is refused: its
-  spec declares it (*A function that implements a spec*, below).
+- **A function that implements a spec** (typed `Implementation<S>`, itself or through the type its spec's module
+  exports) needs none, and an `assume` of it is refused: its spec declares it (*A function that implements a spec*, below).
 
 Counting a number's digits calls itself, which the verifier does not read. Declared, with what the rest of the program
 needs of it:

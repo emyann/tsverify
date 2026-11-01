@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 // tsverify [<file or folder>...] [--project tsconfig.json] [--bound 4] [--work 15000000] [--verbose] [--json] [--watch]
 //          [--cache] [--cache-location <folder>]
-//   Verifies every contract each file exports: every implementation of a spec (`const f: Implementation<S>`),
-//   and every `contract`, computation and lemma, in each file that imports tsverify under each folder (the current one
-//   by default): a line per contract, under it a line per law that needs a look (per law, of a run of one file or with
-//   --verbose), then the totals. Exits 1 unless every law is proved and says something of its function, and every
+//   Verifies every contract each file exports: every implementation of a spec (typed `Implementation<S>`, itself or
+//   through the type its spec's module exports), and every `contract`, computation and lemma, in each file under each
+//   folder (the current one by default) that imports tsverify, or imports a file of its own that does: a line per
+//   contract, under it a line per law that needs a look (per law, of a run of one file or with --verbose), then the
+//   totals. Exits 1 unless every law is proved and says something of its function, and every
 //   obligation of the proof code is proved.
 // tsverify <file.ts> <export>
 //   Verifies one contract, with everything the verification knows: the states its result reaches, what it trusted
@@ -415,7 +416,7 @@ await withZ3(async (z3) => {
 if (found.length === 0) {
   await r.quit()
   console.error(
-    `no contract in ${files.map(rel).join(", ")}: a spec is verified through its implementation, \`const f: Implementation<S> = ...\`, or a \`contract\`, \`computation\` or lemma the file exports\n${USAGE}`,
+    `no contract in ${files.map(rel).join(", ")}: a spec is verified through the function that implements it, typed \`Implementation<S>\` or by the type its spec's module exports: name the file that function is written in, or one that exports a \`contract\`, \`computation\` or lemma\n${USAGE}`,
   )
   process.exit(2)
 }
