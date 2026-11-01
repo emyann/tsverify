@@ -450,11 +450,14 @@ const shown = (w: Witness): { readonly args?: ReadonlyArray<unknown>; readonly w
  * The runs of a side the model reads exactly: no division throws, every element write lands inside its array, and
  * every `number` operation is exact. A law speaks of what the code returns, so it is judged on these runs, and each
  * condition is reported as its own obligation. A run that breaks a write or arithmetic goes on, so a law leans on those
- * too (`judge`); a division by 0n throws, and its run returns nothing a law could speak of.
+ * too (`judge`); a division by 0n throws, and its run returns nothing a law could speak of. Nor does a computation's
+ * run that dies: a defect is outside its types, as Effect keeps it, and its ends say whether one can.
  */
-const returning = (side: Lowered): Bool => {
+const returning = (side: Lowered, dying: "judged" | "kept" = "judged"): Bool => {
   const z3 = side.u.z3
   const each = side.L.obligations.filter((o) => MODELS.has(o.kind)).map((o) => z3.Implies(o.cond, o.goal))
+  const tag = dying === "judged" && side.u.dies && side.result.kind === "record" ? side.result.field("_tag") : undefined
+  if (tag?.kind === "str") each.push(z3.Not(tag.term.eq(jsString(z3, "Die"))))
   return each.length === 0 ? z3.Bool.val(true) : z3.And(...each)
 }
 
@@ -581,13 +584,15 @@ export const judge = async (
       }
   }
 
+  // An end is any run's, one that dies among them.
+  const [proofEnds, searchEnds] = [returning(proof, "kept"), returning(search, "kept")]
   const cover: Array<CoverResult> = []
   for (const { value, onProof, onSearch } of opts.only === undefined ? ends : []) {
-    const found = await solve(search, [search.pre, searchRuns, onSearch], opts)
+    const found = await solve(search, [search.pre, searchEnds, onSearch], opts)
     let c: CoverResult
     if (found.status === "sat") c = { value, status: "reachable", ...found.witness }
     else {
-      const any = await solve(proof, [proof.pre, proofRuns, onProof], opts)
+      const any = await solve(proof, [proof.pre, proofEnds, onProof], opts)
       c =
         any.status === "unsat"
           ? { value, status: "unreachable" }
@@ -787,6 +792,7 @@ const outcomesOf = (project: Project, side: Lowered): Array<readonly [string, (s
           tagIs(field(field(s.result, "error") ?? { kind: "nullish", which: "undefined" }, "_tag"), t, s.u.z3),
         ),
     ])
+  if (side.u.dies) goals.push(["Die", (s) => tagIs(field(s.result, "_tag"), "Die", s.u.z3)])
   return goals
 }
 

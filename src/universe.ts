@@ -41,6 +41,8 @@ export class Universe {
   abstracted = false
   /** Whether a term of 32-bit vectors was made (`|`, `&`, `^` on numbers): their queries are solved by integer blasting. */
   vectors = false
+  /** Whether a computation of this side can die (`Effect.die`): its ends then include a defect, which no law judges. */
+  dies = false
   /** What each over-approximation was, and what a spec author can write to do without it: a bounded law's reason. */
   readonly approximations = new Set<string>()
   /**

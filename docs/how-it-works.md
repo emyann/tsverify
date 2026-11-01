@@ -142,10 +142,12 @@ An adapter (`src/adapter.ts`) tells the core which forms are which:
 | `src/adapters/async.ts` | async functions as computations; `await` steps; methods returning a promise as operations; `Rejects<A, E>` for what a promise rejects with |
 | `src/adapters/effect/` | `Effect.fn(...)(function* ...)` and `fnUntraced`; `Effect.gen`, and a function that returns an Effect; `yield*`; `Context.Service` keys as services; methods returning an Effect as operations; `Effect.succeed`, `fail`, `void`, `sync`; `Effect.try` and `tryPromise`, the code they run not read (any value of its type, or what `catch` makes of a thrown `unknown`); `map`, `flatMap`, `catch`, `catchTag`, effect first or last; `x.pipe(f, g)` and `pipe(x, f, g)`; `Schema.TaggedError` and `Data.TaggedError` construction; a `computation` helper typed from the Effect |
 
-A computation's body, in the core, whatever marks its steps: `const`, a step as a statement, `return`, `throw` (async),
+A computation's body, in the core, whatever marks its steps: `const`, a step as a statement, `return`, `throw` (a
+rejection in async code, a defect in a generator),
 `if`, blocks, `for (const x of xs)` over an array, and steps anywhere inside an expression, run in the order JavaScript
 evaluates them and only on the paths that reach them.
 
 The core never names a library. What no adapter reads is refused where the code uses it, naming the function: for Effect
-today, `forEach`, `exit`, `mapError`, `catchCause`, `die`, concurrency, resources and defects; for promises, `.then` and
-`.catch`; and, in a computation's body, `let`, `try`, `switch`, `for`, `while` and `break`.
+today, `forEach`, concurrency, resources and schedules; for promises, `.then` and `.catch`; and, in a computation's
+body, `let`, `try`, `switch`, `for`, `while` and `break`. An outcome is a success or a failure, or, for an adapter whose
+computations can die (Effect's defects), a death: an end no handler of failures sees and no law judges.

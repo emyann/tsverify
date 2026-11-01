@@ -439,6 +439,21 @@ export const shownPresent = (v: Val, type: ts.Type): Val => {
  * its part of the kinds the narrowed type allows. No run reaches the read with the value of another kind.
  */
 const narrowedKind = (L: Lowering, e: ts.Expression, v: Val): Val => {
+  // A value of type `unknown` read where the checker has narrowed it to a type it names: that type's value. Not `{}`,
+  // which `x != null` narrows it to: a string is one too.
+  if (v.kind === "opaque" && v.as !== undefined) {
+    const t = L.checker.getTypeAtLocation(e)
+    const open = (t.isUnion() ? t.types : [t]).some(
+      (m) =>
+        m.flags & (ts.TypeFlags.Unknown | ts.TypeFlags.Any | ts.TypeFlags.TypeParameter | ts.TypeFlags.NonPrimitive) ||
+        (m.flags & ts.TypeFlags.Object &&
+          L.checker.getPropertiesOfType(m).length === 0 &&
+          L.checker.getIndexInfosOfType(m).length === 0 &&
+          m.getCallSignatures().length === 0 &&
+          !L.checker.isArrayType(m)),
+    )
+    return open ? v : (v.as(t, e) ?? v)
+  }
   const inner = v.kind === "maybe" ? v.value : v
   if (inner?.kind !== "mixed") return v
   const t = L.checker.getTypeAtLocation(e)
@@ -642,6 +657,28 @@ export const member = (L: Lowering, obj: Val, name: string, at: ts.Node, objType
   throw new Unsupported(`member \`${name}\` of a ${obj.kind} is not modeled`, at)
 }
 
+/**
+ * `x instanceof C`, of a class the program declares: false of a primitive, and of a value of type `unknown` the code was
+ * given, whether it is one of the class's instances (`instanceOf`). Of a class a package declares (`Error`), whose
+ * ancestry its declarations need not show, and of a value the code built, it is refused.
+ */
+const instanceOf = (L: Lowering, e: ts.BinaryExpression, env: Env): Val => {
+  const decl = symbolOf(L.checker, e.right)?.valueDeclaration
+  if (decl === undefined || !ts.isClassLike(decl) || !inProgram(decl))
+    throw new Unsupported(
+      `\`instanceof ${e.right.getText()}\`, a class the program does not declare, is not modeled: test a field that tells the values apart (a \`_tag\`)`,
+      e,
+    )
+  const v = lowerExpr(L, e.left, env)
+  if (v.kind === "str" || v.kind === "num" || v.kind === "int" || v.kind === "bool" || v.kind === "nullish" || v.kind === "mixed")
+    return bool(L.u.z3.Bool.val(false))
+  if (v.kind === "opaque" && v.instanceOf !== undefined) return bool(v.instanceOf(decl, e))
+  throw new Unsupported(
+    `\`instanceof\` of a ${v.kind} the code ${v.kind === "opaque" ? "merged from two paths" : "built or was given"} is not modeled`,
+    e,
+  )
+}
+
 const binary = (L: Lowering, e: ts.BinaryExpression, env: Env): Val => {
   const { u } = L
   const z3 = u.z3
@@ -669,6 +706,7 @@ const binary = (L: Lowering, e: ts.BinaryExpression, env: Env): Val => {
     )
   }
   if (op === K.InKeyword) return keyIn(L, e, env)
+  if (op === K.InstanceOfKeyword) return instanceOf(L, e, env)
   const l = narrowed(L, e.left, lowerExpr(L, e.left, env), op)
   const r = narrowed(L, e.right, lowerExpr(L, e.right, env), op)
   switch (op) {

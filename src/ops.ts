@@ -238,10 +238,24 @@ export const ite = (u: Universe, c: Bool, a: Val, b: Val, at: ts.Node): Val => {
   const z3 = u.z3
   if (a === b || z3.isTrue(c)) return a
   if (z3.isFalse(c)) return b
-  // What is known of one side is lost in the merge: nothing reads the merged value but to pass it along.
-  if (a.kind === "opaque" && b.kind === "opaque" && a.typeOf !== undefined && b.typeOf !== undefined) {
-    const [x, y] = [a.typeOf, b.typeOf]
-    return { kind: "opaque", typeOf: () => z3.If(c, x(), y()) }
+  // Two values of type `unknown`: what `typeof` and `instanceof` say of each, and each read at a narrowed type, taken
+  // from the path that holds it. Merged with a value of any other kind, what is known of either is lost: nothing reads
+  // the merged value but to pass it along.
+  if (a.kind === "opaque" && b.kind === "opaque") {
+    const [ta, tb, ia, ib, aa, ab] = [a.typeOf, b.typeOf, a.instanceOf, b.instanceOf, a.as, b.as]
+    return {
+      kind: "opaque",
+      ...(ta !== undefined && tb !== undefined ? { typeOf: () => z3.If(c, ta(), tb()) } : {}),
+      ...(ia !== undefined && ib !== undefined ? { instanceOf: (cls, w) => z3.If(c, ia(cls, w), ib(cls, w)) } : {}),
+      ...(aa !== undefined && ab !== undefined
+        ? {
+            as: (type, w) => {
+              const [x, y] = [aa(type, w), ab(type, w)]
+              return x === undefined || y === undefined ? undefined : ite(u, c, x, y, w)
+            },
+          }
+        : {}),
+    }
   }
   if (a.kind === "opaque" || b.kind === "opaque") return { kind: "opaque" }
   if (a.kind === "maybe" || b.kind === "maybe" || a.kind === "nullish" || b.kind === "nullish") {

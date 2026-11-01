@@ -3,8 +3,10 @@
 // call recorded in a trace. The same model serves Effect programs, async
 // functions and code that throws; an adapter says which form is which.
 //
-// An outcome is `{ _tag: "Success", value } | { _tag: "Failure", error }`. A
-// trace is an array of calls `{ target, op, args, outcome }`, in the order made.
+// An outcome is `{ _tag: "Success", value } | { _tag: "Failure", error }`, or,
+// where an adapter's computations can die (Effect's defects), `{ _tag: "Die",
+// defect }`: an end no handler of failures sees and no law judges. A trace is an
+// array of calls `{ target, op, args, outcome }`, in the order made.
 // An operation's outcome is unknown but for its types (and, later, its
 // contract): any outcome they allow is covered.
 import ts from "typescript"
@@ -25,6 +27,18 @@ export const success = (L: Lowering, value: Val): Val =>
 
 export const failure = (L: Lowering, error: Val): Val =>
   lazyRecord((n) => (n === "_tag" ? str(L, "Failure") : n === "error" ? error : undefined))
+
+/**
+ * A defect: the end of a computation that died (`Effect.die`, a `throw` in an Effect's generator). It passes every
+ * handler of failures, and its run is one no law judges: a law speaks of what the program's types say it ends with.
+ */
+export const died = (L: Lowering, defect: Val): Val => {
+  L.u.dies = true
+  L.u.notes.add(
+    "A run that dies (a defect: `Effect.die`, a `throw` in a generator) is judged by no law, as Effect keeps defects out of its types: each law holds of every run that does not die, and the ends say whether one can.",
+  )
+  return lazyRecord((n) => (n === "_tag" ? str(L, "Die") : n === "defect" ? defect : undefined))
+}
 
 /** A computation's end as a value, so two paths' ends merge as any two values do. */
 const ran = (r: Ran): Val => lazyRecord((n) => (n === "outcome" ? r.outcome : n === "trace" ? r.trace : undefined))
@@ -85,7 +99,8 @@ export const operation = (
         if (n === "value") return symbolicOf(L, types.success, [...base, ".value"], [], at)
         if (n === "error") {
           if (types.failure === undefined) throw new Unsupported(`what \`${target}.${op}\` fails with is not declared`, at)
-          return symbolicOf(L, types.failure, [...base, ".error"], [], at)
+          // An operation that cannot fail has no error, as it has no failure.
+          return canFail ? symbolicOf(L, types.failure, [...base, ".error"], [], at) : undefined
         }
         return undefined
       })
@@ -312,18 +327,44 @@ export const onFailure = (L: Lowering, r: Ran, at: ts.Node, handle: (error: Val,
 const asFailure = (o: Val): Val => (o.kind === "record" ? lazyRecord((n) => (n === "value" ? undefined : o.field(n))) : o)
 const asSuccess = (o: Val): Val => (o.kind === "record" ? lazyRecord((n) => (n === "error" ? undefined : o.field(n))) : o)
 
-/** Continues after a step, unless it failed: then its failure is the computation's end. */
+/** Continues after a step, unless it failed or died: then that is the computation's end. */
 const after = (L: Lowering, r: Ran, at: ts.Node, next: (value: Val, trace: Val) => Val): Val => {
+  const z3 = L.u.z3
   const outcome = r.outcome
   if (outcome.kind !== "record") throw new Error("an outcome is a record")
   const tag = outcome.field("_tag")!
   if (tag.kind !== "str") throw new Error("an outcome's _tag is a string")
   const value = outcome.field("value")
-  if (tag.term.eqIdentity(jsString(L.u.z3, "Failure"))) return ran(r)
-  if (tag.term.eqIdentity(jsString(L.u.z3, "Success")) && value !== undefined) return next(value, r.trace)
-  const failed = tag.term.eq(jsString(L.u.z3, "Failure"))
-  const rest = value === undefined ? ran(r) : onBranch(L, L.u.z3.Not(failed), () => next(value, r.trace))
-  return ite(L.u, failed, ran({ outcome: asFailure(outcome), trace: r.trace }), rest, at)
+  if (tag.term.eqIdentity(jsString(z3, "Failure")) || tag.term.eqIdentity(jsString(z3, "Die"))) return ran(r)
+  if (tag.term.eqIdentity(jsString(z3, "Success")) && value !== undefined) return next(value, r.trace)
+  // Where nothing made so far can die, an end that is no success is a failure: the formula it always was.
+  const ended = L.u.dies ? z3.Not(tag.term.eq(jsString(z3, "Success"))) : tag.term.eq(jsString(z3, "Failure"))
+  const rest = value === undefined ? ran(r) : onBranch(L, z3.Not(ended), () => next(value, r.trace))
+  return ite(L.u, ended, ran({ outcome: asFailure(outcome), trace: r.trace }), rest, at)
+}
+
+/**
+ * `r`, handled by `handle` where it did not succeed, with its end (a failure or a defect) and the trace so far; a
+ * success passes as it is. What Effect's `catchCause` and `exit` read.
+ */
+export const onUnsuccessful = (L: Lowering, r: Ran, at: ts.Node, handle: (end: Val, trace: Val) => Ran): Ran => {
+  const z3 = L.u.z3
+  const outcome = r.outcome
+  if (outcome.kind !== "record") throw new Error("an outcome is a record")
+  const tag = outcome.field("_tag")!
+  if (tag.kind !== "str") throw new Error("an outcome's _tag is a string")
+  if (tag.term.eqIdentity(jsString(z3, "Success"))) return r
+  if (tag.term.eqIdentity(jsString(z3, "Failure")) || tag.term.eqIdentity(jsString(z3, "Die"))) return handle(asFailure(outcome), r.trace)
+  const ended = z3.Not(tag.term.eq(jsString(z3, "Success")))
+  return unran(
+    ite(
+      L.u,
+      ended,
+      ran(onBranch(L, ended, () => handle(asFailure(outcome), r.trace))),
+      ran({ outcome: asSuccess(outcome), trace: r.trace }),
+      at,
+    ),
+  )
 }
 
 const statements = (
@@ -371,10 +412,11 @@ const statements = (
     return stepsIn(L, style, e, env, trace, (stepped, t) => ran(returning(L, style, e, stepped, t)))
   }
   if (ts.isThrowStatement(s)) {
-    if (style === "gen") throw new Unsupported("a `throw` in a generator is a defect, which is not modeled; fail instead", s)
-    return stepsIn(L, style, s.expression, env, trace, (stepped, t) =>
-      ran({ outcome: failure(L, lowerExpr(L, s.expression, stepped)), trace: t }),
-    )
+    // In a generator, what is thrown is a defect; in an async function, the promise's rejection.
+    return stepsIn(L, style, s.expression, env, trace, (stepped, t) => {
+      const thrown = lowerExpr(L, s.expression, stepped)
+      return ran({ outcome: style === "gen" ? died(L, thrown) : failure(L, thrown), trace: t })
+    })
   }
   if (ts.isIfStatement(s))
     return stepsIn(L, style, s.expression, env, trace, (stepped, t) => {

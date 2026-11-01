@@ -162,8 +162,9 @@ src/amount.ts
   2 contracts in 1 file · 1.3 s
 ```
 
-Build a typed error in `catch`, as `amountOf` does. A program whose errors are typed can be specified; one that carries
-`unknown` and sorts it out later with `instanceof` cannot, and is harder to read for a person too.
+Build a typed error in `catch`, as `amountOf` does and as Effect's own guides do (a tagged error whose `cause` holds
+what was thrown). A program that carries `unknown` and sorts it out later with `instanceof` of its own classes is read
+too, where it narrows the value before it reads it (*Defects*, below), but it is harder to read for a person.
 
 ## What it reads
 
@@ -175,11 +176,16 @@ Build a typed error in `catch`, as `amountOf` does. A program whose errors are t
 | `yield* service.method(...)` | an operation call: any outcome its type allows, recorded |
 | `Effect.succeed`, `fail`, `void`, `sync` | a success or a failure; `sync`'s function is read |
 | `Effect.try`, `tryPromise` | any value of the type, or what `catch` makes of a thrown `unknown`; the code it runs is not read |
-| `Effect.map`, `flatMap`, `catch`, `catchTag` | as written, the effect first or last |
+| `Effect.map`, `flatMap`, `andThen`, `as`, `asVoid`, `tap`, `catch`, `catchTag`, `mapError` | as written, the effect first or last |
+| `Effect.suspend` | its function's Effect, made anew each time it runs |
+| `Effect.die`, `orDie`, a `throw` in the generator | a defect: an end no `catch` sees and no law judges (*Defects*) |
+| `Effect.exit`, `catchCause`, `failCause`; `Exit.isSuccess`, `isFailure`, `Cause.squash` | Effect's own `Exit` and `Cause`, of one reason each, `Fail` or `Die` |
+| `Effect.log*`, `annotateLogs`, `annotateCurrentSpan`, `withSpan`, `withLogSpan`, `Metric.update`, `modify` | a step that changes nothing a law reads; its arguments are not read, and one that assigns is refused |
 | `x.pipe(f, g)`, `pipe(x, f, g)` | each function applied in turn |
 | `Data.TaggedError`, `Schema.TaggedError` | an error with its `_tag` and fields |
+| `x instanceof E`, of what was thrown | whether it is an `E`; where the checker narrows it, any value of that type, of the class it found |
 
-Inside a generator, the core reads `const`, `if`, `return`, `throw` (in async code), blocks, `for (const x of xs)` over an
+Inside a generator, the core reads `const`, `if`, `return`, `throw` (a defect), blocks, `for (const x of xs)` over an
 array, and steps anywhere inside an expression, in the order JavaScript runs them and only on the paths that reach them:
 a step after `&&` runs only when the left side is true. A step after `?.` is refused, since it runs only when what is
 before it is present: write an `if`.
@@ -226,9 +232,8 @@ src/renameAll.ts
   1 contract in 1 file · 1.1 s
 ```
 
-Beside `forEach`, it suggests what to write for `all`, `mapError`, `as`, `asVoid`, `andThen`, `tap` and `orElseSucceed`.
-Defects (`die`, `orDie`), causes (`exit`, `catchCause`), resources (`acquireRelease`, scopes), concurrency (`fork`,
-fibers, `race`) and schedules are not read at all.
+Beside `forEach`, it suggests what to write for `all` and `orElseSucceed`. Resources (`acquireRelease`, scopes),
+concurrency (`fork`, fibers, `race`) and schedules are not read at all.
 
 ### Loops of steps
 
@@ -266,6 +271,56 @@ It is read, and the law holds of every run with up to 4 ids, which is all the ve
 an array of unknown length is run at most 4 times on the proof side, so no law of its contract is proved, even one the
 loop has no part in. A loop over an array of known length, one the program built, is run in full on both sides and can be
 proved. Reading a loop of steps through invariants over its calls, as a fold's loop is read, is the next step for this.
+
+## Defects
+
+Effect keeps two kinds of error apart: a failure, which the program's type names and its domain handles, and a defect,
+which it does not: something unexpected, not meant to be recovered from but at the edge of the program. tsverify reads
+them the same way. A law speaks of what the program's types say it ends with, so it is judged on every run that does not
+die; the ends of the contract say whether one can.
+
+<!-- file: src/half.contract.ts -->
+```ts
+import type { Effect } from "effect"
+import { spec } from "tsverify/effect"
+
+const halfSpec = spec<(n: bigint) => Effect.Effect<bigint>>({
+  ensures: {
+    doubledIsN: (n, out) => out._tag === "Success" && out.value * 2n === n,
+  },
+})
+export type HalfSpec = typeof halfSpec
+```
+
+<!-- file: src/half.ts -->
+```ts
+import { Effect } from "effect"
+import type { Implementation } from "tsverify"
+import type { HalfSpec } from "./half.contract.ts"
+
+export const half: Implementation<HalfSpec> = Effect.fn("half")(function* (n) {
+  if (n % 2n !== 0n) return yield* Effect.die(`${n} is odd`)
+  return n / 2n
+})
+```
+
+<!-- run -->
+```text
+$ npx tsverify src/half.ts half
+✓ half  1 law  (14 ms)
+  ✓ doubledIsN  (9 ms)
+  reaches: Success, Failure (unreachable), Die
+  assumed:
+    - The code throws only where it says so (a `throw`, a failure): an exception from anywhere else, a call or a binding never read, is not seen.
+    - Each argument has its TypeScript type; the code's own casts, `any` and `!` are refused.
+    - A template string is an unknown string of its parts: equal parts, equal strings; non-empty when its literal text is.
+    - A run that dies (a defect: `Effect.die`, a `throw` in a generator) is judged by no law, as Effect keeps defects out of its types: each law holds of every run that does not die, and the ends say whether one can.
+```
+
+`doubledIsN` is proved: every run that does not die succeeds with half of `n`. The odd ones die, and `reaches:` says
+so, beside the failure its type rules out.
+`Effect.exit` and `catchCause`, which read a run's end at the edge, see the defect as Effect writes it, a `Cause` whose
+one reason is a `Die`.
 
 ## The same laws, async
 

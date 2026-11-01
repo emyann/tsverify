@@ -152,7 +152,18 @@ export type Val =
    * one of JavaScript's eight names, made when first asked), where the code was given it. What else would read it (a
    * field, a comparison, its truth, `??`) is refused, since it may be anything, `undefined` included.
    */
-  | { readonly kind: "opaque"; readonly typeOf?: () => Extract<Val, { kind: "str" }>["term"] }
+  | {
+      readonly kind: "opaque"
+      readonly typeOf?: () => Extract<Val, { kind: "str" }>["term"]
+      /** Whether it is an instance of a class the program declares, as `instanceof` asks: made when first asked. */
+      readonly instanceOf?: (cls: ts.ClassLikeDeclaration, at: ts.Node) => Bool
+      /**
+       * The value read where the type checker has narrowed it to a type the verifier reads (`err` after `err instanceof
+       * Missing`, or after a type predicate): any value of that type, the same each time, of the class `instanceof`
+       * found. `undefined` where the type is none it reads.
+       */
+      readonly as?: (type: ts.Type, at: ts.Node) => Val | undefined
+    }
 
 /** A computation's end: its outcome (`{ _tag: "Success", value } | { _tag: "Failure", error }`) and the trace after it. */
 export interface Ran {

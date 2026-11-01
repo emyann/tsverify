@@ -22,8 +22,11 @@ part as a harmless one.
 - a `Date` the code is given, read through `getTime()` and `valueOf()`: `NaN` or a whole number of milliseconds within
   8.64e15 of 1970; a `Map` and a `Set`, given or built from an array (`new Set(["done", "failed"])`), read through `has`
   and `get` (*Collections*, below);
-- a value of type `unknown`, carried, stored and returned, and asked its kind by `typeof`, read back in a
-  counterexample as a value of that kind; its truth, `===`, `??` and its fields are refused.
+- a value of type `unknown`, carried, stored and returned, asked its kind by `typeof` and its class by `instanceof`,
+  and read where the type checker has narrowed it (after `instanceof`, or a type predicate) as any value of the type
+  it is narrowed to, of the class `instanceof` found; read back in a counterexample as a value of that kind. Its truth,
+  `===`, `??` and its fields before it is narrowed are refused, and so is a read of it as a second type. A type
+  parameter nothing constrains is read the same way, as a generic body can look no further into it;
 
 **Expressions.**
 - `===`, `!==`, `<`, `<=`, `>`, `>=`, `!`, `&&`, `||`, `??`, `?:`, as JavaScript defines them, `NaN` and `-0` included;
@@ -35,6 +38,9 @@ part as a harmless one.
   `Number.isSafeInteger`, `Number.isFinite`, `Number.isNaN`, and `Object.is`, which tells `-0` from `0`; `Date.parse`,
   as some function of its string;
 - `typeof x`, and `Boolean(x)`, the truth a condition reads;
+- `x instanceof C`, of a class the program declares: false of a primitive; of an `unknown`, whether it is one of the
+  class's instances, never another's but where one class extends the other. Of a package's class (`Error`), whose
+  ancestry its declarations need not show, it is refused;
 - `Object.keys`, `Object.values` and `Object.entries` of a dictionary the code is given and of an object literal it
   wrote, in the order JavaScript lists them (*Dictionaries*, below);
 - `"key" in obj`, of a key written as a string (*Narrowing*, below), and of any key of a dictionary;

@@ -17,8 +17,9 @@ In rough order:
   say what two calls of it give, as it can of a declaration's.
 - A query's work, smaller: each number the loops keep whole by construction (a counter) is held as an integer; the rest
   are held in parts the solver must reason about.
-- The next Effect forms, by how often they stop real code: `Effect.exit`, `mapError`, `catchCause`, `suspend`; `let` in
-  a computation's body.
+- The next Effect forms, by how often they stop real code: `Effect.forEach` as a loop of steps, `forever` one pass at
+  a time, `Schema.decode*`; `let` in a computation's body; `instanceof` of a package's class (`Error`); a method of a
+  value the code is given, as an operation (a client a program calls through `Effect.try`).
 - A loop of steps read through invariants over the trace, as a fold's loop is read through its own, so a law of such a
   contract can be proved and not only bounded.
 - Contracts on operations, assumed by every caller and proved by each implementation (a layer, a class).

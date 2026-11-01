@@ -13,6 +13,7 @@ import { collectionOf, dictionaryOf } from "./collections.ts"
 import { operation } from "./computation.ts"
 import { ite } from "./ops.ts"
 import type { Lowering } from "./lower.ts"
+import { inProgram, symbolOf } from "./resolve.ts"
 import { MAX_LENGTH, type Universe } from "./universe.ts"
 import {
   KIND,
@@ -46,6 +47,116 @@ const membersOf = (type: ts.Type | ReadonlyArray<ts.Type>): Array<ts.Type> => [
   ...new Set((Array.isArray(type) ? (type as ReadonlyArray<ts.Type>) : [type as ts.Type]).flatMap((m) => (m.isUnion() ? m.types : [m]))),
 ]
 
+type StrTerm = Extract<Val, { kind: "str" }>["term"]
+
+/** A type parameter nothing constrains, or only `unknown` does. */
+const isFree = (checker: ts.TypeChecker, m: ts.Type): boolean => {
+  if (!(m.flags & F.TypeParameter)) return false
+  const c = checker.getBaseConstraintOfType(m)
+  return c === undefined || c === m || (c.flags & F.Unknown) !== 0
+}
+
+/** Whether the class `a` extends `b`, through the classes of the program it extends: no package's class extends one of the program. */
+export const extendsClass = (checker: ts.TypeChecker, a: ts.ClassLikeDeclaration, b: ts.ClassLikeDeclaration): boolean => {
+  for (let c: ts.ClassLikeDeclaration | undefined = a; c !== undefined;) {
+    const base: ts.Expression | undefined = c.heritageClauses?.find((h) => h.token === ts.SyntaxKind.ExtendsKeyword)?.types[0]?.expression
+    if (base === undefined || ts.isCallExpression(base)) return false
+    const decl: ts.Declaration | undefined = symbolOf(checker, base)?.valueDeclaration
+    if (decl === undefined || !ts.isClassLike(decl)) return false
+    if (decl === b) return true
+    c = inProgram(decl) ? decl : undefined
+  }
+  return false
+}
+
+const classKey = (cls: ts.ClassLikeDeclaration): string => `${cls.name?.text ?? "class"}@${cls.getSourceFile().fileName}:${cls.pos}`
+
+/**
+ * A value of type `unknown` the code was given. What `typeof` says of it, made where it is first asked, since most such
+ * values are only passed along and each fact costs every query. Whether it is an instance of each class the code asks
+ * of it: an instance of one class is none of another's, unless one extends the other. And the value where the type
+ * checker narrows it to a type the verifier reads (after `instanceof`, or a type predicate): any value of that type, the
+ * same at each read, and of the class `instanceof` found where the type is a union of classes a field of string
+ * literals tells apart (a `_tag`).
+ */
+const unknownOf = (t: Lowering, segments: ReadonlyArray<string>, indices: ReadonlyArray<Arith>): Val => {
+  const { u, checker } = t
+  const z3 = u.z3
+  let name: StrTerm | undefined
+  const typeOf = (): StrTerm => {
+    if (name === undefined) {
+      const made = u.leaf([...segments, "~typeof"], "str", indices) as never as StrTerm
+      u.assume(z3.Or(...TYPE_NAMES.map((n) => made.eq(jsString(z3, n)))), indices)
+      name = made
+    }
+    return name
+  }
+  let read: { readonly type: ts.Type; readonly value: Val } | undefined
+  const classes = new Map<ts.ClassLikeDeclaration, Bool>()
+  /** Where the read value's type is a union holding the class's instances: its field of literals is the class's. */
+  const tie = (cls: ts.ClassLikeDeclaration, is: Bool, at: ts.Node): void => {
+    if (read === undefined) return
+    const members = membersOf(read.type)
+    const own = members.find((m) => m.getSymbol()?.valueDeclaration === cls)
+    if (own === undefined || members.length === 1) return
+    const literal = (m: ts.Type, field: string): string | undefined => {
+      const p = checker.getPropertyOfType(m, field)
+      const pt = p === undefined ? undefined : checker.getTypeOfSymbol(p)
+      return pt?.isStringLiteral() ? pt.value : undefined
+    }
+    const field = checker
+      .getPropertiesOfType(own)
+      .map((p) => p.name)
+      .find((n) => new Set(members.map((m) => literal(m, n))).size === members.length && members.every((m) => literal(m, n) !== undefined))
+    const value = field === undefined || read.value.kind !== "record" ? undefined : read.value.field(field)
+    if (value?.kind !== "str")
+      throw new Unsupported(
+        `an \`unknown\` narrowed to \`${checker.typeToString(read.type)}\`, classes no field of string literals tells apart (a \`_tag\`), is not modeled`,
+        at,
+      )
+    u.assume(z3.Implies(is, value.term.eq(jsString(z3, literal(own, field!)!))), indices)
+  }
+  const instanceOf = (cls: ts.ClassLikeDeclaration, at: ts.Node): Bool => {
+    const known = classes.get(cls)
+    if (known !== undefined) return known
+    const is = u.leaf([...segments, `~instanceof ${classKey(cls)}`], "bool", indices) as never as Bool
+    u.assume(z3.Implies(is, typeOf().eq(jsString(z3, "object"))), indices)
+    for (const [other, was] of classes)
+      u.assume(
+        extendsClass(checker, cls, other)
+          ? z3.Implies(is, was)
+          : extendsClass(checker, other, cls)
+            ? z3.Implies(was, is)
+            : z3.Not(z3.And(is, was)),
+        indices,
+      )
+    classes.set(cls, is)
+    tie(cls, is, at)
+    return is
+  }
+  const as = (type: ts.Type, at: ts.Node): Val | undefined => {
+    if (read !== undefined) {
+      // Read again where it is narrowed further (`ws !== undefined`): the same value, narrowed as any other is.
+      if (read.type === type || checker.isTypeAssignableTo(type, read.type)) return read.value
+      throw new Unsupported(
+        `a value of type \`unknown\` read as \`${checker.typeToString(read.type)}\` and then as \`${checker.typeToString(type)}\`, a type it was not narrowed to, is not modeled: read it first where its type is the widest`,
+        at,
+      )
+    }
+    let value: Val
+    try {
+      value = symbolicOf(t, type, [...segments, "~as"], indices, at)
+    } catch (err) {
+      if (err instanceof Unsupported) return undefined
+      throw err
+    }
+    read = { type, value }
+    for (const [cls, is] of classes) tie(cls, is, at)
+    return value
+  }
+  return { kind: "opaque", typeOf, instanceOf, as }
+}
+
 export const symbolicOf = (
   t: Lowering,
   type: ts.Type | ReadonlyArray<ts.Type>,
@@ -57,21 +168,11 @@ export const symbolicOf = (
   const { u } = t
   const z3 = u.z3
   const members = membersOf(type)
-  // `unknown` (or a union it absorbed, or a field marked optional on it): a value passed along, never read but for what
-  // `typeof` says of it.
-  if (members.some((m) => m.flags & F.Unknown)) {
-    // Made where `typeof` first asks: most such values are only passed along, and each fact costs every query.
-    let name: Extract<Val, { kind: "str" }>["term"] | undefined
-    const typeOf = () => {
-      if (name === undefined) {
-        const made = u.leaf([...segments, "~typeof"], "str", indices) as never as Extract<Val, { kind: "str" }>["term"]
-        u.assume(z3.Or(...TYPE_NAMES.map((n) => made.eq(jsString(z3, n)))), indices)
-        name = made
-      }
-      return name
-    }
-    return { kind: "opaque", typeOf }
-  }
+  // `unknown` (or a union it absorbed, or a field marked optional on it), or a type parameter nothing constrains, which a
+  // generic body can no more look into: a value passed along, never read but for what `typeof` and `instanceof` say of
+  // it, and as the type checker narrows it.
+  if (members.some((m) => m.flags & F.Unknown) || (members.length === 1 && isFree(t.checker, members[0]!)))
+    return unknownOf(t, segments, indices)
   const canNull = members.some((m) => m.flags & F.Null)
   const canUndefined = optional || members.some((m) => m.flags & (F.Undefined | F.Void))
   const rest = members.filter((m) => !(m.flags & (F.Null | F.Undefined | F.Void)))

@@ -16,18 +16,29 @@
 // - `Effect.fnUntraced`, read as `Effect.fn`.
 // - `new E(fields)` for a class built by `Schema.TaggedError` or
 //   `Data.TaggedError`: the record of its fields and its `_tag`.
+// - Defects: `Effect.die`, `orDie`, a `throw` in the generator; `Effect.exit`
+//   and `catchCause`, which see them as Effect's own `Exit` and `Cause` (one
+//   reason each: nothing concurrent is read), with `Exit.isSuccess`,
+//   `isFailure`, `Cause.squash` and `Effect.failCause`. No law judges a run
+//   that dies, as Effect keeps defects out of its types.
+// - `Effect.mapError`, `andThen`, `as`, `asVoid`, `tap`, `suspend`.
+// - Logs, spans and metrics (`Effect.log*`, `annotateLogs`, `withSpan`,
+//   `Metric.update`): steps that change no outcome and call no operation,
+//   their arguments not read.
 //
-// Pinned to effect 4.0.6. What it does not name (`forEach`,
-// concurrency, resources, defects) is refused by the core where the code uses
-// it, naming the function.
+// Pinned to effect 4.0.6. What it does not name (`forEach`, concurrency,
+// resources, schedules) is refused by the core where the code uses it, naming
+// the function.
 import ts from "typescript"
+import type { Bool } from "z3-solver"
 import { type Adapter, packageExport } from "../../adapter.ts"
-import { computationCall, failure, onFailure, onSuccess, runComp, success } from "../../computation.ts"
+import { computationCall, died, failure, onFailure, onSuccess, onUnsuccessful, runComp, success } from "../../computation.ts"
 import type { Lowering } from "../../lower.ts"
 import { lowerExpr, onBranch } from "../../lower.ts"
 import { applyValue } from "../../lower/calls.ts"
 import { ite, strictEq } from "../../ops.ts"
 import { symbolicOf } from "../../symbolic.ts"
+import type { Ran } from "../../value.ts"
 import { type Env, Unsupported, type Val, jsString, lazyRecord } from "../../value.ts"
 
 /**
@@ -111,10 +122,11 @@ const tried = (L: Lowering, name: string, args: ReadonlyArray<Val>, at: ts.Node)
     const outcome = lazyRecord((n) => {
       if (n === "_tag") return { kind: "str", term: tag }
       if (n === "value") return symbolicOf(L, types.success, [...base, ".value"], [], at)
-      if (n !== "error") return undefined
+      if (n !== "error" || !canFail) return undefined
       if (handler === undefined) return anyError()
       try {
-        return applyValue(L, handler, [{ kind: "opaque" }], at)
+        // What was thrown: any value, which `instanceof` and the checker's narrowing read.
+        return applyValue(L, handler, [symbolicOf(L, L.checker.getUnknownType(), [...base, ".thrown"], [], at)], at)
       } catch (e) {
         if (!(e instanceof Unsupported)) throw e
         L.u.notes.add(`Where a \`catch\` reads what was thrown, its error is any value of its type.`)
@@ -124,6 +136,132 @@ const tried = (L: Lowering, name: string, args: ReadonlyArray<Val>, at: ts.Node)
     return { outcome, trace }
   })
 }
+
+const UNDEF: Val = { kind: "nullish", which: "undefined" }
+const fieldOf = (v: Val, n: string): Val | undefined => (v.kind === "record" ? v.field(n) : undefined)
+
+/** `c ? a : b` of two parts of an end, either missing where its path cannot be. */
+const either = (L: Lowering, c: Bool, a: Val | undefined, b: Val | undefined, at: ts.Node): Val | undefined =>
+  a === undefined ? b : b === undefined ? a : ite(L.u, c, a, b, at)
+
+/**
+ * A `Cause` of an end that did not succeed, as Effect writes one: its one reason, a `Fail` of the error or a `Die` of
+ * the defect. `~failed`, `~error` and `~defect` keep the end for `Cause.squash` and `Effect.failCause`.
+ */
+const causeOf = (L: Lowering, end: Val): Val => {
+  const z3 = L.u.z3
+  const tag = fieldOf(end, "_tag")
+  if (tag?.kind !== "str") throw new Error("an outcome's _tag is a string")
+  const failed = tag.term.eq(jsString(z3, "Failure"))
+  const [error, defect] = [fieldOf(end, "error"), fieldOf(end, "defect")]
+  const reason = lazyRecord((n) =>
+    n === "_tag"
+      ? { kind: "str", term: z3.If(failed, jsString(z3, "Fail"), jsString(z3, "Die")) }
+      : n === "error"
+        ? error
+        : n === "defect"
+          ? defect
+          : undefined,
+  )
+  const reasons: Val = { kind: "array", length: z3.Int.val(1), size: 1, maxSize: 1, elem: () => reason }
+  return lazyRecord((n) =>
+    n === "reasons"
+      ? reasons
+      : n === "~failed"
+        ? { kind: "bool", term: failed }
+        : n === "~error"
+          ? error
+          : n === "~defect"
+            ? defect
+            : undefined,
+  )
+}
+
+/** What `Cause.squash` gives of a cause this adapter made: its error, or its defect. */
+const squashed = (L: Lowering, cause: Val, at: ts.Node): Val => {
+  const failed = fieldOf(cause, "~failed")
+  if (failed?.kind !== "bool") throw new Unsupported("`Cause.squash` of a cause no `Effect.exit` or `catchCause` of the program gave", at)
+  const v = either(L, failed.term, fieldOf(cause, "~error"), fieldOf(cause, "~defect"), at)
+  if (v === undefined) throw new Error("a cause holds an error or a defect")
+  return v
+}
+
+/** The end a cause stands for: its failure, or its defect, as `Effect.failCause` ends with it. */
+const endOf = (L: Lowering, cause: Val, at: ts.Node): Val => {
+  const failed = fieldOf(cause, "~failed")
+  if (failed?.kind !== "bool")
+    throw new Unsupported("`Effect.failCause` of a cause no `Effect.exit` or `catchCause` of the program gave", at)
+  const [error, defect] = [fieldOf(cause, "~error"), fieldOf(cause, "~defect")]
+  const v = either(
+    L,
+    failed.term,
+    error === undefined ? undefined : failure(L, error),
+    defect === undefined ? undefined : died(L, defect),
+    at,
+  )
+  if (v === undefined) throw new Error("a cause holds an error or a defect")
+  return v
+}
+
+/** An `Exit` of a run: `{ _tag: "Success", value }`, or `{ _tag: "Failure", cause }` of a failure or a defect. */
+const exitOf = (L: Lowering, r: Ran): Val => {
+  const z3 = L.u.z3
+  const tag = fieldOf(r.outcome, "_tag")
+  if (tag?.kind !== "str") throw new Error("an outcome's _tag is a string")
+  const ok = tag.term.eq(jsString(z3, "Success"))
+  const cause = causeOf(L, r.outcome)
+  return lazyRecord((n) =>
+    n === "_tag"
+      ? { kind: "str", term: z3.If(ok, jsString(z3, "Success"), jsString(z3, "Failure")) }
+      : n === "value"
+        ? fieldOf(r.outcome, "value")
+        : n === "cause"
+          ? cause
+          : undefined,
+  )
+}
+
+/** What `andThen` and `tap` run after a success of `value`: an Effect, a function's result, or a value given in place. */
+const then = (L: Lowering, f: Val, value: Val, at: ts.Node): Val =>
+  f.kind === "fn" || f.kind === "builtin" ? applyValue(L, f, [value], at) : f
+
+/** Whether an argument of a log, a span or a metric, which is not read, can change anything but by a call. */
+const quiet = (args: ReadonlyArray<ts.Expression>): void => {
+  const loud = (n: ts.Node): ts.Node | undefined =>
+    (ts.isBinaryExpression(n) &&
+      n.operatorToken.kind >= ts.SyntaxKind.FirstAssignment &&
+      n.operatorToken.kind <= ts.SyntaxKind.LastAssignment) ||
+    ((ts.isPrefixUnaryExpression(n) || ts.isPostfixUnaryExpression(n)) &&
+      (n.operator === ts.SyntaxKind.PlusPlusToken || n.operator === ts.SyntaxKind.MinusMinusToken)) ||
+    ts.isDeleteExpression(n) ||
+    ts.isYieldExpression(n) ||
+    ts.isAwaitExpression(n)
+      ? n
+      : ts.forEachChild(n, loud)
+  for (const a of args) {
+    const at = loud(a)
+    if (at !== undefined)
+      throw new Unsupported("an argument of a log, a span or a metric that changes something is not modeled: change it before", at)
+  }
+}
+
+const OBSERVED =
+  "A log, a span or a metric (`Effect.log*`, `annotateLogs`, `withSpan`, `Metric.update`) is read as a step that changes no outcome and calls no operation: its arguments are not read, so a call among them that changes something is not seen."
+/** Logs and metrics: steps that end at once, in success. */
+const NOTED = new Set([
+  "Effect.log",
+  "Effect.logTrace",
+  "Effect.logDebug",
+  "Effect.logInfo",
+  "Effect.logWarning",
+  "Effect.logError",
+  "Effect.logFatal",
+  "Effect.annotateCurrentSpan",
+  "Metric.update",
+  "Metric.modify",
+])
+/** What annotates a program's logs or spans: the program itself, run as it is. */
+const ANNOTATING = new Set(["Effect.annotateLogs", "Effect.annotateSpans", "Effect.withSpan", "Effect.withLogSpan"])
 
 /** A class whose `extends` is `Schema.TaggedError<...>()(tag, fields)` or `Data.TaggedError(tag)<...>`. */
 const isTaggedErrorClass = (checker: ts.TypeChecker, decl: ts.ClassDeclaration): boolean => {
@@ -200,6 +338,22 @@ export const effectAdapter: Adapter = {
       const tagValue: Val = { kind: "str", term: jsString(L.u.z3, tagType.value) }
       return lazyRecord((n) => (n === "_tag" ? tagValue : fields?.kind === "record" ? fields.field(n) : undefined))
     }
+    if (ts.isCallExpression(e)) {
+      const called = effectName(L.checker, e.expression)
+      if (called !== undefined && NOTED.has(called)) {
+        quiet(e.arguments)
+        L.u.notes.add(OBSERVED)
+        return comp((trace) => ({ outcome: success(L, UNDEF), trace }))
+      }
+      if (called !== undefined && ANNOTATING.has(called)) {
+        const [first, ...rest] = e.arguments
+        const onSelf = first !== undefined && effectAdapter.operation?.(L, L.checker.getTypeAtLocation(first)) !== undefined
+        quiet(onSelf ? rest : e.arguments)
+        L.u.notes.add(OBSERVED)
+        return onSelf && first !== undefined ? lowerExpr(L, first, env) : builtin(called, ([self]) => self!)
+      }
+      return undefined
+    }
     if (!ts.isIdentifier(e) && !ts.isPropertyAccessExpression(e)) return undefined
     // `x.pipe(f, g)`: each function applied to what the one before gave, from `x`.
     if (ts.isPropertyAccessExpression(e) && e.name.text === "pipe" && effectName(L.checker, e) === "Pipeable.pipe") {
@@ -245,6 +399,74 @@ export const effectAdapter: Adapter = {
             ? caughtTag(L, self, tag, f, at)
             : builtin("Effect.catchTag(tag, f)", ([s], at2) => caughtTag(L, s!, tag, f, at2))
         })
+      case "Effect.die":
+        return builtin("Effect.die", ([defect]) => comp((trace) => ({ outcome: died(L, defect ?? UNDEF), trace })))
+      case "Effect.orDie":
+        return builtin("Effect.orDie", ([self], at) =>
+          comp((trace) => onFailure(L, runComp(self!, trace, at), at, (error, t) => ({ outcome: died(L, error), trace: t }))),
+        )
+      case "Effect.exit":
+        return builtin("Effect.exit", ([self], at) =>
+          comp((trace) => {
+            const r = runComp(self!, trace, at)
+            return { outcome: success(L, exitOf(L, r)), trace: r.trace }
+          }),
+        )
+      case "Effect.catchCause":
+        return dual("Effect.catchCause", (self, f, at) =>
+          comp((trace) =>
+            onUnsuccessful(L, runComp(self, trace, at), at, (end, t) => runComp(applyValue(L, f, [causeOf(L, end)], at), t, at)),
+          ),
+        )
+      case "Effect.failCause":
+        return builtin("Effect.failCause", ([cause], at) => comp((trace) => ({ outcome: endOf(L, cause!, at), trace })))
+      case "Exit.isSuccess":
+      case "Exit.isFailure": {
+        const want = effectName(L.checker, e) === "Exit.isSuccess" ? "Success" : "Failure"
+        return builtin(`Exit.is${want}`, ([x]) => {
+          const tag = x === undefined ? undefined : fieldOf(x, "_tag")
+          if (tag?.kind !== "str") throw new Unsupported(`\`Exit.is${want}\` of a value no \`Effect.exit\` gave`, e)
+          return { kind: "bool", term: tag.term.eq(jsString(L.u.z3, want)) }
+        })
+      }
+      case "Cause.squash":
+        return builtin("Cause.squash", ([cause], at) => squashed(L, cause!, at))
+      case "Effect.mapError":
+        return dual("Effect.mapError", (self, f, at) =>
+          comp((trace) =>
+            onFailure(L, runComp(self, trace, at), at, (error, t) => ({ outcome: failure(L, applyValue(L, f, [error], at)), trace: t })),
+          ),
+        )
+      case "Effect.andThen":
+        return dual("Effect.andThen", (self, f, at) =>
+          comp((trace) =>
+            onSuccess(L, runComp(self, trace, at), at, (v, t) => {
+              const next = then(L, f, v, at)
+              return next.kind === "comp" ? runComp(next, t, at) : { outcome: success(L, next), trace: t }
+            }),
+          ),
+        )
+      case "Effect.tap":
+        return dual("Effect.tap", (self, f, at) =>
+          comp((trace) =>
+            onSuccess(L, runComp(self, trace, at), at, (v, t) => {
+              const side = then(L, f, v, at)
+              return side.kind === "comp"
+                ? onSuccess(L, runComp(side, t, at), at, (_, t2) => ({ outcome: success(L, v), trace: t2 }))
+                : { outcome: success(L, v), trace: t }
+            }),
+          ),
+        )
+      case "Effect.as":
+        return dual("Effect.as", (self, value, at) =>
+          comp((trace) => onSuccess(L, runComp(self, trace, at), at, (_, t) => ({ outcome: success(L, value), trace: t }))),
+        )
+      case "Effect.asVoid":
+        return builtin("Effect.asVoid", ([self], at) =>
+          comp((trace) => onSuccess(L, runComp(self!, trace, at), at, (_, t) => ({ outcome: success(L, UNDEF), trace: t }))),
+        )
+      case "Effect.suspend":
+        return builtin("Effect.suspend", ([thunk], at) => comp((trace) => runComp(applyValue(L, thunk!, [], at), trace, at)))
       case "Effect.try":
       case "Effect.tryPromise": {
         const name = effectName(L.checker, e)!
@@ -281,15 +503,10 @@ export const effectAdapter: Adapter = {
 }
 
 const READ =
-  "the Effect adapter reads `Effect.fn`, `gen`, `succeed`, `fail`, `void`, `sync`, `try`, `tryPromise`, `map`, `flatMap`, `catch`, `catchTag` and `pipe`; write the program with those"
+  "the Effect adapter reads `Effect.fn`, `gen`, `succeed`, `fail`, `void`, `sync`, `try`, `tryPromise`, `map`, `flatMap`, `andThen`, `as`, `asVoid`, `tap`, `suspend`, `catch`, `catchTag`, `mapError`, `die`, `orDie`, `exit`, `catchCause`, `failCause`, the logs and `pipe`; write the program with those"
 /** What to write instead of an Effect function the adapter does not read, where something it reads does the same. */
 const INSTEAD: Readonly<Record<string, string>> = {
   forEach: "write a `for (const x of xs)` loop of `yield*` steps in the generator",
   all: "write the steps one after another, `yield*` each",
-  mapError: "`Effect.catch` the error and `Effect.fail` with the one you want",
-  as: "`Effect.map(() => value)`",
-  asVoid: "`Effect.map(() => undefined)`",
-  andThen: "`Effect.flatMap`, or a second `yield*`",
-  tap: "a `yield*` of the step, then a `return` of what came before",
   orElseSucceed: "`Effect.catch(() => Effect.succeed(value))`",
 }
