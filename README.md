@@ -276,6 +276,8 @@ about it, and `--json` for tools.
 - [What it reads, refuses and trusts](docs/reads.md): the TypeScript it reads, each refusal and its fix, `assume`.
 - [What the examples show](docs/measurements.md): every measurement, beside property testing.
 - [How it works](docs/how-it-works.md): the two sides of each check, and how code becomes Z3.
+- [The skill for coding agents](skills/tsverify/SKILL.md): the loop, writing laws, reading verdicts, and what a proof holds.
+  `npx skills add emyann/tsverify` installs it; the package ships it too, beside these pages.
 
 | Import | For |
 | --- | --- |

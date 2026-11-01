@@ -140,13 +140,19 @@ before(() => {
 after(() => rmSync(dir, { recursive: true, force: true }))
 
 describe("tsverify, installed from its tarball", () => {
-  it("ships what it builds, the packs' source and its license, and none of its own source or tests", () => {
+  it("ships what it builds, the packs' source, its pages, its skill and its license, and none of its own source or tests", () => {
     const files = sync("tar", ["-tzf", path.join(dir, TARBALL)], dir)
       .trim()
       .split("\n")
-    const outside = files.filter((f) => !/^package\/(dist\/.*\.(js|d\.ts)|packs\/[^/]+\.ts|package\.json|README\.md|LICENSE)$/.test(f))
+    const outside = files.filter(
+      (f) =>
+        !/^package\/(dist\/.*\.(js|d\.ts)|packs\/[^/]+\.ts|docs\/[^/]+\.md|skills\/tsverify\/SKILL\.md|package\.json|README\.md|LICENSE)$/.test(
+          f,
+        ),
+    )
     assert.deepEqual(outside, [])
-    assert.ok(files.includes("package/dist/src/cli.js") && files.includes("package/packs/lodash.ts"))
+    for (const f of ["dist/src/cli.js", "packs/lodash.ts", "docs/specs.md", "skills/tsverify/SKILL.md"])
+      assert.ok(files.includes(`package/${f}`), f)
   })
 
   it("puts the command on the project's path, the built one", () => {
