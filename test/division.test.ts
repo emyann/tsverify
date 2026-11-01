@@ -78,11 +78,11 @@ describe("bigint division", () => {
     assert.deepEqual(statuses(v), { readsOnce: "proved" })
   })
 
-  it("a law that divides is read where it is defined: guarded, it is proved; unguarded, it throws on the input shown", async () => {
+  it("a law that divides is read where it is defined: guarded, it is proved; unguarded, it throws on the input shown, whatever the result, so no code could keep it", async () => {
     assert.deepEqual(statuses(await verify(z3, project, file, "lawGuarded")), { same: "proved" })
     const v = await verify(z3, project, file, "lawUnguarded")
     const law = v.laws.find((l) => l.name === "same")
-    assert.equal(law?.status, "counterexample")
+    assert.equal(law?.status, "unmeetable")
     const [a, b] = law.args as [bigint, bigint]
     const same = division.lawUnguarded.ensures.same
     assert.throws(() => same({ input: [a, b], output: division.lawUnguarded.fn(a, b) }), RangeError)

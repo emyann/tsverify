@@ -258,6 +258,7 @@ Your `tsconfig.json` needs `strict` (or at least `strictNullChecks`), and a modu
 | --- | --- |
 | `proved` | No input the spec allows breaks the law. |
 | `counterexample` | One does, and `e.g.` gives it, with what each call returned on that run. |
+| `unmeetable` | One does, and no result keeps every law there at once: the spec, not the code, has to change. It names the laws that leave none. |
 | `vacuous` | Proved, but no result of the function could break it: the law says nothing of the function. |
 | `bounded` | Not proved, and no input with arrays of up to 4 elements breaks it. The reason says what stands in the way. |
 | `unsupported` | The law uses something tsverify does not read. The reason says what to write instead. |

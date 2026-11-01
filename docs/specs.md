@@ -310,6 +310,9 @@ A law is only as good as what it rules out.
 - **Vacuous.** A law no result could break, whatever the function returned, says nothing of the function. The verifier
   asks it of every law it proves, and reports `vacuous` rather than `proved`: a law over the inputs alone, or `!A || B`
   whose `A` no allowed input meets.
+- **Laws no result keeps together.** Two laws can each be met and still leave no result between them at some input: "at
+  most 10" and "at least the input" above 10. No code keeps both there, and the verifier reports the one broken there
+  `unmeetable`, naming both, rather than a counterexample the code could mend.
 - **Too strong a `requires`.** A promise no input keeps makes every law vacuous; one that keeps out the inputs that matter
   hides the bugs there.
 - **Gaps.** A law can be true and still let a wrong program through. `@emyann/tsverify/mutants` plants one-line bugs in a function

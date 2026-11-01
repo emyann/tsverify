@@ -83,7 +83,8 @@ Each contract is lowered twice:
   exactly, and keeps numbers to values a double holds exactly. Every model it finds is a real input.
 
 A law the proof side can't settle in time, and the search side can't break, is reported as `bounded`, never as `proved`. A
-law proved that no result could break is reported as `vacuous`.
+law proved that no result could break is reported as `vacuous`, and a law broken at an input where no result keeps every
+law at once is reported as `unmeetable`, naming the laws that leave none: the spec is at fault there, not the code.
 
 **Every proof is checked against the search side.** The proof side's encoding (havoc, loops read through invariants) is
 where a verifier's own bugs hide, and one did: a loop left early was once read as having run to its end. So each proof

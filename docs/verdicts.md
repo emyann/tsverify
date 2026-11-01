@@ -127,6 +127,7 @@ and `--verbose` every law of every file. The last lines count what needs a look,
 | --- | --- |
 | ✓ | `proved` |
 | ✗ | `counterexample` |
+| ⊘ | `unmeetable` |
 | ○ | `vacuous` |
 | ~ | `bounded` |
 | ? | `unknown` |
@@ -154,6 +155,14 @@ Then one of three things is wrong, and a person decides which:
 - **the code**: here, `cap` passes a negative value through, and `value < 0n ? 0n : …` would mend it;
 - **the law**: `neverNegative` may not be what `cap` is for;
 - **`requires`**: callers may promise more, `value >= 0n`, and the spec should say so.
+
+### ⊘ `unmeetable`
+
+An input the spec allows breaks the law, as a counterexample's does, and no result keeps every law there at once: the
+laws the verdict names leave none together, or one law alone refuses every result there. No code could keep the law, so
+the code is not what to change. The verifier asks it of each counterexample: with the input held as `e.g.` gives it, is
+there any value of the result's type that keeps every law? Where there is none, it names the fewest laws that leave none,
+the law broken among them. Change the spec: loosen one of them, or narrow `requires` so that no caller passes the input.
 
 ### ○ `vacuous`
 
@@ -288,7 +297,7 @@ tsverify <file.ts> <export> [--json] [--watch] [--cache] [--cache-location <fold
 | Exit | |
 | --- | --- |
 | 0 | every law and every obligation, each division's among them, is `proved` |
-| 1 | one is not: a counterexample, or a law bounded, vacuous, unsupported, unknown or inconsistent, or a contract not verified |
+| 1 | one is not: a counterexample, or a law unmeetable, bounded, vacuous, unsupported, unknown or inconsistent, or a contract not verified |
 | 2 | a usage error: a path that is not there, no file or no contract to verify, no `tsconfig.json` |
 | 3 | the verifier itself failed, which says nothing of the code |
 

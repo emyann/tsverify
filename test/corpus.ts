@@ -1,8 +1,8 @@
 // The corpus (fixtures/corpus): problems published with Z3, each ported to a function and its laws, beside what
 // JavaScript makes of each law. Every verdict is held to it:
 // - a law proved holds on every sample, and JavaScript says it is valid: else the proof is unsound;
-// - a counterexample breaks the law when the function runs on it, and JavaScript says the law is invalid: else it is a
-//   false alarm;
+// - a counterexample, or a law unmeetable at its input (one no result keeps, as a law over the input alone is), breaks
+//   the law when the function runs on it, and JavaScript says the law is invalid: else it is a false alarm;
 // - a law tsverify cannot judge yet has the gap its case names, and no other: a gap closed is a case to update.
 // The truth itself is checked too: a valid law holds on every sample, and an invalid one fails on its witness.
 import assert from "node:assert/strict"
@@ -108,7 +108,7 @@ const judged = async (
         if (r !== undefined && !lawHolds(contract, law, args, r.out))
           wrong.push(`UNSOUND: ${law} proved, but fails when run on ${show(args)}`)
       }
-    } else if (status === "counterexample") {
+    } else if (status === "counterexample" || status === "unmeetable") {
       const args = result!.args!
       const r = ran(contract, args)
       if (truthOf(t) === "valid") wrong.push(`false alarm: ${law} refuted at ${show(args)}, but it is valid`)

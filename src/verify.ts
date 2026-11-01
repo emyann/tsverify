@@ -50,6 +50,11 @@ export type LawStatus =
   /** An allowed input breaks it; `args` holds one. */
   | "counterexample"
   /**
+   * An allowed input breaks it (`args`), and no result keeps every law there at once: the laws in `conflicts` together,
+   * or with `requires`, leave none. The spec, not the code, has to change: no code could keep the law.
+   */
+  | "unmeetable"
+  /**
    * The two sides disagree: the proof side proved it, and the search side found an input that breaks it (`args`). One
    * of them is wrong, which is a bug of the verifier, never a verdict on the code.
    */
@@ -73,6 +78,8 @@ export interface LawResult {
   readonly args?: ReadonlyArray<unknown>
   /** On a counterexample of a computation: how each operation call it made ended, by call. */
   readonly world?: Readonly<Record<string, unknown>>
+  /** On an unmeetable law: the laws that together leave no result at `args`, itself among them. */
+  readonly conflicts?: ReadonlyArray<string>
   /**
    * Set when the counterexample leans on functions read as unknown (their bodies refused): it holds of the code with
    * them unknown, and may not of the real ones. It names them.
@@ -328,32 +335,94 @@ const lawOn = (side: Lowered, law: ContractSource["ensures"][number]): Bool =>
         ),
       )
 
+type Law = ContractSource["ensures"][number]
+
+/** Any value of the type `law`'s run gives `field`, or `given` where the law takes none: a law that does not take it cannot read it. */
+const anyOf = (side: Lowered, law: Law, field: "output" | "calls", given: Val): Val => {
+  const run = law.law.parameters[0]
+  const checker = side.L.checker
+  const p = run === undefined ? undefined : checker.getPropertyOfType(checker.getTypeAtLocation(run), field)
+  if (run === undefined || p === undefined) return given
+  return symbolicOf(side.L, checker.getTypeOfSymbol(p), [side.u.fresh("any-result")], side.u.openBounds(), run)
+}
+
+/** The law on a run of the function's input whose result, and a computation's calls, are `output` and `calls`. */
+const lawWith = (side: Lowered, law: Law, output: Val, calls: Val | undefined): Bool =>
+  definedSpec(side.L, () =>
+    inSpec(side.L, () => truthy(side.u, lowerCall(side.L, law.law, emptyEnv, [runOf(side.u, law.law, side.args, output, calls)], law.law))),
+  )
+
 /**
  * The law with the function's result, and a computation's calls, replaced by any value of the law's own parameter types;
  * `undefined` when such a value cannot be built.
  */
-const lawOnAnyResult = (side: Lowered, law: ContractSource["ensures"][number]): Bool | undefined => {
-  const run = law.law.parameters[0]
-  const checker = side.L.checker
+const lawOnAnyResult = (side: Lowered, law: Law): Bool | undefined => {
   try {
-    const any = (field: "output" | "calls", given: Val): Val => {
-      const p = run === undefined ? undefined : checker.getPropertyOfType(checker.getTypeAtLocation(run), field)
-      // A law that does not take it cannot read it: any value will do.
-      if (run === undefined || p === undefined) return given
-      return symbolicOf(side.L, checker.getTypeOfSymbol(p), [side.u.fresh("any-result")], side.u.openBounds(), run)
-    }
-    const replaced = runOf(
-      side.u,
-      law.law,
-      side.args,
-      any("output", side.result),
-      side.trace === undefined ? undefined : any("calls", side.trace),
-    )
-    return definedSpec(side.L, () => inSpec(side.L, () => truthy(side.u, lowerCall(side.L, law.law, emptyEnv, [replaced], law.law))))
+    return lawWith(side, law, anyOf(side, law, "output", side.result), side.trace === undefined ? undefined : anyOf(side, law, "calls", side.trace))
   } catch (e) {
     if (e instanceof Unsupported) return undefined
     throw e
   }
+}
+
+/**
+ * Each of `laws` on one result they all share, any value of their run's type, and a computation's calls likewise: what
+ * some result would have to keep at once. `undefined` when no law takes a result, or one cannot be read on it.
+ */
+const lawsOnOneResult = (side: Lowered, laws: ReadonlyArray<Law>): ReadonlyArray<{ readonly name: string; readonly holds: Bool }> | undefined => {
+  const checker = side.L.checker
+  const takes = laws.find((l) => {
+    const run = l.law.parameters[0]
+    return run !== undefined && checker.getPropertyOfType(checker.getTypeAtLocation(run), "output") !== undefined
+  })
+  if (takes === undefined) return undefined
+  try {
+    const output = anyOf(side, takes, "output", side.result)
+    const calls = side.trace === undefined ? undefined : anyOf(side, takes, "calls", side.trace)
+    return laws.map((law) => ({ name: law.name, holds: lawWith(side, law, output, calls) }))
+  } catch (e) {
+    if (e instanceof Unsupported) return undefined
+    throw e
+  }
+}
+
+/**
+ * The laws that together leave no result at the input `args`, `requires` holding there (one law alone, where it refuses
+ * every result): each law read on one result they share, the input pinned, and the set cut down until dropping any one
+ * of them leaves a result that keeps the rest. Empty when some result keeps every law, or when that cannot be asked. A law broken there is broken by the spec:
+ * no code could keep it.
+ */
+const conflictsAt = async (side: Lowered, laws: ReadonlyArray<Law>, args: ReadonlyArray<unknown>, opts: Options): Promise<ReadonlyArray<string>> => {
+  const { u } = side
+  const z3 = u.z3
+  const each = lawsOnOneResult(side, laws)
+  if (each === undefined || each.length === 0) return []
+  let pins: Array<Bool>
+  try {
+    pins = side.params.flatMap((p, i) => pin(u, p, args[i]))
+  } catch {
+    return []
+  }
+  const solver = new z3.Solver()
+  // A tenth of a query's work: the question is asked of every counterexample, and one it cannot settle leaves it one.
+  limited(solver, (opts.work ?? WORK) / 10)
+  vectorsBy(u, solver)
+  for (const a of [...u.assumptions, ...side.L.hints, side.pre, ...pins]) solver.add(a)
+  // The input itself must be one the model keeps, or every set of laws would read as conflicting.
+  if ((await solver.check()) !== "sat") return []
+  const marks = each.map(({ name, holds }, k) => {
+    const mark = z3.Bool.const(`meets#${k}`)
+    solver.add(z3.Implies(mark, holds))
+    return { name, mark }
+  })
+  if ((await solver.check(...marks.map((m) => m.mark))) !== "unsat") return []
+  const core = new Set([...solver.unsatCore().values()].map((b) => b.id()))
+  let kept = marks.filter((m) => core.has(m.mark.id()))
+  for (const m of kept) {
+    const without = kept.filter((k) => k !== m)
+    if (without.length > 0 && (await solver.check(...without.map((k) => k.mark))) === "unsat") kept = without
+  }
+  return kept.map((m) => m.name)
 }
 
 export const verify = async (z3: Ctx, project: Project, file: string, name: string, opts: Options = {}): Promise<Verification> => {
@@ -593,6 +662,27 @@ export const judge = async (
     laws.push({ name: law.name, ...described(law), ...r, ms: performance.now() - started })
     searchable.set(law.name, onSearch)
     opts.progress?.(`law ${law.name}: ${r.status} (${Math.round(performance.now() - started)} ms)`)
+  }
+
+  // A law broken at an input where no result keeps every law is broken by the spec, not the code: asked on the proof side,
+  // whose reading of the code over-approximates and of a law is exact, so a law it finds no result for has none.
+  if (source.kind !== "lemma") {
+    const readable = read.flatMap((r) => (r.unsupported === undefined ? [r.law] : []))
+    for (const [k, l] of laws.entries()) {
+      if (l.status !== "counterexample" || l.args === undefined) continue
+      const conflicts = await conflictsAt(proof, readable, l.args, opts)
+      if (conflicts.length === 0) continue
+      laws[k] = {
+        ...l,
+        status: "unmeetable",
+        conflicts,
+        reason:
+          conflicts.length === 1
+            ? `no result keeps ${l.name} at this input, whatever the code returns: change the spec, by loosening the law or narrowing \`requires\` to rule the input out`
+            : `no result keeps ${conflicts.join(" and ")} together at this input, so no code could keep ${l.name} here: change the spec, by loosening one of them or narrowing \`requires\` to rule the input out`,
+      }
+      opts.progress?.(`law ${l.name}: unmeetable`)
+    }
   }
 
   // Every law proved is checked against the search side, all in one query. One proved through an obligation the sides

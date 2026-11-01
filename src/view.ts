@@ -28,6 +28,7 @@ const styled = (style: Style, ...children: Array<ReactNode>): ReactNode => h(Tex
 /** Each verdict's mark and colour, the one that most needs a look first: red broken, yellow neither, magenta not read. */
 const VERDICTS: Readonly<Record<LawStatus, { readonly mark: string; readonly style: Style }>> = {
   inconsistent: { mark: "!", style: { color: "magenta", bold: true, inverse: true } },
+  unmeetable: { mark: "⊘", style: { color: "red", bold: true } },
   counterexample: { mark: "✗", style: { color: "red", bold: true } },
   unsupported: { mark: "!", style: { color: "magenta" } },
   unknown: { mark: "?", style: { color: "yellow" } },
