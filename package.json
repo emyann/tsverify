@@ -1,6 +1,6 @@
 {
   "name": "@emyann/tsverify",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Prove laws of ordinary TypeScript for every input, or get an input that breaks one: read from source, solved by Z3.",
   "keywords": [
     "typescript",
