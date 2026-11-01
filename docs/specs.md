@@ -10,7 +10,7 @@ code takes the spec as its type, so a spec is also where the code's signature co
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="../media/anatomy-dark.svg">
-    <img src="../media/anatomy-light.svg" width="100%" alt="A spec, part by part: spec of the function type (total: number) =&gt; number; requires, what every caller promises; ensures, the laws by name, each given one run, its input and its output, true for every input, written alone or with what it says in words; and its type, which the code takes as Implementation of ShippingSpec.">
+    <img src="../media/anatomy-light.svg" width="100%" alt="A spec, part by part: spec of the function type (total: number) =&gt; number; requires, what every caller promises; ensures, the laws by name, each given one run, its input and its output, true for every input, written alone or with what it says in words; and the function's type, Implementation of the spec, which its module exports for the code to take.">
   </picture>
 </p>
 
@@ -19,7 +19,7 @@ code takes the spec as its type, so a spec is also where the code's signature co
 | `F`, in `spec<F>` | The function's type: what it takes, and what it returns. The code gets it as its type. |
 | `requires` | What every caller promises, `({ input: [args...] }) => boolean`. The laws are checked only on the inputs that meet it. It may be left out. |
 | `ensures` | The laws, each named for what it says: the report gives each its own line. A law reads one run of the function, as one object typed from `F`, so it needs no annotation: a pure function's is `({ input: [args...], output }) => boolean`, its arguments a tuple, a name for each the law reads and a hole for the rest (`[, amount]`), and its result. A law of async code reads `calls` beside them, and its `output` is the outcome (*Async code*, below). A law may also say what it means in words, `{ description: "…", condition: ({ input, output }) => boolean }`: the report prints the sentence on its line. |
-| `export type StatusSpec = typeof statusSpec` | The spec's type, and all the code imports: it is typed `Implementation<StatusSpec>`, which is `F`. `Implementation<typeof statusSpec>` is the same without the line, the spec exported. |
+| `export type StatusOf = Implementation<typeof statusSpec>` | The function's type, which is `F`, and all the code imports: it is typed `StatusOf`, and imports nothing of tsverify. `Implementation<typeof statusSpec>` written on the code itself, the spec exported, is the same. |
 
 **"If A, then B" is `A ? B : true`.** A law has nothing to say of an input where A is false, so it is true there.
 `!A || B` says the same, the property-testing way, its premise turned around: `total < 50 || output === 0` is
@@ -29,7 +29,7 @@ A parcel's status, from a record with two dates that may be missing:
 
 <!-- file: src/parcel.contract.ts -->
 ```ts
-import { spec } from "@emyann/tsverify"
+import { type Implementation, spec } from "@emyann/tsverify"
 import type { Parcel, Status } from "./parcel.ts"
 
 const statusSpec = spec<(parcel: Parcel) => Status>({
@@ -40,16 +40,15 @@ const statusSpec = spec<(parcel: Parcel) => Status>({
     waitingUntilShipped: ({ input: [parcel], output }) => (output === "waiting") === (parcel.shippedAt === null && !parcel.lost),
   },
 })
-export type StatusSpec = typeof statusSpec
+export type StatusOf = Implementation<typeof statusSpec>
 ```
 
-The code declares itself an implementation of the spec, `Implementation<StatusSpec>`, and `tsc` gives it the spec's
-type. Both files import only the other's types, so nothing of the spec is in what runs:
+The code takes the type the spec's module gives it, `StatusOf`, so `tsc` holds it to `F`, and it imports nothing of
+tsverify. Both files import only the other's types, so nothing of the spec is in what runs:
 
 <!-- file: src/parcel.ts -->
 ```ts
-import type { Implementation } from "@emyann/tsverify"
-import type { StatusSpec } from "./parcel.contract.ts"
+import type { StatusOf } from "./parcel.contract.ts"
 
 export interface Parcel {
   readonly shippedAt: bigint | null
@@ -58,7 +57,7 @@ export interface Parcel {
 }
 export type Status = "waiting" | "in-transit" | "delivered" | "lost"
 
-export const statusOf: Implementation<StatusSpec> = (parcel) => {
+export const statusOf: StatusOf = (parcel) => {
   if (parcel.deliveredAt !== null) return "delivered"
   if (parcel.lost) return "lost"
   return parcel.shippedAt === null ? "waiting" : "in-transit"
@@ -78,15 +77,16 @@ src/parcel.ts
   1 contract in 1 file · 0.9 s
 ```
 
-Given files, the command verifies every contract they export: each `const` typed `Implementation<S>`, and each
-`contract`, `computation` or lemma. Given a folder, or nothing (the current folder), it reads every file under it that
-imports `@emyann/tsverify`, whatever its name, outside `node_modules` and dot folders. The names are the project's: these pages
+Given files, the command verifies every contract they export: each `const` typed `Implementation<S>`, on it or through a
+type that stands for it (`StatusOf`), and each `contract`, `computation` or lemma. Given a folder, or nothing (the current
+folder), it reads every file under it that imports `@emyann/tsverify`, or imports a file that does, whatever its name,
+outside `node_modules` and dot folders. The names are the project's: these pages
 write a spec in `*.contract.ts`, which no test runner claims, where Jest and Vitest run every `*.spec.ts` as a test.
 
 **A law says what holds, not how.** `waitingUntilShipped` does not restate the code's `if`s; it says when the parcel waits,
 in the record's words. A law that copies the code proves only that the code is the code.
 
-**A spec is what its callers know.** Code that calls `statusOf` takes what `StatusSpec` proves of it, where its
+**A spec is what its callers know.** Code that calls `statusOf` takes what `statusSpec` proves of it, where its
 `requires` holds, and nothing of its body, with no declaration to write: a law the callers need of it belongs in its
 spec ([A function that implements a spec](reads.md#a-function-that-implements-a-spec)).
 
@@ -133,7 +133,7 @@ Renaming a user reads it, fails if it is missing, and writes it back renamed. A 
 
 <!-- file: src/rename.contract.ts -->
 ```ts
-import { type Rejects, spec } from "@emyann/tsverify"
+import { type Implementation, type Rejects, spec } from "@emyann/tsverify"
 import type { NotFound, StoreDown, Users } from "./users.ts"
 
 const renameSpec = spec<(users: Users, id: string, name: string) => Rejects<void, NotFound | StoreDown>>({
@@ -154,16 +154,15 @@ const renameSpec = spec<(users: Users, id: string, name: string) => Rejects<void
     },
   },
 })
-export type RenameSpec = typeof renameSpec
+export type Rename = Implementation<typeof renameSpec>
 ```
 
 <!-- file: src/rename.ts -->
 ```ts
-import type { Implementation } from "@emyann/tsverify"
-import type { RenameSpec } from "./rename.contract.ts"
+import type { Rename } from "./rename.contract.ts"
 import { NotFound } from "./users.ts"
 
-export const rename: Implementation<RenameSpec> = async (users, id, name) => {
+export const rename: Rename = async (users, id, name) => {
   const user = await users.get(id)
   if (user === undefined) throw new NotFound(id)
   await users.put({ ...user, name })
@@ -192,7 +191,7 @@ should say what the code means, that it writes the user it read:
 
 <!-- file: src/rename.contract.ts -->
 ```ts
-import { type Rejects, spec } from "@emyann/tsverify"
+import { type Implementation, type Rejects, spec } from "@emyann/tsverify"
 import type { NotFound, StoreDown, Users } from "./users.ts"
 
 const renameSpec = spec<(users: Users, id: string, name: string) => Rejects<void, NotFound | StoreDown>>({
@@ -215,7 +214,7 @@ const renameSpec = spec<(users: Users, id: string, name: string) => Rejects<void
     },
   },
 })
-export type RenameSpec = typeof renameSpec
+export type Rename = Implementation<typeof renameSpec>
 ```
 
 <!-- run -->
@@ -299,7 +298,8 @@ code may:
 
 ## A spec at run time
 
-A spec is a plain object, so its laws run: `ChargeSpec.ensures.neverNegative!(5n, 3n, charge(5n, 3n))` is a test. The
+A spec is a plain object, so its laws run: `holds(chargeSpec.ensures.neverNegative!)({ input: [5n, 3n], output: charge(5n, 3n) })`
+is a test. The
 same laws can drive property tests, check examples, or guard a value at the edge of a program. Only the code under
 verification keeps to `import type`; a test may import the spec.
 

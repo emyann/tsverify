@@ -10,7 +10,7 @@ Four small specs, one law of each kind:
 
 <!-- file: src/cap.contract.ts -->
 ```ts
-import { spec } from "@emyann/tsverify"
+import { type Implementation, spec } from "@emyann/tsverify"
 
 const capSpec = spec<(value: bigint, limit: bigint) => bigint>({
   requires: ({ input: [, limit] }) => limit >= 0n,
@@ -20,20 +20,19 @@ const capSpec = spec<(value: bigint, limit: bigint) => bigint>({
     limitNotNegative: ({ input: [, limit] }) => limit >= 0n,
   },
 })
-export type CapSpec = typeof capSpec
+export type Cap = Implementation<typeof capSpec>
 ```
 
 <!-- file: src/cap.ts -->
 ```ts
-import type { Implementation } from "@emyann/tsverify"
-import type { CapSpec } from "./cap.contract.ts"
+import type { Cap } from "./cap.contract.ts"
 
-export const cap: Implementation<CapSpec> = (value, limit) => (value > limit ? limit : value)
+export const cap: Cap = (value, limit) => (value > limit ? limit : value)
 ```
 
 <!-- file: src/label.contract.ts -->
 ```ts
-import { spec } from "@emyann/tsverify"
+import { type Implementation, spec } from "@emyann/tsverify"
 
 const labelSpec = spec<(name: string) => string>({
   ensures: {
@@ -41,20 +40,19 @@ const labelSpec = spec<(name: string) => string>({
     unnamedWhenEmpty: ({ input: [name], output }) => (name === "" ? output == "(unnamed)" : true),
   },
 })
-export type LabelSpec = typeof labelSpec
+export type Label = Implementation<typeof labelSpec>
 ```
 
 <!-- file: src/label.ts -->
 ```ts
-import type { Implementation } from "@emyann/tsverify"
-import type { LabelSpec } from "./label.contract.ts"
+import type { Label } from "./label.contract.ts"
 
-export const label: Implementation<LabelSpec> = (name) => (name === "" ? "(unnamed)" : name)
+export const label: Label = (name) => (name === "" ? "(unnamed)" : name)
 ```
 
 <!-- file: src/largest.contract.ts -->
 ```ts
-import { spec } from "@emyann/tsverify"
+import { type Implementation, spec } from "@emyann/tsverify"
 
 const largestSpec = spec<(xs: ReadonlyArray<bigint>) => bigint>({
   ensures: {
@@ -62,15 +60,14 @@ const largestSpec = spec<(xs: ReadonlyArray<bigint>) => bigint>({
     oneOfThem: ({ input: [xs], output }) => xs.length === 0 || xs.includes(output),
   },
 })
-export type LargestSpec = typeof largestSpec
+export type Largest = Implementation<typeof largestSpec>
 ```
 
 <!-- file: src/largest.ts -->
 ```ts
-import type { Implementation } from "@emyann/tsverify"
-import type { LargestSpec } from "./largest.contract.ts"
+import type { Largest } from "./largest.contract.ts"
 
-export const largest: Implementation<LargestSpec> = (xs) => {
+export const largest: Largest = (xs) => {
   let best = xs.at(0) ?? 0n
   for (const x of xs) if (x > best) best = x
   return best
@@ -79,20 +76,19 @@ export const largest: Implementation<LargestSpec> = (xs) => {
 
 <!-- file: src/score.contract.ts -->
 ```ts
-import { spec } from "@emyann/tsverify"
+import { type Implementation, spec } from "@emyann/tsverify"
 
 const scoreSpec = spec<(points: number) => number>({
   ensures: { notNegative: ({ output }) => output >= 0 },
 })
-export type ScoreSpec = typeof scoreSpec
+export type Score = Implementation<typeof scoreSpec>
 ```
 
 <!-- file: src/score.ts -->
 ```ts
-import type { Implementation } from "@emyann/tsverify"
-import type { ScoreSpec } from "./score.contract.ts"
+import type { Score } from "./score.contract.ts"
 
-export const score: Implementation<ScoreSpec> = (points) => Math.sqrt(Math.max(points, 0))
+export const score: Score = (points) => Math.sqrt(Math.max(points, 0))
 ```
 
 <!-- run, exits 1 -->
@@ -111,10 +107,10 @@ src/label.ts
 src/largest.ts
   ~ largest  1 bounded, 1 proved · 2 obligations  (769 ms)
     ~ oneOfThem  (51 ms)
-      not proved: the loop at src/largest.ts:6:3 is read through its invariants alone, and none rules this run out: write one that does, first in its body (`invariant((i) => ...)`); no counterexample with arrays of at most 4 elements
+      not proved: the loop at src/largest.ts:5:3 is read through its invariants alone, and none rules this run out: write one that does, first in its body (`invariant((i) => ...)`); no counterexample with arrays of at most 4 elements
 src/score.ts
   ! score  not verified
-    src/score.ts:4:61: `Math` is a binding the verifier cannot see (a `let` or a global): read it from a `const` or an argument, or move it into a function the spec declares with `assume`
+    src/score.ts:3:41: `Math` is a binding the verifier cannot see (a `let` or a global): read it from a `const` or an argument, or move it into a function the spec declares with `assume`
 
 ✗ 1 counterexample · ! 1 unsupported · ~ 1 bounded · ○ 1 vacuous · ! 1 not verified
 ✓ 3 laws, 2 obligations proved

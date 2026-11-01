@@ -10,7 +10,7 @@ The largest element of an array, and a spec of it:
 
 <!-- file: src/largest.contract.ts -->
 ```ts
-import { spec } from "@emyann/tsverify"
+import { type Implementation, spec } from "@emyann/tsverify"
 
 const largestSpec = spec<(xs: ReadonlyArray<bigint>) => bigint>({
   ensures: {
@@ -18,15 +18,14 @@ const largestSpec = spec<(xs: ReadonlyArray<bigint>) => bigint>({
     oneOfThem: ({ input: [xs], output }) => xs.length === 0 || xs.includes(output),
   },
 })
-export type LargestSpec = typeof largestSpec
+export type Largest = Implementation<typeof largestSpec>
 ```
 
 <!-- file: src/largest.ts -->
 ```ts
-import type { Implementation } from "@emyann/tsverify"
-import type { LargestSpec } from "./largest.contract.ts"
+import type { Largest } from "./largest.contract.ts"
 
-export const largest: Implementation<LargestSpec> = (xs) => {
+export const largest: Largest = (xs) => {
   let best = xs.at(0) ?? 0n
   for (const x of xs) if (x > best) best = x
   return best
@@ -40,10 +39,10 @@ src/largest.ts
   ~ largest  1 bounded, 1 proved · 2 obligations  (857 ms)
     ✓ noneLarger  (23 ms)
     ~ oneOfThem  (47 ms)
-      not proved: the loop at src/largest.ts:6:3 is read through its invariants alone, and none rules this run out: write one that does, first in its body (`invariant((i) => ...)`); no counterexample with arrays of at most 4 elements
+      not proved: the loop at src/largest.ts:5:3 is read through its invariants alone, and none rules this run out: write one that does, first in its body (`invariant((i) => ...)`); no counterexample with arrays of at most 4 elements
     proof code:
-      ✓ invariant on entry: noneLarger, of the elements gone through  (src/largest.ts:6:3)
-      ✓ invariant kept by each iteration: noneLarger, of the elements gone through  (src/largest.ts:6:3)
+      ✓ invariant on entry: noneLarger, of the elements gone through  (src/largest.ts:5:3)
+      ✓ invariant kept by each iteration: noneLarger, of the elements gone through  (src/largest.ts:5:3)
 
 ~ 1 bounded
 ✓ 1 law, 2 obligations proved
@@ -74,10 +73,9 @@ invariants taken out (`test/account.test.ts`), its five laws are still proved.
 <!-- file: src/largest.ts -->
 ```ts
 import { invariant } from "@emyann/tsverify"
-import type { Implementation } from "@emyann/tsverify"
-import type { LargestSpec } from "./largest.contract.ts"
+import type { Largest } from "./largest.contract.ts"
 
-export const largest: Implementation<LargestSpec> = (xs) => {
+export const largest: Largest = (xs) => {
   let best = xs.at(0) ?? 0n
   for (const x of xs) {
     invariant(() => xs.length === 0 || xs.includes(best))
@@ -95,10 +93,10 @@ src/largest.ts
     ✓ noneLarger  (20 ms)
     ✓ oneOfThem  (19 ms)
     proof code:
-      ✓ invariant on entry: () => xs.length === 0 || xs.includes(best)  (src/largest.ts:8:5)
-      ✓ invariant on entry: noneLarger, of the elements gone through  (src/largest.ts:7:3)
-      ✓ invariant kept by each iteration: () => xs.length === 0 || xs.includes(best)  (src/largest.ts:8:5)
-      ✓ invariant kept by each iteration: noneLarger, of the elements gone through  (src/largest.ts:7:3)
+      ✓ invariant on entry: () => xs.length === 0 || xs.includes(best)  (src/largest.ts:7:5)
+      ✓ invariant on entry: noneLarger, of the elements gone through  (src/largest.ts:6:3)
+      ✓ invariant kept by each iteration: () => xs.length === 0 || xs.includes(best)  (src/largest.ts:7:5)
+      ✓ invariant kept by each iteration: noneLarger, of the elements gone through  (src/largest.ts:6:3)
 
 ✓ 2 laws, 4 obligations proved
   1 contract in 1 file · 2.9 s
@@ -191,7 +189,7 @@ A lemma is a fact proved once, for every argument its `requires` admits, then kn
 
 <!-- file: src/area.contract.ts -->
 ```ts
-import { lemma, spec } from "@emyann/tsverify"
+import { type Implementation, lemma, spec } from "@emyann/tsverify"
 
 /** A product of two numbers not below zero is not below zero: proved once, then known where it is called. */
 export const productNotNegative = lemma((a: bigint, b: bigint) => a * b >= 0n, { requires: (a, b) => a >= 0n && b >= 0n })
@@ -200,15 +198,14 @@ const areaSpec = spec<(width: bigint, height: bigint) => bigint>({
   requires: ({ input: [width, height] }) => width >= 0n && height >= 0n,
   ensures: { notNegative: ({ output }) => output >= 0n },
 })
-export type AreaSpec = typeof areaSpec
+export type Area = Implementation<typeof areaSpec>
 ```
 
 <!-- file: src/area.ts -->
 ```ts
-import type { Implementation } from "@emyann/tsverify"
-import { type AreaSpec, productNotNegative } from "./area.contract.ts"
+import { type Area, productNotNegative } from "./area.contract.ts"
 
-export const area: Implementation<AreaSpec> = (width, height) => {
+export const area: Area = (width, height) => {
   productNotNegative(width, height)
   return width * height
 }

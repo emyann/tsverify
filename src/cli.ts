@@ -119,18 +119,54 @@ const tsconfigOf = (file: string): string => {
 /** An import of this package or one of its entries, in any form: `from "@emyann/tsverify"`, `"@emyann/tsverify/effect"`, `import "@emyann/tsverify/packs/lodash"`. */
 const IMPORTS_TSVERIFY = /["']@emyann\/tsverify(?:\/[^"'\n]*)?["']/
 
-/**
- * Every file under `dir` that may hold a contract, outside `node_modules` and dot folders: a TypeScript file that
- * imports tsverify, whatever its name, whose program is then read to know. A test named `*.spec.ts` that does not import
- * it is never read.
- */
-const contractFilesUnder = (dir: string): Array<string> =>
+/** Every TypeScript file under `dir`, outside `node_modules` and dot folders, declaration files left out. */
+const typeScriptUnder = (dir: string): Array<string> =>
   readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
     const p = path.join(dir, e.name)
-    if (e.isDirectory()) return e.name === "node_modules" || e.name.startsWith(".") ? [] : contractFilesUnder(p)
-    if (!e.isFile() || !/\.tsx?$/.test(e.name) || e.name.endsWith(".d.ts")) return []
-    return IMPORTS_TSVERIFY.test(readFileSync(p, "utf8")) ? [p] : []
+    if (e.isDirectory()) return e.name === "node_modules" || e.name.startsWith(".") ? [] : typeScriptUnder(p)
+    return e.isFile() && /\.tsx?$/.test(e.name) && !e.name.endsWith(".d.ts") ? [p] : []
   })
+
+/** The file a relative import names, as TypeScript finds it: written whole, `.js` for `.ts`, or with an extension or `index` added. */
+const imported = (from: string, specifier: string): string | undefined => {
+  const base = path.resolve(path.dirname(from), specifier)
+  const tried = [
+    base,
+    base.replace(/\.(c|m)?js$/, ".$1ts"),
+    base.replace(/\.jsx$/, ".tsx"),
+    `${base}.ts`,
+    `${base}.tsx`,
+    path.join(base, "index.ts"),
+  ]
+  return tried.find((f) => /\.tsx?$/.test(f) && existsSync(f) && statSync(f).isFile())
+}
+
+/**
+ * Every file under `dir` that may hold a contract, whose program is then read to know: a TypeScript file that imports
+ * tsverify, whatever its name, or that imports, by a relative path, a file that does, wherever that one is: the code of
+ * a spec whose module gives it its type (`export type Shipping = Implementation<typeof shippingSpec>`) imports no
+ * tsverify. A test named `*.spec.ts` that imports neither is never read.
+ */
+const contractFilesUnder = (dir: string): Array<string> => {
+  const known = new Map<string, boolean>()
+  const importsTsverify = (f: string): boolean => {
+    let yes = known.get(f)
+    if (yes === undefined) {
+      yes = IMPORTS_TSVERIFY.test(readFileSync(f, "utf8"))
+      known.set(f, yes)
+    }
+    return yes
+  }
+  return typeScriptUnder(dir).filter(
+    (f) =>
+      importsTsverify(f) ||
+      ts.preProcessFile(readFileSync(f, "utf8"), true, true).importedFiles.some((i) => {
+        if (!i.fileName.startsWith(".")) return false
+        const target = imported(f, i.fileName)
+        return target !== undefined && importsTsverify(target)
+      }),
+  )
+}
 
 /** A counterexample's value as JSON holds it: a bigint, `undefined`, `NaN`, `±Infinity` or `-0` as a string of its JavaScript text (`"5n"`). */
 const plain = (x: unknown): unknown =>

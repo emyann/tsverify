@@ -290,7 +290,7 @@ of what its callers know: what they need of the function is a law of its spec.
 
 <!-- file: src/shipping.contract.ts -->
 ```ts
-import { spec } from "@emyann/tsverify"
+import { type Implementation, spec } from "@emyann/tsverify"
 
 const shippingSpec = spec<(total: number) => number>({
   requires: ({ input: [total] }) => total >= 0,
@@ -302,15 +302,14 @@ const shippingSpec = spec<(total: number) => number>({
     smallOrdersPay: ({ input: [total], output }) => (total < 50 ? output === 5 : true),
   },
 })
-export type ShippingSpec = typeof shippingSpec
+export type Shipping = Implementation<typeof shippingSpec>
 ```
 
 <!-- file: src/shipping.ts -->
 ```ts
-import type { Implementation } from "@emyann/tsverify"
-import type { ShippingSpec } from "./shipping.contract.ts"
+import type { Shipping } from "./shipping.contract.ts"
 
-export const shipping: Implementation<ShippingSpec> = (total) => (total >= 50 ? 0 : 5)
+export const shipping: Shipping = (total) => (total >= 50 ? 0 : 5)
 ```
 
 <!-- file: src/checkout.ts -->
@@ -338,9 +337,9 @@ $ npx tsverify src/checkout.contract.ts freeExactlyFrom50
   ✗ exactlyFrom50  (218 ms)
     e.g. (NaN)
     where shipping gave -0
-    leans on ShippingSpec for shipping, not on its body: to rule this run out, meet that spec's `requires` here, or add the law it needs to the spec
+    leans on shippingSpec for shipping, not on its body: to rule this run out, meet that spec's `requires` here, or add the law it needs to the spec
   taken by their specs, each verified on its own:
-    - shipping: ShippingSpec, pure, checked from source (read shipping); laws freeFrom50, smallOrdersPay — src/shipping.contract.ts:3:22
+    - shipping: shippingSpec, pure, checked from source (read shipping); laws freeFrom50, smallOrdersPay — src/shipping.contract.ts:3:22
   assumed:
     - The code throws only where it says so (a `throw`, a failure): an exception from anywhere else, a call or a binding never read, is not seen.
     - Each argument has its TypeScript type; the code's own casts, `any` and `!` are refused.
@@ -367,7 +366,7 @@ $ npx tsverify src/checkout.contract.ts freeExactlyFrom50
 ✓ freeExactlyFrom50  1 law  (581 ms)
   ✓ exactlyFrom50  (439 ms)
   taken by their specs, each verified on its own:
-    - shipping: ShippingSpec, pure, checked from source (read shipping); laws freeFrom50, smallOrdersPay — src/shipping.contract.ts:3:22
+    - shipping: shippingSpec, pure, checked from source (read shipping); laws freeFrom50, smallOrdersPay — src/shipping.contract.ts:3:22
   assumed:
     - The code throws only where it says so (a `throw`, a failure): an exception from anywhere else, a call or a binding never read, is not seen.
     - Each argument has its TypeScript type; the code's own casts, `any` and `!` are refused.

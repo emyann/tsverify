@@ -26,7 +26,7 @@ answer is a proof, or that input.
 <!-- file: src/shipping.contract.ts -->
 ```ts
 // src/shipping.contract.ts: what `shipping` must do, written before the code.
-import { spec } from "@emyann/tsverify"
+import { type Implementation, spec } from "@emyann/tsverify"
 
 const shippingSpec = spec<(total: number) => number>({
   // What every caller promises: a cart's total is never negative.
@@ -42,16 +42,15 @@ const shippingSpec = spec<(total: number) => number>({
   },
 })
 // Its type, which the code takes.
-export type ShippingSpec = typeof shippingSpec
+export type Shipping = Implementation<typeof shippingSpec>
 ```
 
 <!-- file: src/shipping.ts -->
 ```ts
 // src/shipping.ts: the code takes its type from the spec, and imports nothing that runs.
-import type { Implementation } from "@emyann/tsverify"
-import type { ShippingSpec } from "./shipping.contract.ts"
+import type { Shipping } from "./shipping.contract.ts"
 
-export const shipping: Implementation<ShippingSpec> = (total) => (total >= 50 ? 0 : 5)
+export const shipping: Shipping = (total) => (total >= 50 ? 0 : 5)
 ```
 
 <!-- run -->
@@ -73,10 +72,9 @@ Now make the mistake everyone makes once, `>` where `>=` was meant:
 
 <!-- file: src/shipping.ts -->
 ```ts
-import type { Implementation } from "@emyann/tsverify"
-import type { ShippingSpec } from "./shipping.contract.ts"
+import type { Shipping } from "./shipping.contract.ts"
 
-export const shipping: Implementation<ShippingSpec> = (total) => (total > 50 ? 0 : 5)
+export const shipping: Shipping = (total) => (total > 50 ? 0 : 5)
 ```
 
 <!-- run, exits 1 -->
@@ -102,7 +100,7 @@ agent, knows the work is not done.
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="media/anatomy-dark.svg">
-    <img src="media/anatomy-light.svg" width="100%" alt="A spec, part by part: spec of the function type (total: number) =&gt; number; requires, what every caller promises; ensures, the laws by name, each given one run, its input and its output, true for every input, written alone or with what it says in words; and its type, which the code takes as Implementation of ShippingSpec.">
+    <img src="media/anatomy-light.svg" width="100%" alt="A spec, part by part: spec of the function type (total: number) =&gt; number; requires, what every caller promises; ensures, the laws by name, each given one run, its input and its output, true for every input, written alone or with what it says in words; and the function's type, Implementation of the spec, which its module exports for the code to take.">
   </picture>
 </p>
 
@@ -136,7 +134,7 @@ it.
 
 <!-- file: src/rename.contract.ts -->
 ```ts
-import { type Rejects, spec } from "@emyann/tsverify"
+import { type Implementation, type Rejects, spec } from "@emyann/tsverify"
 
 /** Where names are kept. Each method is an operation: tsverify records every call. */
 export interface Names {
@@ -150,15 +148,14 @@ const renameSpec = spec<(names: Names, id: string, name: string) => Rejects<bool
     emptyNameTouchesNothing: ({ input: [, , name], calls }) => (name === "" ? calls.length === 0 : true),
   },
 })
-export type RenameSpec = typeof renameSpec
+export type Rename = Implementation<typeof renameSpec>
 ```
 
 <!-- file: src/rename.ts -->
 ```ts
-import type { Implementation } from "@emyann/tsverify"
-import type { RenameSpec } from "./rename.contract.ts"
+import type { Rename } from "./rename.contract.ts"
 
-export const rename: Implementation<RenameSpec> = async (names, id, name) => {
+export const rename: Rename = async (names, id, name) => {
   const current = await names.get(id)
   if (current === undefined || name === "") return false
   await names.set(id, name)
@@ -186,10 +183,9 @@ With an empty name, the code still read the store before it said no. Check the n
 
 <!-- file: src/rename.ts -->
 ```ts
-import type { Implementation } from "@emyann/tsverify"
-import type { RenameSpec } from "./rename.contract.ts"
+import type { Rename } from "./rename.contract.ts"
 
-export const rename: Implementation<RenameSpec> = async (names, id, name) => {
+export const rename: Rename = async (names, id, name) => {
   if (name === "") return false
   const current = await names.get(id)
   if (current === undefined) return false

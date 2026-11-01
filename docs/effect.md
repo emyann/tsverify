@@ -38,6 +38,7 @@ and `calls`, the calls the program made to the services of `R`, typed from each 
 <!-- file: src/rename.contract.ts -->
 ```ts
 import type { Effect } from "effect"
+import type { Implementation } from "@emyann/tsverify"
 import { spec } from "@emyann/tsverify/effect"
 import type { NotFound, StoreDown, Users } from "./users.ts"
 
@@ -61,7 +62,7 @@ const renameSpec = spec<(id: string, name: string) => Effect.Effect<void, NotFou
     },
   },
 })
-export type RenameSpec = typeof renameSpec
+export type Rename = Implementation<typeof renameSpec>
 ```
 
 The program takes the spec as its type, as any implementation does. Its generator's parameters are typed from the spec,
@@ -70,11 +71,10 @@ and `tsc` refuses a failure or a service the spec does not declare:
 <!-- file: src/rename.ts -->
 ```ts
 import { Effect } from "effect"
-import type { Implementation } from "@emyann/tsverify"
-import type { RenameSpec } from "./rename.contract.ts"
+import type { Rename } from "./rename.contract.ts"
 import { NotFound, Users } from "./users.ts"
 
-export const rename: Implementation<RenameSpec> = Effect.fn("rename")(function* (id, name) {
+export const rename: Rename = Effect.fn("rename")(function* (id, name) {
   const users = yield* Users
   const user = yield* users.get(id)
   if (user === undefined) return yield* Effect.fail(new NotFound({ id }))
@@ -114,6 +114,7 @@ with any value of its type, or fails with what its `catch` makes of what was thr
 <!-- file: src/amount.contract.ts -->
 ```ts
 import type { Effect } from "effect"
+import type { Implementation } from "@emyann/tsverify"
 import { spec } from "@emyann/tsverify/effect"
 import type { BadAmount } from "./amount.ts"
 
@@ -122,29 +123,28 @@ const amountSpec = spec<(text: string) => Effect.Effect<bigint, BadAmount>>({
     namesTheText: ({ input: [text], output }) => (output._tag === "Failure" ? output.error.text === text : true),
   },
 })
-export type AmountSpec = typeof amountSpec
+export type AmountOf = Implementation<typeof amountSpec>
 
 const looseAmountSpec = spec<(text: string) => Effect.Effect<bigint, unknown>>({
   ensures: {
     failsWithSomething: ({ output }) => (output._tag === "Failure" ? output.error !== undefined : true),
   },
 })
-export type LooseAmountSpec = typeof looseAmountSpec
+export type LooseAmountOf = Implementation<typeof looseAmountSpec>
 ```
 
 <!-- file: src/amount.ts -->
 ```ts
 import { Data, Effect } from "effect"
-import type { Implementation } from "@emyann/tsverify"
-import type { AmountSpec, LooseAmountSpec } from "./amount.contract.ts"
+import type { AmountOf, LooseAmountOf } from "./amount.contract.ts"
 
 export class BadAmount extends Data.TaggedError("BadAmount")<{ readonly text: string }> {}
 
 /** The amount a person typed: its error says what they typed. */
-export const amountOf: Implementation<AmountSpec> = (text) => Effect.try({ try: () => BigInt(text), catch: () => new BadAmount({ text }) })
+export const amountOf: AmountOf = (text) => Effect.try({ try: () => BigInt(text), catch: () => new BadAmount({ text }) })
 
 /** The same, passing on whatever `BigInt` threw. */
-export const looseAmountOf: Implementation<LooseAmountSpec> = (text) => Effect.try({ try: () => BigInt(text), catch: (err) => err })
+export const looseAmountOf: LooseAmountOf = (text) => Effect.try({ try: () => BigInt(text), catch: (err) => err })
 ```
 
 <!-- run, exits 1 -->
@@ -155,7 +155,7 @@ src/amount.ts
     ✓ namesTheText  (139 ms)
   ! looseAmountOf  1 unsupported  (12 ms)
     ! failsWithSomething  (0 ms)
-      src/amount.contract.ts:14:70: `===` of a value of type `unknown` is not modeled: such a value is carried and never read; give it a type where it is made (for an error, a `catch` that builds a typed one)
+      src/amount.contract.ts:15:70: `===` of a value of type `unknown` is not modeled: such a value is carried and never read; give it a type where it is made (for an error, a `catch` that builds a typed one)
 
 ! 1 unsupported
 ✓ 1 law proved
@@ -197,6 +197,7 @@ An Effect function the adapter does not read is refused where the program calls 
 <!-- file: src/renameAll.contract.ts -->
 ```ts
 import type { Effect } from "effect"
+import type { Implementation } from "@emyann/tsverify"
 import { spec } from "@emyann/tsverify/effect"
 import type { StoreDown, Users } from "./users.ts"
 
@@ -205,17 +206,16 @@ const renameAllSpec = spec<(ids: ReadonlyArray<string>, name: string) => Effect.
     readsBeforeWriting: ({ calls }) => calls.at(0)?.op !== "put",
   },
 })
-export type RenameAllSpec = typeof renameAllSpec
+export type RenameAll = Implementation<typeof renameAllSpec>
 ```
 
 <!-- file: src/renameAll.ts -->
 ```ts
 import { Effect } from "effect"
-import type { Implementation } from "@emyann/tsverify"
-import type { RenameAllSpec } from "./renameAll.contract.ts"
+import type { RenameAll } from "./renameAll.contract.ts"
 import { Users } from "./users.ts"
 
-export const renameAll: Implementation<RenameAllSpec> = Effect.fn("renameAll")(function* (ids, name) {
+export const renameAll: RenameAll = Effect.fn("renameAll")(function* (ids, name) {
   const users = yield* Users
   yield* Effect.forEach(ids, (id) => users.get(id))
 })
@@ -226,7 +226,7 @@ export const renameAll: Implementation<RenameAllSpec> = Effect.fn("renameAll")(f
 $ npx tsverify src/renameAll.ts
 src/renameAll.ts
   ! renameAll  not verified
-    src/renameAll.ts:8:10: `Effect.forEach` is not read: write a `for (const x of xs)` loop of `yield*` steps in the generator
+    src/renameAll.ts:7:10: `Effect.forEach` is not read: write a `for (const x of xs)` loop of `yield*` steps in the generator
 
 ! 1 not verified
   1 contract in 1 file · 1.1 s
@@ -242,11 +242,10 @@ The loop `forEach` names, written as steps:
 <!-- file: src/renameAll.ts -->
 ```ts
 import { Effect } from "effect"
-import type { Implementation } from "@emyann/tsverify"
-import type { RenameAllSpec } from "./renameAll.contract.ts"
+import type { RenameAll } from "./renameAll.contract.ts"
 import { Users } from "./users.ts"
 
-export const renameAll: Implementation<RenameAllSpec> = Effect.fn("renameAll")(function* (ids, name) {
+export const renameAll: RenameAll = Effect.fn("renameAll")(function* (ids, name) {
   const users = yield* Users
   for (const id of ids) {
     const user = yield* users.get(id)
@@ -261,7 +260,7 @@ $ npx tsverify src/renameAll.ts
 src/renameAll.ts
   ~ renameAll  1 bounded  (220 ms)
     ~ readsBeforeWriting  (108 ms)
-      proved only of the inputs that run no loop longer: the proof side runs a loop in a computation at most 4 times (src/renameAll.ts:8:3); no counterexample with arrays of at most 4 elements
+      proved only of the inputs that run no loop longer: the proof side runs a loop in a computation at most 4 times (src/renameAll.ts:7:3); no counterexample with arrays of at most 4 elements
 
 ~ 1 bounded
   1 contract in 1 file · 1.3 s
@@ -282,6 +281,7 @@ die; the ends of the contract say whether one can.
 <!-- file: src/half.contract.ts -->
 ```ts
 import type { Effect } from "effect"
+import type { Implementation } from "@emyann/tsverify"
 import { spec } from "@emyann/tsverify/effect"
 
 const halfSpec = spec<(n: bigint) => Effect.Effect<bigint>>({
@@ -289,16 +289,15 @@ const halfSpec = spec<(n: bigint) => Effect.Effect<bigint>>({
     doubledIsN: ({ input: [n], output }) => output._tag === "Success" && output.value * 2n === n,
   },
 })
-export type HalfSpec = typeof halfSpec
+export type Half = Implementation<typeof halfSpec>
 ```
 
 <!-- file: src/half.ts -->
 ```ts
 import { Effect } from "effect"
-import type { Implementation } from "@emyann/tsverify"
-import type { HalfSpec } from "./half.contract.ts"
+import type { Half } from "./half.contract.ts"
 
-export const half: Implementation<HalfSpec> = Effect.fn("half")(function* (n) {
+export const half: Half = Effect.fn("half")(function* (n) {
   if (n % 2n !== 0n) return yield* Effect.die(`${n} is odd`)
   return n / 2n
 })

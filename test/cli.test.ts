@@ -94,6 +94,47 @@ it("finds a contract by its file's import of tsverify, whatever the file's name"
   }
 })
 
+it("finds an implementation typed by its spec's module, which imports no tsverify, in a folder the spec is outside of", () => {
+  const dir = project({
+    "shipping.contract.ts":
+      `import { type Implementation, spec } from "@emyann/tsverify"\n\n` +
+      `const shippingSpec = spec<(total: number) => number>({\n  requires: ({ input: [total] }) => total >= 0,\n` +
+      `  ensures: { freeFrom50: ({ input: [total], output }) => total < 50 || output === 0 },\n})\n` +
+      `export type Shipping = Implementation<typeof shippingSpec>\n`,
+    "src/shipping.ts": `import type { Shipping } from "../shipping.contract.ts"\n\nexport const shipping: Shipping = (total) => (total >= 50 ? 0 : 5)\n`,
+    "src/checkout.ts": `import { shipping } from "./shipping.ts"\n\n/** Whether an order ships free. */\nexport const shipsFree = (total: number): boolean => shipping(total) === 0\n`,
+  })
+  try {
+    const r = spawnSync(process.execPath, [path.join(root, "src/cli.ts"), "src", "--verbose"], {
+      cwd: dir,
+      env: plain,
+      encoding: "utf8",
+      timeout: 300_000,
+    })
+    assert.equal(r.status, 0, r.stdout + r.stderr)
+    assert.match(r.stdout, /^src\/shipping\.ts\n {2}✓ shipping {2}1 law {2}\(\d+ ms\)\n/)
+    assert.match(r.stdout, /\n✓ 1 law proved\n {2}1 contract in 1 file · \d+\.\d s\n$/)
+    // A caller takes it by its spec, named as its type names it.
+    const caller = path.join(dir, "src/checkout.contract.ts")
+    writeFileSync(
+      caller,
+      `import { contract } from "@emyann/tsverify"\nimport { shipsFree } from "./checkout.ts"\n\n` +
+        `export const freeFrom50 = contract(shipsFree, {\n  requires: ({ input: [total] }) => total >= 0,\n` +
+        `  ensures: { from50: ({ input: [total], output }) => total < 50 || output },\n})\n`,
+    )
+    const c = spawnSync(process.execPath, [path.join(root, "src/cli.ts"), "src/checkout.contract.ts", "freeFrom50"], {
+      cwd: dir,
+      env: plain,
+      encoding: "utf8",
+      timeout: 300_000,
+    })
+    assert.equal(c.status, 0, c.stdout + c.stderr)
+    assert.match(c.stdout, /\n {4}- shipping: shippingSpec, pure, checked from source/)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 it("exits 1 when a law is only bounded: a loop of steps over an array of unknown length", () => {
   const r = cli("examples/account/imports.contract.ts")
   assert.equal(r.code, 1, r.out + r.err)

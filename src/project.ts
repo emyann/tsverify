@@ -157,12 +157,24 @@ export const contractsIn = (project: Project, file: string): Array<string> =>
       : [],
   )
 
-/** Whether `d` is typed `Implementation<...>`, this package's. */
+/**
+ * The `Implementation<...>` of this package that `d` is typed by: written on it, or what a type alias it is typed by
+ * stands for, through any number of them (`export type Shipping = Implementation<typeof shippingSpec>`, in the spec's
+ * module, so the code imports no tsverify).
+ */
+export const implementationType = (checker: ts.TypeChecker, d: ts.VariableDeclaration): ts.TypeReferenceNode | undefined => {
+  let t = d.type
+  for (let seen = 0; t !== undefined && ts.isTypeReferenceNode(t) && ts.isIdentifier(t.typeName) && seen < 16; seen++) {
+    if (declared(checker, t.typeName, CONTRACT_MODULE, "Implementation")) return t
+    if (t.typeArguments !== undefined) return undefined
+    t = symbolOf(checker, t.typeName)?.declarations?.find(ts.isTypeAliasDeclaration)?.type
+  }
+  return undefined
+}
+
+/** Whether `d` is typed `Implementation<...>`, this package's, written on it or through a type alias. */
 export const isImplementation = (checker: ts.TypeChecker, d: ts.VariableDeclaration): boolean =>
-  d.type !== undefined &&
-  ts.isTypeReferenceNode(d.type) &&
-  ts.isIdentifier(d.type.typeName) &&
-  declared(checker, d.type.typeName, CONTRACT_MODULE, "Implementation")
+  implementationType(checker, d) !== undefined
 
 /**
  * The `typeof S` an implementation's type argument is: written in place, or the type it names when that type is one
@@ -184,7 +196,7 @@ const specOf = (
   checker: ts.TypeChecker,
   d: ts.VariableDeclaration,
 ): { readonly call: ts.CallExpression; readonly computation: boolean } => {
-  const t = d.type as ts.TypeReferenceNode
+  const t = implementationType(checker, d)!
   const arg = t.typeArguments?.[0]
   const query = arg === undefined ? undefined : specQuery(checker, arg)
   if (arg === undefined || query === undefined || !ts.isIdentifier(query.exprName))
@@ -278,7 +290,8 @@ export const implementedSpec = (
   const lawsArg = call.arguments[0]
   if (lawsArg === undefined || !ts.isObjectLiteralExpression(unwrap(lawsArg)))
     throw new Unsupported("a spec is `spec<F>({ requires?, ensures: { ... } })`, written in place", call)
-  const name = (d.type as ts.TypeReferenceNode).typeArguments![0]!.getText()
+  const arg = implementationType(checker, d)!.typeArguments![0]!
+  const name = ts.isTypeQueryNode(arg) ? arg.exprName.getText() : arg.getText()
   return { name, at: call, computation, ...lawsOf(checker, lawsArg) }
 }
 
