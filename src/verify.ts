@@ -66,8 +66,8 @@ export type LawStatus =
 
 export interface LawResult {
   readonly name: string
-  /** What the law means, in words, when it is written `{ says, holds }`. */
-  readonly says?: string
+  /** What the law means, in words, where it is written `{ description, condition }`. */
+  readonly description?: string
   readonly status: LawStatus
   /** On a counterexample: the arguments, as JavaScript values. */
   readonly args?: ReadonlyArray<unknown>
@@ -184,7 +184,7 @@ export const lowerSide = (
   source: ContractSource,
   bound?: number,
   adapters = ADAPTERS,
-  trust: Trust = trustOf(readAssumptions(project)),
+  trust: Trust = trustOf(readAssumptions(project).forTarget(source.target)),
   guessFrom?: ReadonlySet<string>,
   guessBeside = false,
 ): Lowered => {
@@ -315,8 +315,9 @@ const guesser =
       }))
   }
 
-/** A law's `says`, for its result, when it has one. */
-const saying = (law: ContractSource["ensures"][number]): { readonly says?: string } => (law.says === undefined ? {} : { says: law.says })
+/** A law's `description`, for its result, when it has one. */
+const described = (law: ContractSource["ensures"][number]): { readonly description?: string } =>
+  law.description === undefined ? {} : { description: law.description }
 
 const lawOn = (side: Lowered, law: ContractSource["ensures"][number]): Bool =>
   side.source.kind === "lemma"
@@ -418,7 +419,7 @@ const verified = async (z3: Ctx, project: Project, file: string, name: string, o
   }
   let sides: { readonly proof: Lowered; readonly search: Lowered }
   try {
-    trust = trustOf(readAssumptions(project))
+    trust = trustOf(readAssumptions(project).forTarget(source.target))
     sides = await guessed(false)
   } catch (e) {
     if (!(e instanceof Unsupported)) throw e
@@ -549,7 +550,7 @@ export const judge = async (
     if (opts.only !== undefined && !opts.only.includes(law.name)) continue
     const started = performance.now()
     if (r0.unsupported !== undefined) {
-      laws.push({ name: law.name, ...saying(law), status: "unsupported", reason: r0.unsupported, ms: 0 })
+      laws.push({ name: law.name, ...described(law), status: "unsupported", reason: r0.unsupported, ms: 0 })
       opts.progress?.(`law ${law.name}: unsupported`)
       continue
     }
@@ -589,7 +590,7 @@ export const judge = async (
               }
             : { status: "unknown", reason: `proof: ${why(proved, proof.u)}; search: ${found.reason}` }
     }
-    laws.push({ name: law.name, ...saying(law), ...r, ms: performance.now() - started })
+    laws.push({ name: law.name, ...described(law), ...r, ms: performance.now() - started })
     searchable.set(law.name, onSearch)
     opts.progress?.(`law ${law.name}: ${r.status} (${Math.round(performance.now() - started)} ms)`)
   }
@@ -801,6 +802,7 @@ const trustedOf = (trust: Trust): Array<Trusted> =>
       purity: !a.pure ? "impure" : p?.pure === true ? "checked" : "unchecked",
       laws: [...new Set(a.views.flatMap((v) => v.ensures.map((l) => l.name)))],
       ...(p?.pure === true ? { read: p.read } : {}),
+      ...(a.spec === undefined ? {} : { spec: a.spec }),
     }
   })
 

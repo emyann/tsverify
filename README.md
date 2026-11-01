@@ -34,8 +34,8 @@ const shippingSpec = spec<(total: number) => number>({
   ensures: {
     // A law, with what it means in words: the report prints them.
     freeFrom50: {
-      says: "An order of 50 or more ships free",
-      holds: ({ input: [total], output }) => (total >= 50 ? output === 0 : true),
+      description: "An order of 50 or more ships free",
+      condition: ({ input: [total], output }) => (total >= 50 ? output === 0 : true),
     },
     // A law alone: a smaller order pays 5.
     smallOrdersPay: ({ input: [total], output }) => (total < 50 ? output === 5 : true),
@@ -107,7 +107,7 @@ agent, knows the work is not done.
 </p>
 
 That is all there is to it: a law is a function that returns `true`, typed from the function, so its parameters need no
-annotation. Wrapped as `{ says, holds }`, it also says what it means, and the report prints the sentence. A law about async
+annotation. Written `{ description, condition }`, it also says what it means, and the report prints the sentence. A law about async
 code also gets how the call ended and the calls it made ([below](#laws-about-what-code-did)).
 
 ## Why tsverify
@@ -124,6 +124,8 @@ code also gets how the call ended and the calls it made ([below](#laws-about-wha
   that says nothing of the function is flagged `vacuous`. The full report shows which outcomes the function can reach,
   each with an input that reaches it.
 - **Loops too.** It guesses the invariants a loop needs, and you write one when its guess is not enough.
+- **One spec at a time.** Code that calls a function with a spec takes what the spec proves of it, not its body, so each
+  proof stays the size of one function, and what a caller needs of another is written in that one's spec.
 - **It says what it cannot do.** Code it cannot read is refused, at its line, with what to write instead. It never treats
   a part it cannot read as correct, and every report lists what it took on trust.
 

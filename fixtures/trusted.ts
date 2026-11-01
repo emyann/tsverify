@@ -12,7 +12,10 @@ export function score(word: string): number {
   for (const c of word) if (c === "a") n++
   return n
 }
-export const scoreIsPure = assume(score, { pure: true, ensures: { nonNegative: ({ output }) => output >= 0 } })
+export const scoreIsPure = assume(score, {
+  pure: true,
+  ensures: { nonNegative: { description: "A score is never negative", condition: ({ output }) => output >= 0 } },
+})
 
 /** The law of `score` holds of every element inside a quantifier: one call per element, not one for them all. */
 export const everyScoreNonNegative = contract((words: ReadonlyArray<string>) => words.every((w) => score(w) >= 0), {

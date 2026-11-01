@@ -123,7 +123,7 @@ src/score.ts
 
 Each file, then a line per contract: its verdict's mark (the worst of its laws'), its name, how many laws it holds and
 how long it took. Under a contract with something to look at, a line per law that needs a look: its mark, its name, how
-long it took, and, first, what it says when it is written `{ says, holds }`. A line under a law says why, or gives an
+long it took, and, first, what it says when it is written `{ description, condition }`. A line under a law says why, or gives an
 input. A law proved is counted, not listed, so what needs a look is what you read. A run of one file lists every law,
 and `--verbose` every law of every file. The last lines count what needs a look, by verdict, then what was proved.
 
@@ -149,7 +149,9 @@ reported `inconsistent`, never `proved`.
 An input the spec allows breaks the law, and `e.g.` gives it, as the arguments of a call: `cap(-1n, 0n)` is `-1n`. The
 counterexample is real: the verifier takes one only from a model of JavaScript that is exact, and running the code on it
 breaks the law. For a computation, a line `where …` says what each operation gave the code on that run. One that leans on
-a declared function says so: it holds of the function as declared, and may not of the real one.
+a declared function says so: it holds of the function as declared, and may not of the real one. One that leans on a
+function's spec says so too: the spec may allow what the function's body never gives, and a law added to the spec, or a
+`requires` here that meets the spec's, rules the run out.
 
 Then one of three things is wrong, and a person decides which:
 
@@ -264,6 +266,8 @@ $ npx tsverify src/cap.ts cap
   nothing.
 - `trusted:` each function a declaration covers, which the result leans on without proof: its purity, whether the purity
   was checked from source, its laws, and where it is declared ([What it reads](reads.md), *What it takes on trust*).
+- `taken by their specs:` each function that implements a spec, which the result leans on as its spec says: the spec,
+  the function's purity, the spec's laws and where it is written. Its own verification proves those laws.
 - `assumed:` what the model of JavaScript took for granted on the way, each kind once.
 
 ## The command

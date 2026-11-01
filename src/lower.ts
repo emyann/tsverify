@@ -80,7 +80,7 @@ export interface Trust {
 
 export const trustOf = (assumptions: Assumptions): Trust => ({ assumptions, purity: new Map(), used: new Set() })
 
-const NO_TRUST: Assumptions = { all: [], of: () => undefined }
+const NO_TRUST: Assumptions = { all: [], of: () => undefined, forTarget: () => NO_TRUST }
 
 /** `exec`: the program. `spec`: a law, a `requires`, and what they call. */
 export type Mode = "exec" | "spec"

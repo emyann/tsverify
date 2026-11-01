@@ -122,8 +122,8 @@ export interface ContractSource {
    */
   readonly target: ts.Node
   readonly requires: FunctionNode | undefined
-  /** Each law by name: its predicate, and what it means in words when it says (`{ says, holds }`). */
-  readonly ensures: ReadonlyArray<{ readonly name: string; readonly law: FunctionNode; readonly says?: string }>
+  /** Each law by name: its predicate, and what it means in words where it is written `{ description, condition }`. */
+  readonly ensures: ReadonlyArray<{ readonly name: string; readonly law: FunctionNode; readonly description?: string }>
 }
 
 /** What kind of contract `init` writes, when it is a call of this package's `contract`, `computation` or `lemma`. */
@@ -158,7 +158,7 @@ export const contractsIn = (project: Project, file: string): Array<string> =>
   )
 
 /** Whether `d` is typed `Implementation<...>`, this package's. */
-const isImplementation = (checker: ts.TypeChecker, d: ts.VariableDeclaration): boolean =>
+export const isImplementation = (checker: ts.TypeChecker, d: ts.VariableDeclaration): boolean =>
   d.type !== undefined &&
   ts.isTypeReferenceNode(d.type) &&
   ts.isIdentifier(d.type.typeName) &&
@@ -263,21 +263,23 @@ const implementationNamed = (project: Project, file: string, name: string): ts.V
 }
 
 /**
- * The spec a function implements, when `sym` names one (`const f: Implementation<S> = ...`): its name, its `requires` and
- * its laws, which are all an assumption of the function may take of it.
+ * The spec a function implements, when `sym` names one (`const f: Implementation<S> = ...`): its name, where it is
+ * written, whether it is a computation's, its `requires` and its laws, which are what a call of the function takes of it.
  */
 export const implementedSpec = (
   checker: ts.TypeChecker,
   sym: ts.Symbol,
-): (Pick<ContractSource, "requires" | "ensures"> & { readonly name: string }) | undefined => {
+):
+  | (Pick<ContractSource, "requires" | "ensures"> & { readonly name: string; readonly at: ts.Node; readonly computation: boolean })
+  | undefined => {
   const d = sym.valueDeclaration
   if (d === undefined || !ts.isVariableDeclaration(d) || !isImplementation(checker, d)) return undefined
-  const { call } = specOf(checker, d)
+  const { call, computation } = specOf(checker, d)
   const lawsArg = call.arguments[0]
   if (lawsArg === undefined || !ts.isObjectLiteralExpression(unwrap(lawsArg)))
     throw new Unsupported("a spec is `spec<F>({ requires?, ensures: { ... } })`, written in place", call)
   const name = (d.type as ts.TypeReferenceNode).typeArguments![0]!.getText()
-  return { name, ...lawsOf(checker, lawsArg) }
+  return { name, at: call, computation, ...lawsOf(checker, lawsArg) }
 }
 
 /**
@@ -310,37 +312,43 @@ const lawsOf = (checker: ts.TypeChecker, lawsArg: ts.Expression): Pick<ContractS
         if (ts.isShorthandPropertyAssignment(q)) ensures.push({ name: q.name.text, ...lawOf(checker, q.name) })
         else if (ts.isPropertyAssignment(q) && (ts.isIdentifier(q.name) || ts.isStringLiteral(q.name)))
           ensures.push({ name: q.name.text, ...lawOf(checker, q.initializer) })
-        else throw new Unsupported("a law is `name: ({ input: [args...], output }) => boolean`, or `name: { says, holds }`", q)
+        else throw new Unsupported("a law is `name: ({ input: [args...], output }) => boolean`, or `name: { description, condition }`", q)
       }
     } else throw new Unsupported(`a contract has no part \`${p.name.text}\``, p)
   }
   return { requires, ensures }
 }
 
+/** The names a law written as an object took before 0.3, and what each is now. */
+const RENAMED: Readonly<Record<string, string>> = { says: "description", holds: "condition" }
+
 /**
- * A law as written: a predicate, or `{ says: "…", holds: predicate }`, in place or the `const` a name reads. `says` is
- * the sentence a report prints for the law.
+ * A law as written: a predicate, or `{ description: "…", condition: predicate }`, in place or the `const` a name reads.
+ * `description` is the sentence a report prints for the law.
  */
-const lawOf = (checker: ts.TypeChecker, e: ts.Expression): { readonly law: FunctionNode; readonly says?: string } => {
+export const lawOf = (checker: ts.TypeChecker, e: ts.Expression): { readonly law: FunctionNode; readonly description?: string } => {
   const x = unwrap(e)
   const written = ts.isObjectLiteralExpression(x) ? x : constObject(checker, x)
   if (written === undefined) return { law: oneRun(functionOf(checker, e), "law") }
-  let says: string | undefined
+  let description: string | undefined
   let law: FunctionNode | undefined
   for (const p of written.properties) {
     const name = p.name !== undefined && ts.isIdentifier(p.name) ? p.name.text : undefined
-    if (name === "says" && ts.isPropertyAssignment(p)) {
+    if (name === "description" && ts.isPropertyAssignment(p)) {
       const text = unwrap(p.initializer)
       if (!ts.isStringLiteral(text) && !ts.isNoSubstitutionTemplateLiteral(text))
-        throw new Unsupported('a law\'s `says` is a string written in place: `says: "An order of 50 or more ships free"`', p)
-      says = text.text
-    } else if (name === "holds" && ts.isPropertyAssignment(p)) law = functionOf(checker, p.initializer)
-    else if (name === "holds" && ts.isShorthandPropertyAssignment(p)) law = functionOf(checker, p.name)
-    else throw new Unsupported('a law written as an object is `{ says: "…", holds: ({ input: [args...], output }) => boolean }`', p)
+        throw new Unsupported('a law\'s `description` is a string written in place: `description: "An order of 50 or more ships free"`', p)
+      description = text.text
+    } else if (name === "condition" && ts.isPropertyAssignment(p)) law = functionOf(checker, p.initializer)
+    else if (name === "condition" && ts.isShorthandPropertyAssignment(p)) law = functionOf(checker, p.name)
+    else if (name !== undefined && RENAMED[name] !== undefined)
+      throw new Unsupported(`a law's \`${name}\` is \`${RENAMED[name]}\` since 0.3: write \`{ description: "…", condition: … }\``, p)
+    else
+      throw new Unsupported('a law written as an object is `{ description: "…", condition: ({ input: [args...], output }) => boolean }`', p)
   }
-  if (law === undefined) throw new Unsupported("a law written as an object has its predicate in `holds`", written)
+  if (law === undefined) throw new Unsupported("a law written as an object has its predicate in `condition`", written)
   oneRun(law, "law")
-  return says === undefined ? { law } : { law, says }
+  return description === undefined ? { law } : { law, description }
 }
 
 /** The object literal a `const` holds, when `e` names one (in `{ law }`, the shorthand's binding). */

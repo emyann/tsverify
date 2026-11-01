@@ -51,12 +51,12 @@ export interface Given<A extends ReadonlyArray<unknown>> {
 
 /**
  * A law: a predicate, or the same with what it means in words, which the report prints for it:
- * `{ says: "An order of 50 or more ships free", holds: ({ input: [total], output }) => (total >= 50 ? output === 0 : true) }`.
+ * `{ description: "An order of 50 or more ships free", condition: ({ input: [total], output }) => (total >= 50 ? output === 0 : true) }`.
  */
-export type Law<P> = P | { readonly says: string; readonly holds: P }
+export type Law<P> = P | { readonly description: string; readonly condition: P }
 
 /** A law's predicate, however it is written: `holds(spec.ensures.freeFrom50!)({ input: [60], output: 0 })`. */
-export const holds = <P extends (run: never) => boolean>(law: Law<P>): P => (typeof law === "function" ? law : law.holds)
+export const holds = <P extends (run: never) => boolean>(law: Law<P>): P => (typeof law === "function" ? law : law.condition)
 
 export interface Contract<A extends ReadonlyArray<unknown>, R> {
   readonly fn: (...args: A) => R
@@ -178,7 +178,7 @@ export interface ComputationContract<Args extends ReadonlyArray<unknown>, A, E, 
 export interface Assumption<A extends ReadonlyArray<unknown>, R> {
   readonly fn: (...args: A) => R
   readonly pure: boolean
-  readonly ensures?: Readonly<Record<string, (run: Run<A, R>) => boolean>>
+  readonly ensures?: Readonly<Record<string, Law<(run: Run<A, R>) => boolean>>>
 }
 
 export const assume = <A extends ReadonlyArray<unknown>, R>(
@@ -197,7 +197,7 @@ export const brokenOn = <A extends ReadonlyArray<unknown>, R>(
   inputs.flatMap((input) => {
     const result = a.fn(...input)
     return Object.entries(a.ensures ?? {})
-      .filter(([, law]) => !law({ input, output: result }))
+      .filter(([, law]) => !holds(law)({ input, output: result }))
       .map(([law]) => ({ law, input, result }))
   })
 

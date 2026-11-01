@@ -121,7 +121,8 @@ const declaredPure = (): Assumptions => {
     memo.set(sym, a)
     return a
   }
-  return { all: [], of }
+  const self: Assumptions = { all: [], of, forTarget: () => self }
+  return self
 }
 const trust = modular ? trustOf(declaredPure()) : undefined
 

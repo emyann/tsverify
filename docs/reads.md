@@ -234,11 +234,8 @@ package's, or a recursive one. It replaces the function's body wherever the func
 - **`ensures`**: laws over the arguments and the result, assumed at every call, without proof.
 - **The type arguments are the view** the laws are written for: `assume<[xs: ReadonlyArray<string>], string[]>(uniq, …)`
   says what `uniq` does on strings, and `tsc` checks that `uniq` can be called so. A call no view covers is refused.
-- **A function that implements a spec** (`const f: Implementation<S>`) is declared with its spec's own laws, and no
-  others: each law of `ensures` names one of the spec's, the same declaration, imported from where both read it. Its
-  verification proves those, and a law written again or added is refused, with the spec to add it to. Each holds at a
-  call only where the spec's `requires` does, as its proof does: a caller that cannot show the `requires` there gets
-  nothing of it.
+- **A function that implements a spec** (`const f: Implementation<S>`) needs none, and an `assume` of it is refused: its
+  spec declares it (*A function that implements a spec*, below).
 
 Counting a number's digits calls itself, which the verifier does not read. Declared, with what the rest of the program
 needs of it:
@@ -283,6 +280,105 @@ law it breaks, which is how a declaration is tested.
 
 A declaration is in force across the whole program it is part of: the spec that declares it, and every file verified with
 it.
+
+### A function that implements a spec
+
+A call of a function typed `Implementation<S>` takes what `S` says of it, and nothing of its body, as a caller in Dafny
+takes a method's specification: each of its laws, where its `requires` holds at the call. Its own verification proves
+those laws, so a caller leans on a proof, not on a declaration, and needs no `assume`. A spec the code calls is the whole
+of what its callers know: what they need of the function is a law of its spec.
+
+<!-- file: src/shipping.contract.ts -->
+```ts
+import { spec } from "@emyann/tsverify"
+
+const shippingSpec = spec<(total: number) => number>({
+  requires: ({ input: [total] }) => total >= 0,
+  ensures: {
+    freeFrom50: {
+      description: "An order of 50 or more ships free",
+      condition: ({ input: [total], output }) => (total >= 50 ? output === 0 : true),
+    },
+    smallOrdersPay: ({ input: [total], output }) => (total < 50 ? output === 5 : true),
+  },
+})
+export type ShippingSpec = typeof shippingSpec
+```
+
+<!-- file: src/shipping.ts -->
+```ts
+import type { Implementation } from "@emyann/tsverify"
+import type { ShippingSpec } from "./shipping.contract.ts"
+
+export const shipping: Implementation<ShippingSpec> = (total) => (total >= 50 ? 0 : 5)
+```
+
+<!-- file: src/checkout.ts -->
+```ts
+import { shipping } from "./shipping.ts"
+
+/** Whether an order ships free. */
+export const shipsFree = (total: number): boolean => shipping(total) === 0
+```
+
+<!-- file: src/checkout.contract.ts -->
+```ts
+import { contract } from "@emyann/tsverify"
+import { shipsFree } from "./checkout.ts"
+
+export const freeExactlyFrom50 = contract(shipsFree, {
+  ensures: { exactlyFrom50: ({ input: [total], output }) => output === total >= 50 },
+})
+```
+
+<!-- run, exits 1 -->
+```text
+$ npx tsverify src/checkout.contract.ts freeExactlyFrom50
+✗ freeExactlyFrom50  1 counterexample  (315 ms)
+  ✗ exactlyFrom50  (218 ms)
+    e.g. (NaN)
+    where shipping gave -0
+    leans on ShippingSpec for shipping, not on its body: to rule this run out, meet that spec's `requires` here, or add the law it needs to the spec
+  taken by their specs, each verified on its own:
+    - shipping: ShippingSpec, pure, checked from source (read shipping); laws freeFrom50, smallOrdersPay — src/shipping.contract.ts:3:22
+  assumed:
+    - The code throws only where it says so (a `throw`, a failure): an exception from anywhere else, a call or a binding never read, is not seen.
+    - Each argument has its TypeScript type; the code's own casts, `any` and `!` are refused.
+    - A purity check takes on trust that a property read runs no getter; that a module constant it reads is never changed by other code; that it terminates.
+```
+
+`NaN` is no total `shipping` takes: its `requires` fails, so its spec says nothing of what it gives, and the run leans on
+that. The caller's `requires` meets the spec's, and the law is proved:
+
+<!-- file: src/checkout.contract.ts -->
+```ts
+import { contract } from "@emyann/tsverify"
+import { shipsFree } from "./checkout.ts"
+
+export const freeExactlyFrom50 = contract(shipsFree, {
+  requires: ({ input: [total] }) => total >= 0,
+  ensures: { exactlyFrom50: ({ input: [total], output }) => output === total >= 50 },
+})
+```
+
+<!-- run -->
+```text
+$ npx tsverify src/checkout.contract.ts freeExactlyFrom50
+✓ freeExactlyFrom50  1 law  (581 ms)
+  ✓ exactlyFrom50  (439 ms)
+  taken by their specs, each verified on its own:
+    - shipping: ShippingSpec, pure, checked from source (read shipping); laws freeFrom50, smallOrdersPay — src/shipping.contract.ts:3:22
+  assumed:
+    - The code throws only where it says so (a `throw`, a failure): an exception from anywhere else, a call or a binding never read, is not seen.
+    - Each argument has its TypeScript type; the code's own casts, `any` and `!` are refused.
+    - A purity check takes on trust that a property read runs no getter; that a module constant it reads is never changed by other code; that it terminates.
+```
+
+The verifier reads the function's body instead, as it reads one with no spec, in two cases:
+
+- **It leads back to the function being verified**: it calls it, or calls a function that does. Its spec would then be
+  proved by leaning on itself, as two functions that call each other would each lean on the other's.
+- **It is not pure**: a spec's laws speak of the result alone, and a call that changes something says more than that.
 
 ### The purity check
 

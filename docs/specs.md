@@ -18,7 +18,7 @@ code takes the spec as its type, so a spec is also where the code's signature co
 | --- | --- |
 | `F`, in `spec<F>` | The function's type: what it takes, and what it returns. The code gets it as its type. |
 | `requires` | What every caller promises, `({ input: [args...] }) => boolean`. The laws are checked only on the inputs that meet it. It may be left out. |
-| `ensures` | The laws, each named for what it says: the report gives each its own line. A law reads one run of the function, as one object typed from `F`, so it needs no annotation: a pure function's is `({ input: [args...], output }) => boolean`, its arguments a tuple, a name for each the law reads and a hole for the rest (`[, amount]`), and its result. A law of async code reads `calls` beside them, and its `output` is the outcome (*Async code*, below). A law may also say what it means in words, `{ says: "…", holds: ({ input, output }) => boolean }`: the report prints the sentence on its line. |
+| `ensures` | The laws, each named for what it says: the report gives each its own line. A law reads one run of the function, as one object typed from `F`, so it needs no annotation: a pure function's is `({ input: [args...], output }) => boolean`, its arguments a tuple, a name for each the law reads and a hole for the rest (`[, amount]`), and its result. A law of async code reads `calls` beside them, and its `output` is the outcome (*Async code*, below). A law may also say what it means in words, `{ description: "…", condition: ({ input, output }) => boolean }`: the report prints the sentence on its line. |
 | `export type StatusSpec = typeof statusSpec` | The spec's type, and all the code imports: it is typed `Implementation<StatusSpec>`, which is `F`. `Implementation<typeof statusSpec>` is the same without the line, the spec exported. |
 
 **"If A, then B" is `A ? B : true`.** A law has nothing to say of an input where A is false, so it is true there.
@@ -85,6 +85,10 @@ write a spec in `*.contract.ts`, which no test runner claims, where Jest and Vit
 
 **A law says what holds, not how.** `waitingUntilShipped` does not restate the code's `if`s; it says when the parcel waits,
 in the record's words. A law that copies the code proves only that the code is the code.
+
+**A spec is what its callers know.** Code that calls `statusOf` takes what `StatusSpec` proves of it, where its
+`requires` holds, and nothing of its body, with no declaration to write: a law the callers need of it belongs in its
+spec ([A function that implements a spec](reads.md#a-function-that-implements-a-spec)).
 
 ## Async code: laws over what it did
 

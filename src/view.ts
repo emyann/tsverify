@@ -124,16 +124,35 @@ const witness = (r: { readonly args?: ReadonlyArray<unknown>; readonly world?: R
 ]
 
 /** A law: its sentence, or its name; then why, or an input that breaks it. */
-const law = (l: LawResult): ReactNode =>
-  marked(
-    l.status,
-    line([BOLD, l.says ?? l.name], "", [DIM, `(${l.says === undefined ? "" : `${l.name}, `}${Math.round(l.ms)} ms)`]),
-    ...witness(l),
-    ...(l.abstract === undefined
+/** What a law's run leans on: what is declared of a function, or a function's spec, which says what its body may not. */
+const leaning = (abstract: ReadonlyArray<string>, specs: ReadonlyMap<string, string>): Array<ReactNode> => {
+  const declared = abstract.filter((n) => !specs.has(n))
+  const bySpec = abstract.filter((n) => specs.has(n))
+  const one = bySpec.length === 1
+  return [
+    ...(declared.length === 0
       ? []
-      : [line(`leans on what is declared of ${l.abstract.join(", ")}: true of them as declared, maybe not as they are`)]),
-    ...(l.reason === undefined ? [] : [line(l.reason)]),
-  )
+      : [line(`leans on what is declared of ${declared.join(", ")}: true of them as declared, maybe not as they are`)]),
+    ...(bySpec.length === 0
+      ? []
+      : [
+          line(
+            `leans on ${bySpec.map((n) => `${specs.get(n)!} for ${n}`).join(", ")}, not on ${one ? "its body" : "their bodies"}: to rule this run out, meet ${one ? "that spec's" : "those specs'"} \`requires\` here, or add the law it needs to ${one ? "the spec" : "them"}`,
+          ),
+        ]),
+  ]
+}
+
+const law =
+  (specs: ReadonlyMap<string, string>) =>
+  (l: LawResult): ReactNode =>
+    marked(
+      l.status,
+      line([BOLD, l.description ?? l.name], "", [DIM, `(${l.description === undefined ? "" : `${l.name}, `}${Math.round(l.ms)} ms)`]),
+      ...witness(l),
+      ...(l.abstract === undefined ? [] : leaning(l.abstract, specs)),
+      ...(l.reason === undefined ? [] : [line(l.reason)]),
+    )
 
 const asked = (o: ObligationResult): string =>
   o.kind === "invariant"
@@ -175,26 +194,37 @@ const purity = (t: Trusted): string =>
     : t.purity === "unchecked"
       ? "pure, unchecked: no source"
       : "not pure: a fresh result per call"
-const trusted = (ts: ReadonlyArray<Trusted>, full: boolean): Array<ReactNode> =>
-  ts.length === 0
-    ? []
-    : full
-      ? [
-          line("trusted (declared, not proved):"),
-          indented(
-            ...ts.map((t) =>
-              beside(
-                "-",
-                line(`${t.name}: ${purity(t)}${t.laws.length > 0 ? `; laws ${t.laws.join(", ")}` : ""} — ${t.declared.join(", ")}`),
+/** What a contract leaned on: the declarations it trusted, then the functions it took by their specs. */
+const trusted = (all: ReadonlyArray<Trusted>, full: boolean): Array<ReactNode> => {
+  const declared = all.filter((t) => t.spec === undefined)
+  const bySpec = all.filter((t) => t.spec !== undefined)
+  const laws = (t: Trusted) => (t.laws.length > 0 ? `; laws ${t.laws.join(", ")}` : "")
+  return full
+    ? [
+        ...(declared.length === 0
+          ? []
+          : [
+              line("trusted (declared, not proved):"),
+              indented(...declared.map((t) => beside("-", line(`${t.name}: ${purity(t)}${laws(t)} — ${t.declared.join(", ")}`)))),
+            ]),
+        ...(bySpec.length === 0
+          ? []
+          : [
+              line("taken by their specs, each verified on its own:"),
+              indented(...bySpec.map((t) => beside("-", line(`${t.name}: ${t.spec}, ${purity(t)}${laws(t)} — ${t.declared.join(", ")}`)))),
+            ]),
+      ]
+    : [
+        ...(declared.length === 0
+          ? []
+          : [
+              line(
+                `trusted: ${declared.map((t) => `${t.name} (${t.purity === "impure" ? "not pure" : `pure, ${t.purity}`}${t.laws.length > 0 ? `; ${plural(t.laws.length, "law")}` : ""})`).join(", ")}`,
               ),
-            ),
-          ),
-        ]
-      : [
-          line(
-            `trusted: ${ts.map((t) => `${t.name} (${t.purity === "impure" ? "not pure" : `pure, ${t.purity}`}${t.laws.length > 0 ? `; ${plural(t.laws.length, "law")}` : ""})`).join(", ")}`,
-          ),
-        ]
+            ]),
+        ...(bySpec.length === 0 ? [] : [line(`by their specs: ${bySpec.map((t) => `${t.name} (${t.spec})`).join(", ")}`)]),
+      ]
+}
 
 /** How a contract is shown. */
 export interface Shape {
@@ -217,7 +247,16 @@ const summary = (v: Verification, trusts: boolean): Array<Piece> => {
     ...(obligations.length === 0
       ? []
       : [obligations.every((s) => s === "proved") ? [plural(obligations.length, "obligation")] : ["obligations", ...counts(obligations)]]),
-    ...(trusts && v.trusted.length > 0 ? [[`trusts ${v.trusted.map((t) => t.name).join(", ")}`]] : []),
+    ...(trusts && v.trusted.some((t) => t.spec === undefined)
+      ? [
+          [
+            `trusts ${v.trusted
+              .filter((t) => t.spec === undefined)
+              .map((t) => t.name)
+              .join(", ")}`,
+          ],
+        ]
+      : []),
   ]
   return groups.flatMap((g, i) => (i === 0 ? g : [[DIM, "·"] as const, ...g]))
 }
@@ -237,7 +276,7 @@ export const contract = ({ v, ms }: Verified, { every, full, width }: Shape): Re
   return marked(
     worst([...v.laws.map((l) => l.status), ...v.obligations.map((o) => o.status)]),
     line(name, "", ...summary(v, !every), "", [DIM, `(${Math.round(ms)} ms)`]),
-    ...v.laws.filter((l) => shown(l.status)).map(law),
+    ...v.laws.filter((l) => shown(l.status)).map(law(new Map(v.trusted.flatMap((t) => (t.spec === undefined ? [] : [[t.name, t.spec]]))))),
     ...proofCode(v.obligations.filter((o) => shown(o.status))),
     ...(every ? trusted(v.trusted, full) : []),
     ...(full && v.cover.length > 0
