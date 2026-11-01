@@ -1,6 +1,6 @@
 // What an account's ledger makes of it: five laws, proved for ledgers of every
 // length through the invariants its loop carries.
-import { contract } from "tsverify"
+import { contract } from "@emyann/tsverify"
 import { accountOf, type Entry } from "./account.ts"
 
 const positive = (entries: readonly Entry[]) => entries.every((e) => (e.kind !== "deposited" && e.kind !== "withdrawn") || e.amount > 0n)

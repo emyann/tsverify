@@ -2,7 +2,7 @@
 // and installed from the tarball into a project of its own, the library's
 // examples copied in. The installed command reaches the verdicts the source
 // reaches on the same files, though it reads what the build made: the
-// declarations of `tsverify` and `tsverify/effect`, a loop's `invariant`
+// declarations of `@emyann/tsverify` and `@emyann/tsverify/effect`, a loop's `invariant`
 // declared in a `.d.ts` (read by the statements and by the purity check), and
 // the lodash pack from under `node_modules`. A planted bug exits 1, with a
 // counterexample the installed code breaks on when it runs.
@@ -15,9 +15,12 @@ import { after, before, describe, it } from "node:test"
 
 const root = path.resolve(import.meta.dirname, "..")
 const manifest = JSON.parse(readFileSync(path.join(root, "package.json"), "utf8")) as {
+  name: string
   version: string
   devDependencies: Readonly<Record<string, string>>
 }
+/** The tarball `npm pack` writes: a scoped name's `@scope/name` as `scope-name`. */
+const TARBALL = `${manifest.name.replace(/^@/, "").replace("/", "-")}-${manifest.version}.tgz`
 const dev = (name: string) => `${name}@${manifest.devDependencies[name]}`
 
 // The examples that reach what only an installed copy reads differently, the
@@ -37,14 +40,14 @@ const FILES = [
 ].map((f) => `examples/${f}`)
 const VERIFIED = FILES.filter((f) => /\.contract\.ts$|withdraw(\.async)?\.ts$|charge\.ts$/.test(f))
 
-const PLANTED = `import type { Implementation } from "tsverify"
+const PLANTED = `import type { Implementation } from "@emyann/tsverify"
 import type { chargeSpec } from "./charge.contract.ts"
 
 /** A bug planted: takes the amount whatever the balance. Its spec named by \`typeof\`, as the examples' are not. */
 export const overdraw: Implementation<typeof chargeSpec> = (balance, amount) => balance - amount
 `
 // Runs the law on the counterexample, through what the project installed: no condition, the built JavaScript.
-const REPLAY = `import { holds } from "tsverify"
+const REPLAY = `import { holds } from "@emyann/tsverify"
 import { chargeSpec } from "./examples/charge/charge.contract.ts"
 import { overdraw } from "./examples/charge/overdraw.ts"
 
@@ -126,7 +129,7 @@ before(() => {
       include: ["examples"],
     }),
   )
-  const tarball = path.join(dir, `tsverify-${manifest.version}.tgz`)
+  const tarball = path.join(dir, TARBALL)
   sync(
     "npm",
     ["install", "--prefer-offline", "--no-audit", "--no-fund", tarball, dev("effect"), dev("lodash-es"), dev("@types/lodash-es")],
@@ -138,7 +141,7 @@ after(() => rmSync(dir, { recursive: true, force: true }))
 
 describe("tsverify, installed from its tarball", () => {
   it("ships what it builds, the packs' source and its license, and none of its own source or tests", () => {
-    const files = sync("tar", ["-tzf", path.join(dir, `tsverify-${manifest.version}.tgz`)], dir)
+    const files = sync("tar", ["-tzf", path.join(dir, TARBALL)], dir)
       .trim()
       .split("\n")
     const outside = files.filter((f) => !/^package\/(dist\/.*\.(js|d\.ts)|packs\/[^/]+\.ts|package\.json|README\.md|LICENSE)$/.test(f))
@@ -147,7 +150,7 @@ describe("tsverify, installed from its tarball", () => {
   })
 
   it("puts the command on the project's path, the built one", () => {
-    assert.equal(realpathSync(bin), realpathSync(path.join(project, "node_modules/tsverify/dist/src/cli.js")))
+    assert.equal(realpathSync(bin), realpathSync(path.join(project, "node_modules/@emyann/tsverify/dist/src/cli.js")))
     assert.ok(statSync(bin).mode & 0o111)
   })
 

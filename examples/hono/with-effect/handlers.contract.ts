@@ -2,7 +2,7 @@
 // store is a service the program requires, not an argument, so the laws are
 // held as they are written.
 import type { Effect } from "effect"
-import { spec } from "tsverify/effect"
+import { spec } from "@emyann/tsverify/effect"
 import * as laws from "../laws.ts"
 import type { Reply } from "../users.ts"
 import type { StoreDown, Users } from "./store.ts"

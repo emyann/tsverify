@@ -5,7 +5,7 @@ code takes the spec as its type, so a spec is also where the code's signature co
 
 ## The spec, then the code
 
-`spec<F>({ requires?, ensures })`, from `tsverify`, takes the function's type as `F`.
+`spec<F>({ requires?, ensures })`, from `@emyann/tsverify`, takes the function's type as `F`.
 
 <p align="center">
   <picture>
@@ -29,7 +29,7 @@ A parcel's status, from a record with two dates that may be missing:
 
 <!-- file: src/parcel.contract.ts -->
 ```ts
-import { spec } from "tsverify"
+import { spec } from "@emyann/tsverify"
 import type { Parcel, Status } from "./parcel.ts"
 
 const statusSpec = spec<(parcel: Parcel) => Status>({
@@ -48,7 +48,7 @@ type. Both files import only the other's types, so nothing of the spec is in wha
 
 <!-- file: src/parcel.ts -->
 ```ts
-import type { Implementation } from "tsverify"
+import type { Implementation } from "@emyann/tsverify"
 import type { StatusSpec } from "./parcel.contract.ts"
 
 export interface Parcel {
@@ -80,7 +80,7 @@ src/parcel.ts
 
 Given files, the command verifies every contract they export: each `const` typed `Implementation<S>`, and each
 `contract`, `computation` or lemma. Given a folder, or nothing (the current folder), it reads every file under it that
-imports `tsverify`, whatever its name, outside `node_modules` and dot folders. The names are the project's: these pages
+imports `@emyann/tsverify`, whatever its name, outside `node_modules` and dot folders. The names are the project's: these pages
 write a spec in `*.contract.ts`, which no test runner claims, where Jest and Vitest run every `*.spec.ts` as a test.
 
 **A law says what holds, not how.** `waitingUntilShipped` does not restate the code's `if`s; it says when the parcel waits,
@@ -96,14 +96,14 @@ failure. Its laws take, after its arguments, how it ended and the calls it made:
 - **the calls**, in the order made: `{ target, op, args, outcome }` for each call of a method of an argument that returns
   a promise. They are typed from the arguments' types, so checking `op` narrows `args` and `outcome`.
 
-`Rejects<A, E>`, from `tsverify`, is a `Promise<A>` that also says what it rejects with, `E`. A plain `Promise<A>` may
+`Rejects<A, E>`, from `@emyann/tsverify`, is a `Promise<A>` that also says what it rejects with, `E`. A plain `Promise<A>` may
 reject with anything: its failure is `unknown`, carried and never read, so a law can say that it failed, not with what.
 
 A store of users, each of its methods an operation:
 
 <!-- file: src/users.ts -->
 ```ts
-import type { Rejects } from "tsverify"
+import type { Rejects } from "@emyann/tsverify"
 
 export interface User {
   readonly id: string
@@ -129,7 +129,7 @@ Renaming a user reads it, fails if it is missing, and writes it back renamed. A 
 
 <!-- file: src/rename.contract.ts -->
 ```ts
-import { type Rejects, spec } from "tsverify"
+import { type Rejects, spec } from "@emyann/tsverify"
 import type { NotFound, StoreDown, Users } from "./users.ts"
 
 const renameSpec = spec<(users: Users, id: string, name: string) => Rejects<void, NotFound | StoreDown>>({
@@ -155,7 +155,7 @@ export type RenameSpec = typeof renameSpec
 
 <!-- file: src/rename.ts -->
 ```ts
-import type { Implementation } from "tsverify"
+import type { Implementation } from "@emyann/tsverify"
 import type { RenameSpec } from "./rename.contract.ts"
 import { NotFound } from "./users.ts"
 
@@ -188,7 +188,7 @@ should say what the code means, that it writes the user it read:
 
 <!-- file: src/rename.contract.ts -->
 ```ts
-import { type Rejects, spec } from "tsverify"
+import { type Rejects, spec } from "@emyann/tsverify"
 import type { NotFound, StoreDown, Users } from "./users.ts"
 
 const renameSpec = spec<(users: Users, id: string, name: string) => Rejects<void, NotFound | StoreDown>>({
@@ -254,7 +254,7 @@ export function isOverdue(due: bigint | null, now: bigint): boolean {
 
 <!-- file: src/overdue.contract.ts -->
 ```ts
-import { contract } from "tsverify"
+import { contract } from "@emyann/tsverify"
 import { isOverdue } from "./overdue.ts"
 
 export const overdue = contract(isOverdue, {
@@ -277,9 +277,9 @@ src/overdue.contract.ts
   1 contract in 1 file · 0.9 s
 ```
 
-The code imports nothing of `tsverify`, and the spec imports the code. For an async function that exists,
+The code imports nothing of `@emyann/tsverify`, and the spec imports the code. For an async function that exists,
 `computation<Ops, E>()(fn, { ensures })` does the same, its calls those of `Ops`, an object of the interfaces it is given;
-for an Effect program, `computation<Ops>()` from `tsverify/effect`.
+for an Effect program, `computation<Ops>()` from `@emyann/tsverify/effect`.
 
 ## What a law may do
 
@@ -308,6 +308,6 @@ A law is only as good as what it rules out.
   whose `A` no allowed input meets.
 - **Too strong a `requires`.** A promise no input keeps makes every law vacuous; one that keeps out the inputs that matter
   hides the bugs there.
-- **Gaps.** A law can be true and still let a wrong program through. `tsverify/mutants` plants one-line bugs in a function
+- **Gaps.** A law can be true and still let a wrong program through. `@emyann/tsverify/mutants` plants one-line bugs in a function
   and asks which the laws catch; for each one they miss, the solver says whether the planted function equals the original
   for every input, or gives the input where they differ and no law notices ([what the examples show](measurements.md)).

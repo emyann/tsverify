@@ -1,8 +1,8 @@
 // The laws of the programs that take text written elsewhere, over their outcome
 // and the calls they made. What `Effect.try` ran is not a call: a law sees it
 // only through the outcome.
-import { assume, computation as plainComputation } from "tsverify"
-import { computation } from "tsverify/effect"
+import { assume, computation as plainComputation } from "@emyann/tsverify"
+import { computation } from "@emyann/tsverify/effect"
 import { accountOf } from "./account.ts"
 import { depositTyped, importDeposits, openWith } from "./imports.ts"
 import { balanceOf, copyDeposits } from "./imports.async.ts"

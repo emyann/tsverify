@@ -1,5 +1,5 @@
 {
-  "name": "tsverify",
+  "name": "@emyann/tsverify",
   "version": "0.1.0",
   "description": "Prove laws of ordinary TypeScript for every input, or get an input that breaks one: read from source, solved by Z3.",
   "keywords": [
@@ -96,5 +96,8 @@
     "oxfmt": "0.71.0",
     "oxlint": "1.89.0",
     "oxlint-tsgolint": "7.0.2005"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

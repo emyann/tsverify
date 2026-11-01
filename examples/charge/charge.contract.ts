@@ -1,6 +1,6 @@
 // What charging an amount against a balance must leave: the spec, written
 // before the code. `charge.ts` takes it as its type.
-import { spec } from "tsverify"
+import { spec } from "@emyann/tsverify"
 
 export const chargeSpec = spec<(balance: bigint, amount: bigint) => bigint>({
   requires: (balance, amount) => balance >= 0n && amount >= 0n,

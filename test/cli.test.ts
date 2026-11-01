@@ -23,7 +23,7 @@ const cli = (...args: Array<string>) => {
   return { code: r.status, out: r.stdout, err: r.stderr }
 }
 
-/** A project of its own under `.docs/`, a dot folder no command scans, importing `tsverify` through this package's condition. */
+/** A project of its own under `.docs/`, a dot folder no command scans, importing `@emyann/tsverify` through this package's condition. */
 const project = (files: Readonly<Record<string, string>>): string => {
   mkdirSync(path.join(root, ".docs"), { recursive: true })
   const dir = mkdtempSync(path.join(root, ".docs", "cli-"))
@@ -40,7 +40,7 @@ const project = (files: Readonly<Record<string, string>>): string => {
   return dir
 }
 const clamp = (body: string) =>
-  `import { contract } from "tsverify"\n\nexport const clamp = (n: bigint): bigint => ${body}\n\n` +
+  `import { contract } from "@emyann/tsverify"\n\nexport const clamp = (n: bigint): bigint => ${body}\n\n` +
   `export const clampNeverNegative = contract(clamp, { ensures: { notNegative: (_n, out) => out >= 0n } })\n`
 
 it("verifies every contract under a folder, and exits 1 on a vacuous law", () => {

@@ -90,7 +90,7 @@ const viewParams = (checker: ts.TypeChecker, call: ts.CallExpression): Array<ts.
 
 /**
  * Every `const x = assume(...)` at the top of a module of the program: a spec's, or a pack's it imports, a package's
- * among them when the package ships the pack as source (tsverify's own, `tsverify/packs/lodash`). A declaration file
+ * among them when the package ships the pack as source (tsverify's own, `@emyann/tsverify/packs/lodash`). A declaration file
  * holds no law to read.
  */
 export const readAssumptions = (project: Project): Assumptions => {

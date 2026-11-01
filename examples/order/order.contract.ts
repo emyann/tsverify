@@ -1,6 +1,6 @@
 // The status of an order, as `statusOf`'s doc comment states it, written as
 // laws over (order, status) rather than as a second copy of the code.
-import { contract } from "tsverify"
+import { contract } from "@emyann/tsverify"
 import { statusOf } from "./order.ts"
 
 export const status = contract(statusOf, {

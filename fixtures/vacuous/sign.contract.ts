@@ -1,6 +1,6 @@
 // Laws that say something of `sign`, and laws that say nothing: each vacuous one
 // is proved, and would be proved of any function with this signature.
-import { contract } from "tsverify"
+import { contract } from "@emyann/tsverify"
 
 export function sign(n: bigint): "neg" | "zero" | "pos" {
   return n < 0n ? "neg" : n === 0n ? "zero" : "pos"

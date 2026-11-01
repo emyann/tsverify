@@ -1,8 +1,8 @@
 // One withdrawal, two programs, the same five laws: the specs, written before
 // the code. `withdraw.ts` and `withdraw.async.ts` take them as their types.
 import type { Effect } from "effect"
-import { assume, type Rejects, spec } from "tsverify"
-import { spec as effectSpec } from "tsverify/effect"
+import { assume, type Rejects, spec } from "@emyann/tsverify"
+import { spec as effectSpec } from "@emyann/tsverify/effect"
 import { accountOf } from "./account.ts"
 import {
   paidWritesOneWithdrawal,

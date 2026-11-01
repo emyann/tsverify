@@ -46,14 +46,14 @@ A counterexample's `where names.get gave ""` is the part of w the model chose.
 
 | File | Role |
 |---|---|
-| `src/contract.ts` | what a spec author writes (`tsverify`): `spec`, `Implementation`, `contract`, `computation`, `assume`, `invariant`, `assert`, `lemma` |
-| `src/adapters/effect/contract.ts` | the same for an Effect program (`tsverify/effect`): `spec`, `computation` |
-| `src/api.ts` | the verifier as a program calls it (`tsverify/api`): `loadProject`, `verify`, `openZ3`, `purityOf` |
-| `src/mutants.ts` | laws against planted bugs, the solver beside property testing (`tsverify/mutants`) |
+| `src/contract.ts` | what a spec author writes (`@emyann/tsverify`): `spec`, `Implementation`, `contract`, `computation`, `assume`, `invariant`, `assert`, `lemma` |
+| `src/adapters/effect/contract.ts` | the same for an Effect program (`@emyann/tsverify/effect`): `spec`, `computation` |
+| `src/api.ts` | the verifier as a program calls it (`@emyann/tsverify/api`): `loadProject`, `verify`, `openZ3`, `purityOf` |
+| `src/mutants.ts` | laws against planted bugs, the solver beside property testing (`@emyann/tsverify/mutants`) |
 | `src/trust.ts` | the declarations in force, read from source, and the report's trusted base |
 | `src/purity.ts` | the purity check of a declared function's source |
 | `src/effects.ts` | what JavaScript's library changes when it is called, as the purity check needs it |
-| `packs/` | declarations of a library's functions, tested against the library (`tsverify/packs/lodash`) |
+| `packs/` | declarations of a library's functions, tested against the library (`@emyann/tsverify/packs/lodash`) |
 | `examples/` | the worked examples: a charge written against its spec, an order's status, an account's ledger and a withdrawal, a program calling lodash |
 | `src/project.ts` | the program (a file's text can be replaced or added in memory), diagnostics, a contract read from source |
 | `src/symbolic.ts` | any value of a TypeScript type, built lazily: a field becomes an unknown only when read |
@@ -123,7 +123,7 @@ Verus sorts code into three modes. The same three are here, in TypeScript:
 | `proof`: lemmas, invariants, asserts | typed no-op calls in the program: `invariant(i => ...)`, `assert(() => ...)`, a lemma's call | each proved where it is written, then known; spec code inside |
 | `exec`: the compiled code | the program | |
 | `assume_specification`, `external_body` | `assume(fn, { pure, ensures? })` | trusted without proof, listed in every report |
-| `vstd` | a pack (`tsverify/packs/lodash`) a spec imports | tested against the real library |
+| `vstd` | a pack (`@emyann/tsverify/packs/lodash`) a spec imports | tested against the real library |
 
 ## The core and its adapters
 

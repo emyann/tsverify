@@ -10,7 +10,7 @@ The largest element of an array, and a spec of it:
 
 <!-- file: src/largest.contract.ts -->
 ```ts
-import { spec } from "tsverify"
+import { spec } from "@emyann/tsverify"
 
 const largestSpec = spec<(xs: ReadonlyArray<bigint>) => bigint>({
   ensures: {
@@ -23,7 +23,7 @@ export type LargestSpec = typeof largestSpec
 
 <!-- file: src/largest.ts -->
 ```ts
-import type { Implementation } from "tsverify"
+import type { Implementation } from "@emyann/tsverify"
 import type { LargestSpec } from "./largest.contract.ts"
 
 export const largest: Implementation<LargestSpec> = (xs) => {
@@ -68,13 +68,13 @@ invariants taken out (`test/account.test.ts`), its five laws are still proved.
 
 ## Writing an invariant
 
-`invariant(pred)`, from `tsverify`, first in the loop's body, says what the loop keeps. Here, that `best` is always one of
+`invariant(pred)`, from `@emyann/tsverify`, first in the loop's body, says what the loop keeps. Here, that `best` is always one of
 `xs`:
 
 <!-- file: src/largest.ts -->
 ```ts
-import { invariant } from "tsverify"
-import type { Implementation } from "tsverify"
+import { invariant } from "@emyann/tsverify"
+import type { Implementation } from "@emyann/tsverify"
 import type { LargestSpec } from "./largest.contract.ts"
 
 export const largest: Implementation<LargestSpec> = (xs) => {
@@ -111,7 +111,7 @@ src/largest.ts
   loop's own variables.
 - **Writing one never loses a guess.** When what is written leaves a law unproved, the verifier guesses again beside it:
   `noneLarger` is still guessed here.
-- **The call does nothing when it runs**, but it is a call, and it imports `tsverify` into the code: the one trace of the
+- **The call does nothing when it runs**, but it is a call, and it imports `@emyann/tsverify` into the code: the one trace of the
   verifier in code verified through a spec. Prefer the guess; write an invariant where a law needs one.
 
 ### How a loop is read
@@ -148,7 +148,7 @@ solver:
 
 <!-- file: src/total.ts -->
 ```ts
-import { assert } from "tsverify"
+import { assert } from "@emyann/tsverify"
 
 /** The price of `count` items at `each`, less a `discount` no larger than the price. */
 export function total(each: bigint, count: bigint, discount: bigint): bigint {
@@ -160,7 +160,7 @@ export function total(each: bigint, count: bigint, discount: bigint): bigint {
 
 <!-- file: src/total.contract.ts -->
 ```ts
-import { contract } from "tsverify"
+import { contract } from "@emyann/tsverify"
 import { total } from "./total.ts"
 
 export const totalNotNegative = contract(total, {
@@ -191,7 +191,7 @@ A lemma is a fact proved once, for every argument its `requires` admits, then kn
 
 <!-- file: src/area.contract.ts -->
 ```ts
-import { lemma, spec } from "tsverify"
+import { lemma, spec } from "@emyann/tsverify"
 
 /** A product of two numbers not below zero is not below zero: proved once, then known where it is called. */
 export const productNotNegative = lemma((a: bigint, b: bigint) => a * b >= 0n, { requires: (a, b) => a >= 0n && b >= 0n })
@@ -205,7 +205,7 @@ export type AreaSpec = typeof areaSpec
 
 <!-- file: src/area.ts -->
 ```ts
-import type { Implementation } from "tsverify"
+import type { Implementation } from "@emyann/tsverify"
 import { type AreaSpec, productNotNegative } from "./area.contract.ts"
 
 export const area: Implementation<AreaSpec> = (width, height) => {

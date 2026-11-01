@@ -251,7 +251,7 @@ export const padding = (n: bigint): bigint => 8n - digits(n)
 
 <!-- file: src/digits.contract.ts -->
 ```ts
-import { assume, contract } from "tsverify"
+import { assume, contract } from "@emyann/tsverify"
 import { digits, padding } from "./digits.ts"
 
 export const digitsCount = assume(digits, { pure: true, ensures: { atLeastOne: (_n, count) => count >= 1n } })
@@ -273,7 +273,7 @@ $ npx tsverify src/digits.contract.ts paddingFits
 ```
 
 The proof of `padding` holds of the real program only if `digits` does what `atLeastOne` says. Every report lists what it trusted,
-so that is never hidden; `brokenOn(assumption, inputs)`, from `tsverify`, runs the real function on inputs and returns each
+so that is never hidden; `brokenOn(assumption, inputs)`, from `@emyann/tsverify`, runs the real function on inputs and returns each
 law it breaks, which is how a declaration is tested.
 
 A declaration is in force across the whole program it is part of: the spec that declares it, and every file verified with
@@ -296,7 +296,7 @@ export const firstTag = (tags: Array<string>): string => cleaned(tags).at(0) ?? 
 
 <!-- file: src/tags.contract.ts -->
 ```ts
-import { assume, contract } from "tsverify"
+import { assume, contract } from "@emyann/tsverify"
 import { cleaned, firstTag } from "./tags.ts"
 
 export const cleanedIsPure = assume(cleaned, { pure: true })
@@ -331,7 +331,7 @@ ends.
 ### Packs
 
 A pack declares a library's functions once, for every spec that imports it, as Verus's `vstd` does for Rust's standard
-library. `tsverify/packs/lodash` declares `uniq` on strings and `clamp` on numbers: `import "tsverify/packs/lodash"` in a
+library. `@emyann/tsverify/packs/lodash` declares `uniq` on strings and `clamp` on numbers: `import "@emyann/tsverify/packs/lodash"` in a
 spec puts it in force. A pack is tested against the library it declares (`brokenOn`), and is only as good as those tests:
 a naive `clamp` law, "within its bounds", is broken by `NaN` and by bounds in the wrong order. A pack ships as TypeScript,
 since the verifier reads its laws, so a project's `tsc` checks it with the project's options.

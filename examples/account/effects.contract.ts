@@ -1,7 +1,7 @@
 // The laws of the account's other programs, over their outcome and the calls
 // they made.
-import { assume } from "tsverify"
-import { computation } from "tsverify/effect"
+import { assume } from "@emyann/tsverify"
+import { computation } from "@emyann/tsverify/effect"
 import { accountOf } from "./account.ts"
 import { balanceOf, balanceOrZero, deposit, depositRefusalOf, doubledBalance } from "./effects.ts"
 import type { LedgerShape } from "./withdraw.ts"

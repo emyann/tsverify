@@ -1,7 +1,7 @@
 // An account, folded from its ledger: each entry changes the state the loop
 // builds. The loop carries its invariants, the proof code the verifier reads it
 // by; they do nothing when it runs. `account.contract.ts` states the laws.
-import { invariant } from "tsverify"
+import { invariant } from "@emyann/tsverify"
 
 export type Entry =
   | { readonly kind: "opened"; readonly at: string; readonly owner: string }

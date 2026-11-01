@@ -1,6 +1,6 @@
 // The API's laws (../laws.ts), given the signature of an async handler. The
 // store is handed in as the first argument, so each law is called without it.
-import { type Rejects, spec } from "tsverify"
+import { type Rejects, spec } from "@emyann/tsverify"
 import * as laws from "../laws.ts"
 import type { Reply } from "../users.ts"
 import type { StoreDown, UsersPort } from "./store.ts"

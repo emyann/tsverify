@@ -1,7 +1,7 @@
 // A withdrawal as an Effect 4 program: read the ledger, ask the guard, refuse
 // or record one withdrawal. The ledger is a service the program is given.
 import { Context, Effect, Schema } from "effect"
-import type { Implementation } from "tsverify"
+import type { Implementation } from "@emyann/tsverify"
 import { accountOf, type Entry, withdrawalRefusalOf } from "./account.ts"
 import type { WithdrawSpec } from "./withdraw.contract.ts"
 

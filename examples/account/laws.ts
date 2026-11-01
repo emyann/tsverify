@@ -1,7 +1,7 @@
 // The laws of a withdrawal, written once and held against both programs that
 // make one. They speak of the outcome and of the calls made, never of how the
 // program is written.
-import type { Outcome } from "tsverify"
+import type { Outcome } from "@emyann/tsverify"
 import { accountOf, type Entry, withdrawalRefusalOf } from "./account.ts"
 
 type Failure = { readonly _tag: string }

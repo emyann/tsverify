@@ -1,6 +1,6 @@
 // The same withdrawal as plain TypeScript writes it: async, its ledger given as
 // an interface, its refusal thrown. No Effect anywhere; the same pure helpers.
-import type { Implementation, Rejects } from "tsverify"
+import type { Implementation, Rejects } from "@emyann/tsverify"
 import { accountOf, type Entry, withdrawalRefusalOf } from "./account.ts"
 import type { AsyncWithdrawSpec } from "./withdraw.contract.ts"
 

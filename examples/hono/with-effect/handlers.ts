@@ -2,7 +2,7 @@
 // routes (app.ts) run them; each takes its type from its spec
 // (handlers.contract.ts).
 import { Effect } from "effect"
-import type { Implementation } from "tsverify"
+import type { Implementation } from "@emyann/tsverify"
 import { emptyName, notFound, ok } from "../users.ts"
 import type { GetUserSpec, RenameUserSpec } from "./handlers.contract.ts"
 import { Users } from "./store.ts"

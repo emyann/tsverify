@@ -1,7 +1,7 @@
 // The benchmark: one-line bugs planted in the order example's three functions
 // (examples/order/order.ts), each hunted by the solver and by property testing
 // over the same laws. The original already fails `onItsWay`, so that law
-// counts for neither. The harness is `tsverify/mutants`; this file is the suite.
+// counts for neither. The harness is `@emyann/tsverify/mutants`; this file is the suite.
 //
 //   node bench/mutants.ts [--runs 100,1000,10000] [--json bench/results.json]
 import { writeFileSync } from "node:fs"

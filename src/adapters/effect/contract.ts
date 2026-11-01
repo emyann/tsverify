@@ -45,7 +45,7 @@ export type EffectLawOf<F> = F extends (...args: infer A) => Effect.Effect<infer
 // `any`: any Effect program; a spec constrains it through its laws.
 type AnyProgram = (...args: any) => Effect.Effect<any, any, any>
 
-/** A spec of an Effect program: what it must do. `Implementation<S>` (from `tsverify`) is its type. */
+/** A spec of an Effect program: what it must do. `Implementation<S>` (from `@emyann/tsverify`) is its type. */
 export interface EffectSpec<F extends AnyProgram> {
   readonly requires?: (...args: Parameters<F>) => boolean
   readonly ensures: Readonly<Record<string, Law<EffectLawOf<F>>>>

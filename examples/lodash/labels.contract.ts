@@ -1,7 +1,7 @@
 // The laws of a program that calls lodash. The pack is imported for what it
 // declares: without it, every call to lodash is refused.
-import "tsverify/packs/lodash"
-import { contract } from "tsverify"
+import "@emyann/tsverify/packs/lodash"
+import { contract } from "@emyann/tsverify"
 import { labelCount, progress } from "./labels.ts"
 
 export const labels = contract(labelCount, {

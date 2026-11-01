@@ -83,8 +83,8 @@ const tsconfigOf = (file: string): string => {
   return found
 }
 
-/** An import of this package or one of its entries, in any form: `from "tsverify"`, `"tsverify/effect"`, `import "tsverify/packs/lodash"`. */
-const IMPORTS_TSVERIFY = /["']tsverify(?:\/[^"'\n]*)?["']/
+/** An import of this package or one of its entries, in any form: `from "@emyann/tsverify"`, `"@emyann/tsverify/effect"`, `import "@emyann/tsverify/packs/lodash"`. */
+const IMPORTS_TSVERIFY = /["']@emyann\/tsverify(?:\/[^"'\n]*)?["']/
 
 /**
  * Every file under `dir` that may hold a contract, outside `node_modules` and dot folders: a TypeScript file that

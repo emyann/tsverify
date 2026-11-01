@@ -5,7 +5,7 @@
 // or Effect, nor of HTTP. A spec is a signature and the laws it holds: each
 // build's handlers.contract.ts (basic/, with-effect/) gives these laws its own
 // signature, and each build is proved against them.
-import type { Outcome } from "tsverify"
+import type { Outcome } from "@emyann/tsverify"
 import type { Reply, User } from "./users.ts"
 
 type Failure = { readonly _tag: string }

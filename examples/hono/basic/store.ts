@@ -1,6 +1,6 @@
 // The store, as the basic build's handlers are given it: an interface whose
 // methods are async, each an operation the verifier records.
-import type { Rejects } from "tsverify"
+import type { Rejects } from "@emyann/tsverify"
 import type { User } from "../users.ts"
 
 export class StoreDown extends Error {

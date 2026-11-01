@@ -38,10 +38,10 @@ cannot, since Node does not run TypeScript from inside `node_modules`, so what a
 in `dist/`.
 
 Each entry of `exports` names both. Its source sits under a condition of its own, `tsverify-source`: `tsconfig.json` sets
-it in `customConditions`, and every script passes `--conditions=tsverify-source`, so a test that imports `tsverify` gets
+it in `customConditions`, and every script passes `--conditions=tsverify-source`, so a test that imports `@emyann/tsverify` gets
 `src/contract.ts`. A project that installs the package sets no such condition and gets `dist/`: `npm run build` emits it
 (JavaScript and declarations, through `tsconfig.build.json`), and `npm pack` runs the build first. The verifier knows its
-own modules by package, the nearest `package.json` named `tsverify`, and by their path in it, source or built
+own modules by package, the nearest `package.json` named `@emyann/tsverify`, and by their path in it, source or built
 (`ownModule` in `src/project.ts`), so a spec reads the same whether it imports this checkout, a linked copy or an
 installed one.
 

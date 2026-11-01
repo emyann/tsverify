@@ -8,7 +8,7 @@
 //   <!-- run, exits 1 -->           the same, exit 1
 // Timings are not compared. Once every block is applied, the project must
 // type-check. The project sits under `.docs/` in this package (a dot folder no
-// command scans) and holds no package.json, so it imports `tsverify` through
+// command scans) and holds no package.json, so it imports `@emyann/tsverify` through
 // this package's own condition, and `effect` and `lodash-es` from its
 // node_modules, as an installed project would.
 import assert from "node:assert/strict"

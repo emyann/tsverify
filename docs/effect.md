@@ -31,14 +31,14 @@ export class Users extends Context.Service<
 >()("Users") {}
 ```
 
-The spec is `spec` from `tsverify/effect`, over the program's type, `(...args) => Effect.Effect<A, E, R>`. Each law takes
+The spec is `spec` from `@emyann/tsverify/effect`, over the program's type, `(...args) => Effect.Effect<A, E, R>`. Each law takes
 the arguments, the outcome (`Success` with a value of `A`, `Failure` with an error of `E`) and the calls the program made
 to the services of `R`, typed from each service's methods:
 
 <!-- file: src/rename.contract.ts -->
 ```ts
 import type { Effect } from "effect"
-import { spec } from "tsverify/effect"
+import { spec } from "@emyann/tsverify/effect"
 import type { NotFound, StoreDown, Users } from "./users.ts"
 
 const renameSpec = spec<(id: string, name: string) => Effect.Effect<void, NotFound | StoreDown, Users>>({
@@ -70,7 +70,7 @@ and `tsc` refuses a failure or a service the spec does not declare:
 <!-- file: src/rename.ts -->
 ```ts
 import { Effect } from "effect"
-import type { Implementation } from "tsverify"
+import type { Implementation } from "@emyann/tsverify"
 import type { RenameSpec } from "./rename.contract.ts"
 import { NotFound, Users } from "./users.ts"
 
@@ -114,7 +114,7 @@ with any value of its type, or fails with what its `catch` makes of what was thr
 <!-- file: src/amount.contract.ts -->
 ```ts
 import type { Effect } from "effect"
-import { spec } from "tsverify/effect"
+import { spec } from "@emyann/tsverify/effect"
 import type { BadAmount } from "./amount.ts"
 
 const amountSpec = spec<(text: string) => Effect.Effect<bigint, BadAmount>>({
@@ -135,7 +135,7 @@ export type LooseAmountSpec = typeof looseAmountSpec
 <!-- file: src/amount.ts -->
 ```ts
 import { Data, Effect } from "effect"
-import type { Implementation } from "tsverify"
+import type { Implementation } from "@emyann/tsverify"
 import type { AmountSpec, LooseAmountSpec } from "./amount.contract.ts"
 
 export class BadAmount extends Data.TaggedError("BadAmount")<{ readonly text: string }> {}
@@ -197,7 +197,7 @@ An Effect function the adapter does not read is refused where the program calls 
 <!-- file: src/renameAll.contract.ts -->
 ```ts
 import type { Effect } from "effect"
-import { spec } from "tsverify/effect"
+import { spec } from "@emyann/tsverify/effect"
 import type { StoreDown, Users } from "./users.ts"
 
 const renameAllSpec = spec<(ids: ReadonlyArray<string>, name: string) => Effect.Effect<void, StoreDown, Users>>({
@@ -211,7 +211,7 @@ export type RenameAllSpec = typeof renameAllSpec
 <!-- file: src/renameAll.ts -->
 ```ts
 import { Effect } from "effect"
-import type { Implementation } from "tsverify"
+import type { Implementation } from "@emyann/tsverify"
 import type { RenameAllSpec } from "./renameAll.contract.ts"
 import { Users } from "./users.ts"
 
@@ -242,7 +242,7 @@ The loop `forEach` names, written as steps:
 <!-- file: src/renameAll.ts -->
 ```ts
 import { Effect } from "effect"
-import type { Implementation } from "tsverify"
+import type { Implementation } from "@emyann/tsverify"
 import type { RenameAllSpec } from "./renameAll.contract.ts"
 import { Users } from "./users.ts"
 
@@ -282,7 +282,7 @@ die; the ends of the contract say whether one can.
 <!-- file: src/half.contract.ts -->
 ```ts
 import type { Effect } from "effect"
-import { spec } from "tsverify/effect"
+import { spec } from "@emyann/tsverify/effect"
 
 const halfSpec = spec<(n: bigint) => Effect.Effect<bigint>>({
   ensures: {
@@ -295,7 +295,7 @@ export type HalfSpec = typeof halfSpec
 <!-- file: src/half.ts -->
 ```ts
 import { Effect } from "effect"
-import type { Implementation } from "tsverify"
+import type { Implementation } from "@emyann/tsverify"
 import type { HalfSpec } from "./half.contract.ts"
 
 export const half: Implementation<HalfSpec> = Effect.fn("half")(function* (n) {

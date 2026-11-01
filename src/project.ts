@@ -66,7 +66,7 @@ export const exportedConst = (project: Project, file: string, name: string): ts.
   throw new Error(`no \`export const ${name}\` in ${file}`)
 }
 
-/** A module of tsverify's that a spec imports: `tsverify` and `tsverify/effect`. */
+/** A module of tsverify's that a spec imports: `@emyann/tsverify` and `@emyann/tsverify/effect`. */
 export type OwnModule = "contract" | "adapters/effect/contract"
 export const CONTRACT_MODULE: OwnModule = "contract"
 const EFFECT_CONTRACT_MODULE: OwnModule = "adapters/effect/contract"
@@ -101,7 +101,7 @@ const packageOf = (dir: string): { readonly root: string; readonly name: unknown
 export const ownModule = (fileName: string, name: OwnModule): boolean => {
   const file = path.resolve(fileName)
   const pkg = packageOf(path.dirname(file))
-  if (pkg?.name !== "tsverify") return false
+  if (pkg?.name !== "@emyann/tsverify") return false
   const rel = path
     .relative(pkg.root, file)
     .replaceAll("\\", "/")
@@ -197,7 +197,7 @@ const specOf = (
   const named = query.exprName.text
   const notASpec = () =>
     new Unsupported(
-      `\`${named}\` is no spec: write \`const ${named} = spec<F>({ ... })\`, with \`spec\` from "tsverify" (or "tsverify/effect" for an Effect program)`,
+      `\`${named}\` is no spec: write \`const ${named} = spec<F>({ ... })\`, with \`spec\` from "@emyann/tsverify" (or "@emyann/tsverify/effect" for an Effect program)`,
       arg,
     )
   if (call === undefined || !ts.isCallExpression(call)) throw notASpec()

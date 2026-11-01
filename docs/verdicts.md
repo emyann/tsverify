@@ -10,7 +10,7 @@ Four small specs, one law of each kind:
 
 <!-- file: src/cap.contract.ts -->
 ```ts
-import { spec } from "tsverify"
+import { spec } from "@emyann/tsverify"
 
 const capSpec = spec<(value: bigint, limit: bigint) => bigint>({
   requires: (_value, limit) => limit >= 0n,
@@ -25,7 +25,7 @@ export type CapSpec = typeof capSpec
 
 <!-- file: src/cap.ts -->
 ```ts
-import type { Implementation } from "tsverify"
+import type { Implementation } from "@emyann/tsverify"
 import type { CapSpec } from "./cap.contract.ts"
 
 export const cap: Implementation<CapSpec> = (value, limit) => (value > limit ? limit : value)
@@ -33,7 +33,7 @@ export const cap: Implementation<CapSpec> = (value, limit) => (value > limit ? l
 
 <!-- file: src/label.contract.ts -->
 ```ts
-import { spec } from "tsverify"
+import { spec } from "@emyann/tsverify"
 
 const labelSpec = spec<(name: string) => string>({
   ensures: {
@@ -46,7 +46,7 @@ export type LabelSpec = typeof labelSpec
 
 <!-- file: src/label.ts -->
 ```ts
-import type { Implementation } from "tsverify"
+import type { Implementation } from "@emyann/tsverify"
 import type { LabelSpec } from "./label.contract.ts"
 
 export const label: Implementation<LabelSpec> = (name) => (name === "" ? "(unnamed)" : name)
@@ -54,7 +54,7 @@ export const label: Implementation<LabelSpec> = (name) => (name === "" ? "(unnam
 
 <!-- file: src/largest.contract.ts -->
 ```ts
-import { spec } from "tsverify"
+import { spec } from "@emyann/tsverify"
 
 const largestSpec = spec<(xs: ReadonlyArray<bigint>) => bigint>({
   ensures: {
@@ -67,7 +67,7 @@ export type LargestSpec = typeof largestSpec
 
 <!-- file: src/largest.ts -->
 ```ts
-import type { Implementation } from "tsverify"
+import type { Implementation } from "@emyann/tsverify"
 import type { LargestSpec } from "./largest.contract.ts"
 
 export const largest: Implementation<LargestSpec> = (xs) => {
@@ -79,7 +79,7 @@ export const largest: Implementation<LargestSpec> = (xs) => {
 
 <!-- file: src/score.contract.ts -->
 ```ts
-import { spec } from "tsverify"
+import { spec } from "@emyann/tsverify"
 
 const scoreSpec = spec<(points: number) => number>({
   ensures: { notNegative: (_points, score) => score >= 0 },
@@ -89,7 +89,7 @@ export type ScoreSpec = typeof scoreSpec
 
 <!-- file: src/score.ts -->
 ```ts
-import type { Implementation } from "tsverify"
+import type { Implementation } from "@emyann/tsverify"
 import type { ScoreSpec } from "./score.contract.ts"
 
 export const score: Implementation<ScoreSpec> = (points) => Math.sqrt(Math.max(points, 0))
@@ -292,7 +292,7 @@ tsverify <file.ts> <export> [--json] [--watch]
 The same code gets the same verdicts on every run, on a fast machine or a slow one, idle or busy. Each query may do a
 set amount of the solver's work, counted in its own steps and not in seconds, and the command runs Node with
 `--predictable-gc-schedule`, so JavaScript frees the solver's terms at the same moments and the solver meets its
-formulas in the same order. A program that calls `verify` itself (`tsverify/api`, whose `work` option is `--work`)
+formulas in the same order. A program that calls `verify` itself (`@emyann/tsverify/api`, whose `work` option is `--work`)
 gets the same by starting Node with that flag; `NODE_OPTIONS` refuses it.
 
 In a terminal the report is drawn live: each contract verified stays above a line naming the one being verified and how

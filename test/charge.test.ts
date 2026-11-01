@@ -72,7 +72,7 @@ describe("charge, written against its spec", () => {
 
   it("a spec of a function whose result is a union types each law over the whole union", () => {
     const spec = path.join(root, "examples/charge/light.contract.ts")
-    const text = `import { spec } from "tsverify"\nexport const NextSpec = spec<(light: "red" | "green") => "red" | "green">({ ensures: { changes: (light, next) => next !== light } })\n`
+    const text = `import { spec } from "@emyann/tsverify"\nexport const NextSpec = spec<(light: "red" | "green") => "red" | "green">({ ensures: { changes: (light, next) => next !== light } })\n`
     assert.deepEqual(diagnostics(loadProject([spec], tsconfig, new Map([[spec, text]])), spec), [])
   })
 
@@ -92,10 +92,10 @@ describe("charge, written against its spec", () => {
   })
 
   it("a type that names no spec is refused, saying what it takes", async () => {
-    const text = `import type { Implementation } from "tsverify"\nconst notASpec = { "~fn": (x: bigint) => x }\nexport const f: Implementation<typeof notASpec> = (x) => x\n`
+    const text = `import type { Implementation } from "@emyann/tsverify"\nconst notASpec = { "~fn": (x: bigint) => x }\nexport const f: Implementation<typeof notASpec> = (x) => x\n`
     const v = await verify(z3, loadProject([source], tsconfig, new Map([[source, text]])), source, "f")
     assert.match(v.unsupported ?? "", /`notASpec` is no spec: write `const notASpec = spec<F>\(\{ \.\.\. \}\)`/)
-    const typed = `import type { Implementation } from "tsverify"\nexport const f: Implementation<{ "~fn"?: (x: bigint) => bigint }> = (x) => x\n`
+    const typed = `import type { Implementation } from "@emyann/tsverify"\nexport const f: Implementation<{ "~fn"?: (x: bigint) => bigint }> = (x) => x\n`
     const w = await verify(z3, loadProject([source], tsconfig, new Map([[source, typed]])), source, "f")
     assert.match(
       w.unsupported ?? "",

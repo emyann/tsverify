@@ -26,7 +26,7 @@ answer is a proof, or that input.
 <!-- file: src/shipping.contract.ts -->
 ```ts
 // src/shipping.contract.ts: what `shipping` must do, written before the code.
-import { spec } from "tsverify"
+import { spec } from "@emyann/tsverify"
 
 const shippingSpec = spec<(total: number) => number>({
   // What every caller promises: a cart's total is never negative.
@@ -48,7 +48,7 @@ export type ShippingSpec = typeof shippingSpec
 <!-- file: src/shipping.ts -->
 ```ts
 // src/shipping.ts: the code takes its type from the spec, and imports nothing that runs.
-import type { Implementation } from "tsverify"
+import type { Implementation } from "@emyann/tsverify"
 import type { ShippingSpec } from "./shipping.contract.ts"
 
 export const shipping: Implementation<ShippingSpec> = (total) => (total >= 50 ? 0 : 5)
@@ -73,7 +73,7 @@ Now make the mistake everyone makes once, `>` where `>=` was meant:
 
 <!-- file: src/shipping.ts -->
 ```ts
-import type { Implementation } from "tsverify"
+import type { Implementation } from "@emyann/tsverify"
 import type { ShippingSpec } from "./shipping.contract.ts"
 
 export const shipping: Implementation<ShippingSpec> = (total) => (total > 50 ? 0 : 5)
@@ -134,7 +134,7 @@ it.
 
 <!-- file: src/rename.contract.ts -->
 ```ts
-import { type Rejects, spec } from "tsverify"
+import { type Rejects, spec } from "@emyann/tsverify"
 
 /** Where names are kept. Each method is an operation: tsverify records every call. */
 export interface Names {
@@ -153,7 +153,7 @@ export type RenameSpec = typeof renameSpec
 
 <!-- file: src/rename.ts -->
 ```ts
-import type { Implementation } from "tsverify"
+import type { Implementation } from "@emyann/tsverify"
 import type { RenameSpec } from "./rename.contract.ts"
 
 export const rename: Implementation<RenameSpec> = async (names, id, name) => {
@@ -184,7 +184,7 @@ With an empty name, the code still read the store before it said no. Check the n
 
 <!-- file: src/rename.ts -->
 ```ts
-import type { Implementation } from "tsverify"
+import type { Implementation } from "@emyann/tsverify"
 import type { RenameSpec } from "./rename.contract.ts"
 
 export const rename: Implementation<RenameSpec> = async (names, id, name) => {
@@ -227,13 +227,13 @@ itself: where it is weak, what the code can reach, and which laws say nothing.
 ## Install
 
 ```sh
-npm install --save-dev tsverify  # add `effect` for Effect programs
-npx tsverify                     # every contract under the current folder
-npx tsverify --watch             # again on every save, until all is proved
+npm install --save-dev @emyann/tsverify  # add `effect` for Effect programs
+npx tsverify                             # every contract under the current folder
+npx tsverify --watch                     # again on every save, until all is proved
 ```
 
 It needs Node 24.16 or later, and brings its own `typescript` and `z3-solver`. It reads every file that imports
-`tsverify`, whatever its name; these pages name a spec's file `*.contract.ts`, which no test runner mistakes for a test.
+`@emyann/tsverify`, whatever its name; these pages name a spec's file `*.contract.ts`, which no test runner mistakes for a test.
 
 Your `tsconfig.json` needs `strict` (or at least `strictNullChecks`), and a module resolution that reads a package's
 `exports`: `nodenext`, `node16` or `bundler`. The one these examples use:
@@ -281,11 +281,11 @@ about it, and `--json` for tools.
 
 | Import | For |
 | --- | --- |
-| `tsverify` | `spec` and `Implementation`; `contract` for code that already exists; `assume`; `invariant`, `assert`, `lemma`; the types a law reads, `Outcome` and `Rejects` |
-| `tsverify/effect` | `spec` and `computation` for an Effect program |
-| `tsverify/packs/lodash` | what tsverify may assume of the lodash functions it covers |
-| `tsverify/api` | the verifier as a library: `loadProject`, `verify`, `openZ3` |
-| `tsverify/mutants` | bugs planted against your laws: the solver beside property testing |
+| `@emyann/tsverify` | `spec` and `Implementation`; `contract` for code that already exists; `assume`; `invariant`, `assert`, `lemma`; the types a law reads, `Outcome` and `Rejects` |
+| `@emyann/tsverify/effect` | `spec` and `computation` for an Effect program |
+| `@emyann/tsverify/packs/lodash` | what tsverify may assume of the lodash functions it covers |
+| `@emyann/tsverify/api` | the verifier as a library: `loadProject`, `verify`, `openZ3` |
+| `@emyann/tsverify/mutants` | bugs planted against your laws: the solver beside property testing |
 
 ## Status
 
