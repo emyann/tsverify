@@ -32,3 +32,7 @@ In rough order:
 - Packs for the most-called libraries, each tested against its library; a check of a package's purity from its JavaScript.
 - Equivalence as a first-class check: "this refactor preserves behaviour", run on a diff.
 - A versioned report bound to source hashes.
+
+Beside tsverify, not in it: what happens across steps, actors and crashes ("eventually settled", "one writer at a time")
+is a model checker's question. An experiment with TLA+ or Quint on Nemia's daemon handover, and where the line between the
+two falls, is in `docs/experiment-2026-11-02-tla-and-quint.md`.
