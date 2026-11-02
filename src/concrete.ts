@@ -192,7 +192,9 @@ const write = (u: Universe, n: Node, indices: ReadonlyArray<number>, value: unkn
   if (prim !== undefined) {
     const t = term(u, prim, indices)
     if (prim.sort === "num") {
-      const x = value as number
+      // A number's leaves hold a number alone: a member of a union that cannot hold the value refuses it here, and is skipped.
+      if (typeof value !== "number") throw new TypeError(`a number's leaves given a ${typeof value}`)
+      const x = value
       const cls = Number.isNaN(x) ? NUM.nan : x === Infinity ? NUM.posInf : x === -Infinity ? NUM.negInf : NUM.finite
       out.push((term(u, n.children.get("~cls")!.leaf!, indices) as Arith).eq(cls))
       const neg0 = n.children.get("~neg0")?.leaf

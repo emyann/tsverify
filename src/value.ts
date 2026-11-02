@@ -174,8 +174,12 @@ export interface Ran {
 /** The classes of a `number`. */
 export const NUM = { finite: 0, nan: 1, posInf: 2, negInf: 3 } as const
 
-/** A finite double's exact value as a fraction: every double is m * 2^k. */
+/**
+ * A finite double's exact value as a fraction: every double is m * 2^k, so doubling it ends, after 1,074 steps at most.
+ * Anything else is refused: doubling NaN, an infinity or a value that is not a number never ends.
+ */
 export const exactRational = (x: number): { numerator: bigint; denominator: bigint } => {
+  if (typeof x !== "number" || !Number.isFinite(x)) throw new RangeError(`no exact fraction for ${typeof x === "number" ? x : typeof x}`)
   if (Number.isInteger(x)) return { numerator: BigInt(x), denominator: 1n }
   let v = x
   let d = 1n
