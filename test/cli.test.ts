@@ -164,6 +164,33 @@ it("refuses files that hold no contract, with code 2, and says to name the file 
   assert.match(r.err, /name the file that function is written in/)
 })
 
+it("--help and -h print the usage and every option, read nothing, and exit 0", () => {
+  const help = cli("--help")
+  assert.equal(help.code, 0)
+  assert.match(help.out, /^usage: tsverify /)
+  for (const option of ["--project", "--bound", "--work", "--verbose", "--json", "--watch", "--cache", "--cache-location", "--help"])
+    assert.ok(help.out.includes(option), `names ${option}`)
+  // The same text with a folder named: the folder's contracts are never read.
+  for (const asked of [["-h"], ["examples/charge", "--help"]]) {
+    const r = cli(...asked)
+    assert.equal(r.code, 0, asked.join(" "))
+    assert.equal(r.out, help.out, asked.join(" "))
+    assert.equal(r.err, "")
+  }
+})
+
+it("refuses an option it does not take, with code 2, before reading anything", () => {
+  for (const asked of [["--hlep"], ["examples/charge", "--bound=4"], ["-x"]]) {
+    const r = cli(...asked)
+    assert.equal(r.code, 2, asked.join(" "))
+    assert.ok(r.err.startsWith(`${asked.at(-1)}: `), r.err)
+    assert.match(r.err, /usage: tsverify /)
+    assert.equal(r.out, "")
+  }
+  // A value that opens with a dash is the value of the option before it, not an option.
+  assert.match(cli("examples/charge", "--project", "-nowhere/tsconfig.json").err, /^--project -nowhere\/tsconfig\.json: no such file/)
+})
+
 it("refuses a --project that is not there, with code 2", () => {
   const r = cli("examples/charge", "--project", "no/tsconfig.json")
   assert.equal(r.code, 2)

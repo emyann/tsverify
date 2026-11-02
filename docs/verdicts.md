@@ -309,6 +309,7 @@ tsverify <file.ts> <export> [--json] [--watch] [--cache] [--cache-location <fold
 | `--watch` | the same again on every change to the project's TypeScript, until stopped (below) |
 | `--cache` | keep each contract's verdict, and answer a contract verified before from it (below) |
 | `--cache-location` | the folder `--cache` keeps the verdicts in, instead of `node_modules/.cache/tsverify` beside the nearest `package.json` |
+| `--help`, `-h` | the usage and every option, and nothing read; any other option it does not take is a usage error (exit 2) |
 
 | Exit | |
 | --- | --- |

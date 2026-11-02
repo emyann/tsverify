@@ -17,6 +17,7 @@
 //   answered is one an earlier run found, which may not be the one a run without it would print.
 // --watch runs it again on every change to the project's TypeScript, until stopped: each run in a process of its own,
 //   the screen redrawn in a terminal, each run's report after the last one otherwise (with --json, a line per run).
+// --help (or -h) prints the usage and each option, and reads nothing; an option it does not take is a usage error.
 // Exits 0 when everything is proved, 1 when something is not, 2 on a usage error, 3 when the verifier itself fails.
 // In a terminal the report is drawn live and in colour (`./view.ts`); piped, or with NO_COLOR set, it is plain text.
 import { type ChildProcess, spawn } from "node:child_process"
@@ -37,6 +38,38 @@ process.on("uncaughtException", (e) => {
   process.exit(3)
 })
 
+const USAGE =
+  "usage: tsverify [<file or folder>...] [--project tsconfig.json] [--bound N] [--work N] [--verbose] [--json] [--watch] [--cache] [--cache-location <folder>]\n       tsverify <file.ts> <export> [--json] [--watch] [--cache] [--cache-location <folder>]"
+const HELP = `${USAGE}
+
+  <file or folder>...    every contract each file exports, the current folder's by default
+  <file.ts> <export>     one contract, with everything the verification knows of it
+  --project <tsconfig>   the tsconfig.json every file is read through, instead of the nearest one above it
+  --bound N              the longest array the search side tries, 4 by default
+  --work N               the work each query may do, in Z3's own steps, 15000000 by default
+  --verbose              every law of every contract, as the one-contract form prints them
+  --json                 one JSON document instead of the text
+  --watch                the same again on every change to the project's TypeScript, until stopped
+  --cache                keep each contract's verdict, and answer a contract verified before from it
+  --cache-location <dir> where --cache keeps them, node_modules/.cache/tsverify by default
+  --help, -h             this
+
+Exits 0 when everything is proved, 1 when something is not, 2 on a usage error, 3 when the verifier itself fails.`
+const argv = process.argv.slice(2)
+const VALUED = new Set(["--project", "--bound", "--work", "--cache-location"])
+const OPTIONS = new Set([...VALUED, "--verbose", "--json", "--watch", "--cache"])
+// Asked before anything is read: an option the command does not take would otherwise be dropped, and a run with no file
+// named verifies every contract under the current folder.
+if (argv.includes("--help") || argv.includes("-h")) {
+  console.log(HELP)
+  process.exit(0)
+}
+const unknown = argv.find((a, i) => a.startsWith("-") && !OPTIONS.has(a) && !VALUED.has(argv[i - 1] ?? ""))
+if (unknown !== undefined) {
+  console.error(`${unknown}: tsverify takes no such option (tsverify --help lists them)\n${USAGE}`)
+  process.exit(2)
+}
+
 // The same verdict on every run asks for the same collections of the solver's terms: when JavaScript collects them
 // decides which of their numbers the solver hands out again, and so the order of its search. V8 collects on a schedule
 // of its own only by a flag it takes on its command line alone (`NODE_OPTIONS` refuses it), so the command runs itself
@@ -54,10 +87,6 @@ if (!process.execArgv.includes(STEADY)) {
   await new Promise<never>(() => {})
 }
 
-const USAGE =
-  "usage: tsverify [<file or folder>...] [--project tsconfig.json] [--bound N] [--work N] [--verbose] [--json] [--watch] [--cache] [--cache-location <folder>]\n       tsverify <file.ts> <export> [--json] [--watch] [--cache] [--cache-location <folder>]"
-const argv = process.argv.slice(2)
-const VALUED = new Set(["--project", "--bound", "--work", "--cache-location"])
 const positional = argv.filter((a, i) => !a.startsWith("--") && !VALUED.has(argv[i - 1] ?? ""))
 const flag = (f: string): string | undefined => {
   const i = argv.indexOf(f)
