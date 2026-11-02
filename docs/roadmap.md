@@ -5,6 +5,8 @@ In rough order:
 - The core first, by the published Z3 problems it still refuses (`fixtures/corpus/`): a string's `split` and spread, by
   code units and by code points; `%` and `**` of computed values on `number`; arithmetic that rounds, read as IEEE 754
   rounds it, where it is now only an obligation that it does not.
+- Checks on a spec alone, before any code: whether the laws decide every input, whether some input has no answer at
+  all, and whether linked specs agree (`docs/design-2026-11-01-spec-checks.md`, proposed for 0.5.0).
 - Folds on the proof side: `.join` and `.flatMap`, known there only of none or one element, and `.filter`'s count,
   only none or some, so their laws are bounded; a fold read by induction over the array, as a loop is read through its
   invariants.
