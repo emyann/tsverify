@@ -44,6 +44,12 @@ export const balanceOrNothing = computation<Ops>()(balanceOrZero, {
 
 export const doubled = computation<Ops>()(doubledBalance, {
   ensures: {
+    readsOnce: ({ input: [accountId], calls }) => calls.length === 1 && calls.at(0)?.op === "read" && calls.at(0)?.args[0] === accountId,
+    failsAsTheReadFails: ({ output, calls }) => {
+      const read = calls.at(0)
+      if (read === undefined || read.outcome._tag !== "Failure") return true
+      return output._tag === "Failure" && output.error._tag === read.outcome.error._tag
+    },
     twiceTheFoldsBalance: ({ output, calls }) => {
       const read = calls.at(0)
       if (read === undefined || read.op !== "read" || read.outcome._tag !== "Success") return true

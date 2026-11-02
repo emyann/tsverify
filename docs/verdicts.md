@@ -128,6 +128,7 @@ and `--verbose` every law of every file. The last lines count what needs a look,
 | ✓ | `proved` |
 | ✗ | `counterexample` |
 | ⊘ | `unmeetable` |
+| ◐ | `undecided` (of a contract) |
 | ○ | `vacuous` |
 | ~ | `bounded` |
 | ? | `unknown` |
@@ -163,6 +164,21 @@ laws the verdict names leave none together, or one law alone refuses every resul
 the code is not what to change. The verifier asks it of each counterexample: with the input held as `e.g.` gives it, is
 there any value of the result's type that keeps every law? Where there is none, it names the fewest laws that leave none,
 the law broken among them. Change the spec: loosen one of them, or narrow `requires` so that no caller passes the input.
+
+### ◐ `undecided`
+
+A verdict on the contract, not on a law: at an input `requires` allows, two results of different kinds both keep every
+law, so the laws do not say which the code answers, and every law proved says nothing of which it does. The line names the
+part left open (`output === undefined`, `output`, `output.status`), the two results, and the input as `e.g.` gives it.
+A function that refuses every input keeps every law that says only when to refuse: the hole this finds.
+
+The verifier asks it of the spec alone, with no code: two results free of the code, every law asserted on each, and a
+part of them that differs. It asks it of a pure function's spec; a computation's is not asked yet, since its laws read
+its calls and two runs that share calls no code of it could make would be undecided wherever the laws pin no trace. Two results differ in kind where a closed part of them does: a value of a few literal cases
+(a union of strings, a boolean), whether it is `undefined` or `null`, or such a field of a record, two levels down. A free
+string or number, such as a message, is never a kind. Add the law that picks one, or, where the choice is the code's on
+purpose, say so in the spec: `open: ["output.reason"]` for one part and what is under it, `open: true` for the whole
+result, as a spec of what is never done leaves it.
 
 ### ○ `vacuous`
 
@@ -296,8 +312,8 @@ tsverify <file.ts> <export> [--json] [--watch] [--cache] [--cache-location <fold
 
 | Exit | |
 | --- | --- |
-| 0 | every law and every obligation, each division's among them, is `proved` |
-| 1 | one is not: a counterexample, or a law unmeetable, bounded, vacuous, unsupported, unknown or inconsistent, or a contract not verified |
+| 0 | every law and every obligation, each division's among them, is `proved`, and no contract is `undecided` |
+| 1 | one is not: a counterexample, or a law unmeetable, bounded, vacuous, unsupported, unknown or inconsistent, or a contract undecided or not verified |
 | 2 | a usage error: a path that is not there, no file or no contract to verify, no `tsconfig.json` |
 | 3 | the verifier itself failed, which says nothing of the code |
 

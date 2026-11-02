@@ -63,7 +63,7 @@ of `xs` from the start.
 
 A guess is an obligation like any other, so a wrong one is dropped, never trusted. A fold's laws are often its
 invariants: `examples/account/account.ts` folds a ledger in a loop of seven kinds of entry, and with its five written
-invariants taken out (`test/account.test.ts`), its five laws are still proved.
+invariants taken out (`test/account.test.ts`), its six laws are still proved.
 
 ## Writing an invariant
 

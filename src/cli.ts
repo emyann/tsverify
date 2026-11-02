@@ -203,7 +203,10 @@ const relative = (v: Verification): Verification => ({
 })
 
 const passed = (v: Verification) =>
-  v.unsupported === undefined && v.laws.every((l) => l.status === "proved") && v.obligations.every((o) => o.status === "proved")
+  v.unsupported === undefined &&
+  v.undecided === undefined &&
+  v.laws.every((l) => l.status === "proved") &&
+  v.obligations.every((o) => o.status === "proved")
 
 const tally = <A>(xs: ReadonlyArray<A>, key: (x: A) => string): Record<string, number> =>
   xs.reduce<Record<string, number>>((m, x) => ({ ...m, [key(x)]: (m[key(x)] ?? 0) + 1 }), {})
@@ -221,6 +224,7 @@ interface Report {
     readonly laws: Readonly<Record<string, number>>
     readonly obligations: Readonly<Record<string, number>>
     readonly unsupported: number
+    readonly undecided: number
   }
 }
 const printReport = (verdicts: ReadonlyArray<{ readonly file: string; readonly v: Verification }>) => {
@@ -230,6 +234,17 @@ const printReport = (verdicts: ReadonlyArray<{ readonly file: string; readonly v
     laws: v.laws.map(plainArgs),
     obligations: v.obligations.map(plainArgs),
     cover: v.cover.map(plainArgs),
+    ...(v.undecided === undefined
+      ? {}
+      : {
+          undecided: {
+            ...v.undecided,
+            ...(v.undecided.args === undefined ? {} : { args: v.undecided.args.map(plain) }),
+            ...(v.undecided.results === undefined
+              ? {}
+              : { results: [plain(v.undecided.results[0]), plain(v.undecided.results[1])] as const }),
+          },
+        }),
     passed: passed(v),
   }))
   const out: Report = {
@@ -247,6 +262,7 @@ const printReport = (verdicts: ReadonlyArray<{ readonly file: string; readonly v
         (o) => o.status,
       ),
       unsupported: contracts.filter((c) => c.unsupported !== undefined).length,
+      undecided: contracts.filter((c) => c.undecided !== undefined).length,
     },
   }
   console.log(JSON.stringify(out, null, 2))

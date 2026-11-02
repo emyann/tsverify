@@ -58,16 +58,25 @@ export type Law<P> = P | { readonly description: string; readonly condition: P }
 /** A law's predicate, however it is written: `holds(spec.ensures.freeFrom50!)({ input: [60], output: 0 })`. */
 export const holds = <P extends (run: never) => boolean>(law: Law<P>): P => (typeof law === "function" ? law : law.condition)
 
+/**
+ * What a spec's laws leave to the code on purpose: `true` for the whole result, or the closed parts it leaves open, named
+ * as a report names them (`"output.reason"`, and a part under it). Every other closed part of the result, a value of a
+ * few literal cases or whether it is `undefined`, must be decided by the laws at every input `requires` allows, or the
+ * contract is reported `undecided`.
+ */
+export type Open = true | ReadonlyArray<string>
+
 export interface Contract<A extends ReadonlyArray<unknown>, R> {
   readonly fn: (...args: A) => R
   readonly requires?: (given: Given<A>) => boolean
   readonly ensures: Readonly<Record<string, Law<(run: Run<A, R>) => boolean>>>
+  readonly open?: Open
 }
 
 /** Laws over a function that already exists. Each law keeps the type it is written with, so code can call it. */
 export const contract = <A extends ReadonlyArray<unknown>, R, L extends Readonly<Record<string, Law<(run: Run<A, R>) => boolean>>>>(
   fn: (...args: A) => R,
-  laws: { readonly requires?: (given: Given<A>) => boolean; readonly ensures: L },
+  laws: { readonly requires?: (given: Given<A>) => boolean; readonly ensures: L; readonly open?: Open },
 ): Omit<Contract<A, R>, "ensures"> & { readonly ensures: L } => ({
   fn,
   ...laws,
@@ -106,6 +115,8 @@ type ParameterCallsOf<A extends ReadonlyArray<unknown>> = {
 export interface Spec<F extends AnyFn> {
   readonly requires?: (given: Given<Parameters<F>>) => boolean
   readonly ensures: Readonly<Record<string, Law<LawOf<F>>>>
+  /** What the laws leave to the code on purpose (`Open`). */
+  readonly open?: Open
   /** The function's type: only for `Implementation`, never a value. */
   readonly "~fn"?: F
 }
@@ -160,6 +171,7 @@ export interface ComputationContract<Args extends ReadonlyArray<unknown>, A, E, 
   readonly fn: (...args: Args) => Promise<A>
   readonly requires?: (given: Given<Args>) => boolean
   readonly ensures: Readonly<Record<string, ComputationLaw<Args, A, E, Ops>>>
+  readonly open?: Open
 }
 
 /**
@@ -205,7 +217,7 @@ export const computation =
   <Ops, E = unknown>() =>
   <Args extends ReadonlyArray<unknown>, A, L extends Readonly<Record<string, ComputationLaw<Args, A, E, Ops>>>>(
     fn: (...args: Args) => Promise<A>,
-    laws: { readonly requires?: (given: Given<Args>) => boolean; readonly ensures: L },
+    laws: { readonly requires?: (given: Given<Args>) => boolean; readonly ensures: L; readonly open?: Open },
   ): Omit<ComputationContract<Args, A, E, Ops>, "ensures"> & { readonly ensures: L } => ({ fn, ...laws })
 
 /**

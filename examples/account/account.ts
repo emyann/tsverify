@@ -43,7 +43,7 @@ export function accountOf(entries: readonly Entry[]): Account {
   for (const e of entries) {
     invariant((i) => a.opened === entries.slice(0, i).some((x) => x.kind === "opened"))
     invariant((i) => a.closed === entries.slice(0, i).some((x) => x.kind === "closed"))
-    invariant((i) => a.frozen === null || entries.slice(0, i).some((x) => x.kind === "frozen"))
+    invariant((i) => (a.frozen !== null) === entries.slice(0, i).some((x) => x.kind === "frozen"))
     invariant((i) => a.transactions.length <= i)
     invariant((i) => a.balance >= 0n || entries.slice(0, i).some((x) => x.kind === "withdrawn" || x.kind === "resolved"))
     switch (e.kind) {

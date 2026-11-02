@@ -5,7 +5,7 @@ code takes the spec as its type, so a spec is also where the code's signature co
 
 ## The spec, then the code
 
-`spec<F>({ requires?, ensures })`, from `@emyann/tsverify`, takes the function's type as `F`.
+`spec<F>({ requires?, ensures, open? })`, from `@emyann/tsverify`, takes the function's type as `F`.
 
 <p align="center">
   <picture>
@@ -19,6 +19,7 @@ code takes the spec as its type, so a spec is also where the code's signature co
 | `F`, in `spec<F>` | The function's type: what it takes, and what it returns. The code gets it as its type. |
 | `requires` | What every caller promises, `({ input: [args...] }) => boolean`. The laws are checked only on the inputs that meet it. It may be left out. |
 | `ensures` | The laws, each named for what it says: the report gives each its own line. A law reads one run of the function, as one object typed from `F`, so it needs no annotation: a pure function's is `({ input: [args...], output }) => boolean`, its arguments a tuple, a name for each the law reads and a hole for the rest (`[, amount]`), and its result. A law of async code reads `calls` beside them, and its `output` is the outcome (*Async code*, below). A law may also say what it means in words, `{ description: "…", condition: ({ input, output }) => boolean }`: the report prints the sentence on its line. |
+| `open` | What the laws leave to the code on purpose, checked by `undecided` otherwise: `["output.reason"]` for one part of the result and what is under it, `true` for the whole result. It may be left out, and mostly is. |
 | `export type StatusOf = Implementation<typeof statusSpec>` | The function's type, which is `F`, and all the code imports: it is typed `StatusOf`, and imports nothing of tsverify. `Implementation<typeof statusSpec>` written on the code itself, the spec exported, is the same. |
 
 **"If A, then B" is `A ? B : true`.** A law has nothing to say of an input where A is false, so it is true there.
@@ -35,8 +36,8 @@ import type { Parcel, Status } from "./parcel.ts"
 const statusSpec = spec<(parcel: Parcel) => Status>({
   requires: ({ input: [parcel] }) => (parcel.deliveredAt !== null ? parcel.shippedAt !== null && parcel.deliveredAt >= parcel.shippedAt : true),
   ensures: {
-    deliveredWins: ({ input: [parcel], output }) => (parcel.deliveredAt !== null ? output === "delivered" : true),
-    lostOnlyIfNotDelivered: ({ input: [parcel], output }) => (output === "lost" ? parcel.lost && parcel.deliveredAt === null : true),
+    deliveredWins: ({ input: [parcel], output }) => (output === "delivered") === (parcel.deliveredAt !== null),
+    lostWhenNotDelivered: ({ input: [parcel], output }) => (output === "lost") === (parcel.lost && parcel.deliveredAt === null),
     waitingUntilShipped: ({ input: [parcel], output }) => (output === "waiting") === (parcel.shippedAt === null && !parcel.lost),
   },
 })
@@ -70,7 +71,7 @@ $ npx tsverify src/parcel.ts
 src/parcel.ts
   ✓ statusOf  3 laws  (224 ms)
     ✓ deliveredWins  (121 ms)
-    ✓ lostOnlyIfNotDelivered  (15 ms)
+    ✓ lostWhenNotDelivered  (15 ms)
     ✓ waitingUntilShipped  (21 ms)
 
 ✓ 3 laws proved
@@ -84,7 +85,10 @@ outside `node_modules` and dot folders. The names are the project's: these pages
 write a spec in `*.contract.ts`, which no test runner claims, where Jest and Vitest run every `*.spec.ts` as a test.
 
 **A law says what holds, not how.** `waitingUntilShipped` does not restate the code's `if`s; it says when the parcel waits,
-in the record's words. A law that copies the code proves only that the code is the code.
+in the record's words. A law that copies the code proves only that the code is the code. Each of the three says its
+status *exactly when*, both sides, so the laws decide every parcel: `in-transit` is what is left. Laws that said only
+when a status may not hold would let two answers through at some parcel, and the verifier would report the spec
+`undecided` (*Laws that say something*, below).
 
 **A spec is what its callers know.** Code that calls `statusOf` takes what `statusSpec` proves of it, where its
 `requires` holds, and nothing of its body, with no declaration to write: a law the callers need of it belongs in its
@@ -263,7 +267,7 @@ import { isOverdue } from "./overdue.ts"
 export const overdue = contract(isOverdue, {
   ensures: {
     neverWithoutADate: ({ input: [due], output }) => (due === null ? !output : true),
-    lateOnlyAfter: ({ input: [due, now], output }) => (output ? due !== null && now > due : true),
+    lateExactlyAfter: ({ input: [due, now], output }) => output === (due !== null && now > due),
   },
 })
 ```
@@ -274,7 +278,7 @@ $ npx tsverify src/overdue.contract.ts
 src/overdue.contract.ts
   ✓ overdue  2 laws  (146 ms)
     ✓ neverWithoutADate  (98 ms)
-    ✓ lateOnlyAfter  (20 ms)
+    ✓ lateExactlyAfter  (20 ms)
 
 ✓ 2 laws proved
   1 contract in 1 file · 0.9 s
@@ -313,6 +317,11 @@ A law is only as good as what it rules out.
 - **Laws no result keeps together.** Two laws can each be met and still leave no result between them at some input: "at
   most 10" and "at least the input" above 10. No code keeps both there, and the verifier reports the one broken there
   `unmeetable`, naming both, rather than a counterexample the code could mend.
+- **Laws that leave the result open.** Laws that say only when a function refuses let a function that refuses everything
+  through. Where two results of different kinds both keep every law at some input `requires` allows, a refusal and none,
+  or two strings of a union, the verifier reports the contract `undecided`, naming the part left open and the input. Add
+  the law that picks one. Where the choice is the code's on purpose, say so in the spec: `open: ["output.reason"]` leaves
+  that part and what is under it to the code, and `open: true` the whole result, as a spec of what is never done does.
 - **Too strong a `requires`.** A promise no input keeps makes every law vacuous; one that keeps out the inputs that matter
   hides the bugs there.
 - **Gaps.** A law can be true and still let a wrong program through. `@emyann/tsverify/mutants` plants one-line bugs in a function

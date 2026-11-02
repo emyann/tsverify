@@ -124,6 +124,8 @@ export interface ContractSource {
   readonly requires: FunctionNode | undefined
   /** Each law by name: its predicate, and what it means in words where it is written `{ description, condition }`. */
   readonly ensures: ReadonlyArray<{ readonly name: string; readonly law: FunctionNode; readonly description?: string }>
+  /** What the laws leave to the code on purpose: the whole result, or the closed parts named (`open` of a spec). */
+  readonly open?: true | ReadonlyArray<string>
 }
 
 /** What kind of contract `init` writes, when it is a call of this package's `contract`, `computation` or `lemma`. */
@@ -311,8 +313,9 @@ export const oneRun = (fn: FunctionNode, what: "law" | "requires"): FunctionNode
 }
 
 /** A contract's or a spec's `{ requires?, ensures: { law: pred, ... } }`, written in place. */
-const lawsOf = (checker: ts.TypeChecker, lawsArg: ts.Expression): Pick<ContractSource, "requires" | "ensures"> => {
+const lawsOf = (checker: ts.TypeChecker, lawsArg: ts.Expression): Pick<ContractSource, "requires" | "ensures" | "open"> => {
   let requires: FunctionNode | undefined
+  let open: true | ReadonlyArray<string> | undefined
   const ensures: Array<ContractSource["ensures"][number]> = []
   for (const p of (unwrap(lawsArg) as ts.ObjectLiteralExpression).properties) {
     const value = ts.isPropertyAssignment(p) ? p.initializer : ts.isShorthandPropertyAssignment(p) ? p.name : undefined
@@ -327,9 +330,19 @@ const lawsOf = (checker: ts.TypeChecker, lawsArg: ts.Expression): Pick<ContractS
           ensures.push({ name: q.name.text, ...lawOf(checker, q.initializer) })
         else throw new Unsupported("a law is `name: ({ input: [args...], output }) => boolean`, or `name: { description, condition }`", q)
       }
-    } else throw new Unsupported(`a contract has no part \`${p.name.text}\``, p)
+    } else if (p.name.text === "open") open = openOf(value)
+    else throw new Unsupported(`a contract has no part \`${p.name.text}\``, p)
   }
-  return { requires, ensures }
+  return { requires, ensures, ...(open === undefined ? {} : { open }) }
+}
+
+/** `open: true`, or `open: ["output.reason", ...]`, written in place. */
+const openOf = (value: ts.Expression): true | ReadonlyArray<string> => {
+  const v = unwrap(value)
+  if (v.kind === ts.SyntaxKind.TrueKeyword) return true
+  if (ts.isArrayLiteralExpression(v) && v.elements.every((e) => ts.isStringLiteralLike(e)))
+    return v.elements.map((e) => (e as ts.StringLiteralLike).text)
+  throw new Unsupported('`open` is `true`, or the parts left open, written in place: `open: ["output.reason"]`', value)
 }
 
 /** The names a law written as an object took before 0.3, and what each is now. */

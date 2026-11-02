@@ -12,6 +12,7 @@ export const labels = contract(labelCount, {
      * "a"])` may be `["a", "a"]`. The counterexample says it leans on `uniq`.
      */
     severalOnlyWithTwoDifferent: ({ input: [labels], output }) => output !== "several" || labels.some((a) => labels.some((b) => a !== b)),
+    severalWithTwoDifferent: ({ input: [labels], output }) => output === "several" || !labels.some((a) => labels.some((b) => a !== b)),
   },
 })
 

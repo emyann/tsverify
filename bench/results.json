@@ -7,11 +7,12 @@
     "note": "the wrong resolution completes",
     "solver": {
       "caught": [
-        "fulfilledCompletes"
+        "fulfilledCompletes",
+        "voidedVoids"
       ],
       "open": [],
       "gap": "",
-      "ms": 767.3639779999999
+      "ms": 1494.240284
     },
     "sampled": [
       {
@@ -19,21 +20,21 @@
         "caught": true,
         "run": 5,
         "law": "fulfilledCompletes",
-        "ms": 0.05448499999965861
+        "ms": 0.0706199999999626
       },
       {
         "budget": 1000,
         "caught": true,
         "run": 5,
         "law": "fulfilledCompletes",
-        "ms": 0.00928299999986848
+        "ms": 0.014121000000159256
       },
       {
         "budget": 10000,
         "caught": true,
         "run": 5,
         "law": "fulfilledCompletes",
-        "ms": 0.011493999999856896
+        "ms": 0.015627999999651365
       }
     ]
   },
@@ -45,11 +46,12 @@
     "note": "refunded and voided swapped",
     "solver": {
       "caught": [
-        "refundedRefunds"
+        "refundedRefunds",
+        "voidedVoids"
       ],
       "open": [],
       "gap": "",
-      "ms": 755.4376590000002
+      "ms": 1443.166068
     },
     "sampled": [
       {
@@ -57,21 +59,21 @@
         "caught": true,
         "run": 3,
         "law": "refundedRefunds",
-        "ms": 0.04959899999994377
+        "ms": 0.08207099999981438
       },
       {
         "budget": 1000,
         "caught": true,
         "run": 3,
         "law": "refundedRefunds",
-        "ms": 0.005614000000150554
+        "ms": 0.014948000000003958
       },
       {
         "budget": 10000,
         "caught": true,
         "run": 3,
         "law": "refundedRefunds",
-        "ms": 0.004275999999663327
+        "ms": 0.00998899999922287
       }
     ]
   },
@@ -87,7 +89,7 @@
       ],
       "open": [],
       "gap": "",
-      "ms": 773.0399400000001
+      "ms": 1390.4337679999999
     },
     "sampled": [
       {
@@ -95,21 +97,21 @@
         "caught": true,
         "run": 45,
         "law": "cancelOutranks",
-        "ms": 0.1655510000000504
+        "ms": 0.24218399999972462
       },
       {
         "budget": 1000,
         "caught": true,
         "run": 45,
         "law": "cancelOutranks",
-        "ms": 0.09800600000016857
+        "ms": 0.12636100000054284
       },
       {
         "budget": 10000,
         "caught": true,
         "run": 45,
         "law": "cancelOutranks",
-        "ms": 0.08214900000029957
+        "ms": 0.10569199999918055
       }
     ]
   },
@@ -121,11 +123,12 @@
     "note": "a pause reads as a cancel",
     "solver": {
       "caught": [
-        "cancelingOnlyWhenAsked"
+        "cancelingOnlyWhenAsked",
+        "pausedSubscriptionPauses"
       ],
       "open": [],
       "gap": "",
-      "ms": 870.9205660000002
+      "ms": 1509.322889
     },
     "sampled": [
       {
@@ -133,21 +136,21 @@
         "caught": true,
         "run": 11,
         "law": "cancelingOnlyWhenAsked",
-        "ms": 0.09175500000037573
+        "ms": 0.08005500000035681
       },
       {
         "budget": 1000,
         "caught": true,
         "run": 11,
         "law": "cancelingOnlyWhenAsked",
-        "ms": 0.019957999999860476
+        "ms": 0.02571200000056706
       },
       {
         "budget": 10000,
         "caught": true,
         "run": 11,
         "law": "cancelingOnlyWhenAsked",
-        "ms": 0.03112500000042928
+        "ms": 0.02453700000023673
       }
     ]
   },
@@ -159,11 +162,12 @@
     "note": "a returned shipment reads as on its way",
     "solver": {
       "caught": [
-        "movingMeansAnOpenShipment"
+        "movingMeansAnOpenShipment",
+        "pausedSubscriptionPauses"
       ],
       "open": [],
       "gap": "",
-      "ms": 792.6809650000005
+      "ms": 1610.7014230000004
     },
     "sampled": [
       {
@@ -171,21 +175,21 @@
         "caught": true,
         "run": 4,
         "law": "movingMeansAnOpenShipment",
-        "ms": 0.06777899999997317
+        "ms": 0.059138000000530155
       },
       {
         "budget": 1000,
         "caught": true,
         "run": 4,
         "law": "movingMeansAnOpenShipment",
-        "ms": 0.0050590000000738655
+        "ms": 0.007903000001533655
       },
       {
         "budget": 10000,
         "caught": true,
         "run": 4,
         "law": "movingMeansAnOpenShipment",
-        "ms": 0.004253000000062457
+        "ms": 0.009433000001081382
       }
     ]
   },
@@ -196,26 +200,35 @@
     "replace": "if (order.subscription || order.paused) return \"paused\"",
     "note": "paused without a subscription",
     "solver": {
-      "caught": [],
+      "caught": [
+        "pausedOnlyWhenPaused",
+        "waitsOnceDelivered"
+      ],
       "open": [],
-      "gap": "changes a result no law forbids: \"settling\" becomes \"paused\" on {\"resolution\":null,\"cancelRequested\":false,\"shipments\":[{\"outcome\":\"delivered\",\"pickedUpAt\":\"\"},{\"outcome\":\"delivered\",\"round\":null,\"pickedUpAt\":\"\"},{\"outcome\":\"delivered\",\"round\":null,\"pickedUpAt\":\"\"},{\"outcome\":\"delivered\",\"round\":null,\"pickedUpAt\":\"\"}],\"subscription\":true,\"paused\":false,\"reorders\":[]}",
-      "ms": 681.2162180000005
+      "gap": "",
+      "ms": 1552.5375920000006
     },
     "sampled": [
       {
         "budget": 100,
-        "caught": false,
-        "ms": 0.2048370000002251
+        "caught": true,
+        "run": 1,
+        "law": "pausedOnlyWhenPaused",
+        "ms": 0.013601999999082182
       },
       {
         "budget": 1000,
-        "caught": false,
-        "ms": 1.1638340000008611
+        "caught": true,
+        "run": 1,
+        "law": "pausedOnlyWhenPaused",
+        "ms": 0.0015000000003055902
       },
       {
         "budget": 10000,
-        "caught": false,
-        "ms": 12.086025000000518
+        "caught": true,
+        "run": 1,
+        "law": "pausedOnlyWhenPaused",
+        "ms": 0.0012479999986680923
       }
     ]
   },
@@ -231,7 +244,7 @@
       ],
       "open": [],
       "gap": "",
-      "ms": 750.7779469999996
+      "ms": 1551.7086149999996
     },
     "sampled": [
       {
@@ -239,21 +252,21 @@
         "caught": true,
         "run": 53,
         "law": "placedHasNoShipmentThisRound",
-        "ms": 0.0796039999995628
+        "ms": 0.9060589999990043
       },
       {
         "budget": 1000,
         "caught": true,
         "run": 53,
         "law": "placedHasNoShipmentThisRound",
-        "ms": 0.032993000000715256
+        "ms": 0.096043000001373
       },
       {
         "budget": 10000,
         "caught": true,
         "run": 53,
         "law": "placedHasNoShipmentThisRound",
-        "ms": 0.02793999999994412
+        "ms": 0.08975099999952363
       }
     ]
   },
@@ -265,33 +278,34 @@
     "note": "always the first round",
     "solver": {
       "caught": [
-        "placedHasNoShipmentThisRound"
+        "placedHasNoShipmentThisRound",
+        "settlingHasAShipmentThisRound"
       ],
       "open": [],
       "gap": "",
-      "ms": 786.6543460000003
+      "ms": 1811.721367
     },
     "sampled": [
       {
         "budget": 100,
         "caught": true,
-        "run": 53,
-        "law": "placedHasNoShipmentThisRound",
-        "ms": 0.07188800000039919
+        "run": 1,
+        "law": "settlingHasAShipmentThisRound",
+        "ms": 0.01958299999932933
       },
       {
         "budget": 1000,
         "caught": true,
-        "run": 53,
-        "law": "placedHasNoShipmentThisRound",
-        "ms": 0.04737999999997555
+        "run": 1,
+        "law": "settlingHasAShipmentThisRound",
+        "ms": 0.0047790000007807976
       },
       {
         "budget": 10000,
         "caught": true,
-        "run": 53,
-        "law": "placedHasNoShipmentThisRound",
-        "ms": 0.0298079999993206
+        "run": 1,
+        "law": "settlingHasAShipmentThisRound",
+        "ms": 0.003873000001476612
       }
     ]
   },
@@ -304,11 +318,12 @@
     "solver": {
       "caught": [
         "awaitingNeedsASubscription",
-        "noSubscriptionNeverWaits"
+        "noSubscriptionNeverWaits",
+        "awaitingOnlyOnceDelivered"
       ],
       "open": [],
       "gap": "",
-      "ms": 723.3423970000003
+      "ms": 1776.6656199999998
     },
     "sampled": [
       {
@@ -316,21 +331,21 @@
         "caught": true,
         "run": 11,
         "law": "awaitingNeedsASubscription",
-        "ms": 0.06579400000009628
+        "ms": 0.07009399999878951
       },
       {
         "budget": 1000,
         "caught": true,
         "run": 11,
         "law": "awaitingNeedsASubscription",
-        "ms": 0.016427000000476255
+        "ms": 0.027785999998741318
       },
       {
         "budget": 10000,
         "caught": true,
         "run": 11,
         "law": "awaitingNeedsASubscription",
-        "ms": 0.014054000001124223
+        "ms": 0.025604999998904532
       }
     ]
   },
@@ -344,23 +359,23 @@
       "caught": [],
       "open": [],
       "gap": "equivalent in statusOf (proved)",
-      "ms": 725.7548200000001
+      "ms": 1419.1438679999992
     },
     "sampled": [
       {
         "budget": 100,
         "caught": false,
-        "ms": 0.16409100000055332
+        "ms": 0.36507499999788706
       },
       {
         "budget": 1000,
         "caught": false,
-        "ms": 0.6202510000002803
+        "ms": 3.2628870000007737
       },
       {
         "budget": 10000,
         "caught": false,
-        "ms": 11.090301999998701
+        "ms": 7.244147000001249
       }
     ]
   },
@@ -371,26 +386,35 @@
     "replace": "last?.outcome === \"lost\"",
     "note": "waits after a loss, not a delivery",
     "solver": {
-      "caught": [],
+      "caught": [
+        "awaitingOnlyOnceDelivered",
+        "waitsOnceDelivered"
+      ],
       "open": [],
-      "gap": "changes a result no law forbids: \"awaiting-reorder\" becomes \"settling\" on {\"resolution\":null,\"cancelRequested\":false,\"shipments\":[{\"outcome\":\"delivered\",\"pickedUpAt\":\"\"},{\"outcome\":\"delivered\",\"pickedUpAt\":\"\"},{\"outcome\":\"delivered\",\"pickedUpAt\":\"\"},{\"outcome\":\"delivered\",\"pickedUpAt\":\"\"}],\"subscription\":true,\"paused\":false,\"reorders\":[]}",
-      "ms": 717.678328
+      "gap": "",
+      "ms": 1828.8995079999986
     },
     "sampled": [
       {
         "budget": 100,
-        "caught": false,
-        "ms": 0.16094800000064424
+        "caught": true,
+        "run": 37,
+        "law": "waitsOnceDelivered",
+        "ms": 0.1321700000007695
       },
       {
         "budget": 1000,
-        "caught": false,
-        "ms": 0.4818170000016835
+        "caught": true,
+        "run": 37,
+        "law": "waitsOnceDelivered",
+        "ms": 0.04793199999767239
       },
       {
         "budget": 10000,
-        "caught": false,
-        "ms": 4.820921000000453
+        "caught": true,
+        "run": 37,
+        "law": "waitsOnceDelivered",
+        "ms": 0.05325799999991432
       }
     ]
   },
@@ -401,26 +425,35 @@
     "replace": "(last.round ?? 1) === order.reorders.length",
     "note": "an unnumbered round is round 1",
     "solver": {
-      "caught": [],
+      "caught": [
+        "awaitingOnlyOnceDelivered",
+        "waitsOnceDelivered"
+      ],
       "open": [],
-      "gap": "changes a result no law forbids: \"awaiting-reorder\" becomes \"settling\" on {\"resolution\":null,\"cancelRequested\":false,\"shipments\":[{\"outcome\":\"delivered\",\"pickedUpAt\":\"\"},{\"outcome\":\"delivered\",\"pickedUpAt\":\"\"},{\"outcome\":\"delivered\",\"pickedUpAt\":\"\"},{\"outcome\":\"delivered\",\"pickedUpAt\":\"\"}],\"subscription\":true,\"paused\":false,\"reorders\":[]}",
-      "ms": 744.5498430000007
+      "gap": "",
+      "ms": 1813.62054
     },
     "sampled": [
       {
         "budget": 100,
-        "caught": false,
-        "ms": 0.1871659999997064
+        "caught": true,
+        "run": 37,
+        "law": "waitsOnceDelivered",
+        "ms": 0.05180500000278698
       },
       {
         "budget": 1000,
-        "caught": false,
-        "ms": 0.501683000000412
+        "caught": true,
+        "run": 37,
+        "law": "waitsOnceDelivered",
+        "ms": 0.01772500000151922
       },
       {
         "budget": 10000,
-        "caught": false,
-        "ms": 4.891367000000173
+        "caught": true,
+        "run": 37,
+        "law": "waitsOnceDelivered",
+        "ms": 0.013931000001321081
       }
     ]
   },
@@ -431,26 +464,34 @@
     "replace": "(last.round ?? 0) <= order.reorders.length",
     "note": "an earlier round's delivery waits",
     "solver": {
-      "caught": [],
+      "caught": [
+        "awaitingOnlyOnceDelivered"
+      ],
       "open": [],
-      "gap": "changes a result no law forbids: \"settling\" becomes \"awaiting-reorder\" on {\"resolution\":null,\"cancelRequested\":false,\"shipments\":[{\"outcome\":\"delivered\",\"pickedUpAt\":\"\"},{\"outcome\":\"delivered\",\"pickedUpAt\":\"\"},{\"outcome\":\"delivered\",\"pickedUpAt\":\"\"},{\"outcome\":\"delivered\",\"round\":null,\"pickedUpAt\":\"\"}],\"subscription\":true,\"paused\":false,\"reorders\":[]}",
-      "ms": 794.3932800000002
+      "gap": "",
+      "ms": 1605.0203039999979
     },
     "sampled": [
       {
         "budget": 100,
-        "caught": false,
-        "ms": 0.21565600000030827
+        "caught": true,
+        "run": 1,
+        "law": "awaitingOnlyOnceDelivered",
+        "ms": 0.011392000000341795
       },
       {
         "budget": 1000,
-        "caught": false,
-        "ms": 0.526809000000867
+        "caught": true,
+        "run": 1,
+        "law": "awaitingOnlyOnceDelivered",
+        "ms": 0.0011079999967478216
       },
       {
         "budget": 10000,
-        "caught": false,
-        "ms": 3.85368600000038
+        "caught": true,
+        "run": 1,
+        "law": "awaitingOnlyOnceDelivered",
+        "ms": 0.0007760000007692724
       }
     ]
   },
@@ -464,23 +505,23 @@
       "caught": [],
       "open": [],
       "gap": "equivalent in statusOf (proved)",
-      "ms": 714.9877419999993
+      "ms": 1389.7467730000026
     },
     "sampled": [
       {
         "budget": 100,
         "caught": false,
-        "ms": 0.1744380000000092
+        "ms": 0.2224930000011227
       },
       {
         "budget": 1000,
         "caught": false,
-        "ms": 0.5857390000001033
+        "ms": 0.4327129999983299
       },
       {
         "budget": 10000,
         "caught": false,
-        "ms": 5.054893999998967
+        "ms": 5.2345880000029865
       }
     ]
   },
@@ -491,26 +532,34 @@
     "replace": "(s.round ?? 0) >= n",
     "note": "later rounds count as this one",
     "solver": {
-      "caught": [],
+      "caught": [
+        "settlingHasAShipmentThisRound"
+      ],
       "open": [],
-      "gap": "changes a result no law forbids: \"placed\" becomes \"settling\" on {\"resolution\":null,\"cancelRequested\":false,\"shipments\":[{\"outcome\":\"delivered\",\"round\":null,\"pickedUpAt\":\"\"},{\"outcome\":\"delivered\",\"round\":null,\"pickedUpAt\":\"\"}],\"paused\":false,\"reorders\":[]}",
-      "ms": 723.2846399999999
+      "gap": "",
+      "ms": 1580.1531420000028
     },
     "sampled": [
       {
         "budget": 100,
-        "caught": false,
-        "ms": 0.16676799999913783
+        "caught": true,
+        "run": 4,
+        "law": "settlingHasAShipmentThisRound",
+        "ms": 0.016673999998602085
       },
       {
         "budget": 1000,
-        "caught": false,
-        "ms": 0.7542080000002898
+        "caught": true,
+        "run": 4,
+        "law": "settlingHasAShipmentThisRound",
+        "ms": 0.0032299999984388705
       },
       {
         "budget": 10000,
-        "caught": false,
-        "ms": 4.0170839999991586
+        "caught": true,
+        "run": 4,
+        "law": "settlingHasAShipmentThisRound",
+        "ms": 0.013416999998298706
       }
     ]
   },
@@ -526,7 +575,7 @@
       ],
       "open": [],
       "gap": "",
-      "ms": 693.9538950000006
+      "ms": 1419.7779719999999
     },
     "sampled": [
       {
@@ -534,21 +583,21 @@
         "caught": true,
         "run": 98,
         "law": "placedHasNoShipmentThisRound",
-        "ms": 0.11157800000000861
+        "ms": 0.07342599999901722
       },
       {
         "budget": 1000,
         "caught": true,
         "run": 98,
         "law": "placedHasNoShipmentThisRound",
-        "ms": 0.03793799999948533
+        "ms": 0.047207999999955064
       },
       {
         "budget": 10000,
         "caught": true,
         "run": 98,
         "law": "placedHasNoShipmentThisRound",
-        "ms": 0.0356709999996383
+        "ms": 0.028575000000273576
       }
     ]
   },
@@ -560,33 +609,34 @@
     "note": "the round counted by shipments",
     "solver": {
       "caught": [
-        "placedHasNoShipmentThisRound"
+        "placedHasNoShipmentThisRound",
+        "settlingHasAShipmentThisRound"
       ],
       "open": [],
       "gap": "",
-      "ms": 719.3595200000018
+      "ms": 1622.988813
     },
     "sampled": [
       {
         "budget": 100,
         "caught": true,
-        "run": 93,
-        "law": "placedHasNoShipmentThisRound",
-        "ms": 0.09601699999984703
+        "run": 23,
+        "law": "settlingHasAShipmentThisRound",
+        "ms": 0.05276900000171736
       },
       {
         "budget": 1000,
         "caught": true,
-        "run": 93,
-        "law": "placedHasNoShipmentThisRound",
-        "ms": 0.03986600000280305
+        "run": 23,
+        "law": "settlingHasAShipmentThisRound",
+        "ms": 0.01100600000063423
       },
       {
         "budget": 10000,
         "caught": true,
-        "run": 93,
-        "law": "placedHasNoShipmentThisRound",
-        "ms": 0.03383400000166148
+        "run": 23,
+        "law": "settlingHasAShipmentThisRound",
+        "ms": 0.007274999999935972
       }
     ]
   },
@@ -600,23 +650,23 @@
       "caught": [],
       "open": [],
       "gap": "equivalent in statusOf (proved)",
-      "ms": 797.7229109999971
+      "ms": 1311.8961060000001
     },
     "sampled": [
       {
         "budget": 100,
         "caught": false,
-        "ms": 0.16356900000027963
+        "ms": 0.15558400000008987
       },
       {
         "budget": 1000,
         "caught": false,
-        "ms": 0.4197170000006736
+        "ms": 0.30789199999708217
       },
       {
         "budget": 10000,
         "caught": false,
-        "ms": 4.188207999999577
+        "ms": 4.559014999998908
       }
     ]
   }

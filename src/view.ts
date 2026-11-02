@@ -9,7 +9,7 @@ import { Box, render, renderToString, Static, type StaticProps, Text, useAnimati
 import { createElement as h, type ReactNode } from "react"
 import type { Trusted } from "./trust.ts"
 import { MODELS } from "./exec.ts"
-import type { LawResult, LawStatus, ObligationResult, Verification } from "./verify.ts"
+import type { LawResult, LawStatus, ObligationResult, Undecided, Verification } from "./verify.ts"
 
 /** Whether to colour: Node's own answer for stdout, which reads `NO_COLOR`, `FORCE_COLOR` and whether it is a terminal. */
 const colour = styleText("red", "x") !== "x"
@@ -25,21 +25,25 @@ const DIM: Style = { dimColor: true }
 const BOLD: Style = { bold: true }
 const styled = (style: Style, ...children: Array<ReactNode>): ReactNode => h(Text, colour ? style : {}, ...children)
 
+/** A law's verdict, or a contract's own: `undecided`, where its laws leave a result open between two kinds. */
+type Shown = LawStatus | "undecided"
+
 /** Each verdict's mark and colour, the one that most needs a look first: red broken, yellow neither, magenta not read. */
-const VERDICTS: Readonly<Record<LawStatus, { readonly mark: string; readonly style: Style }>> = {
+const VERDICTS: Readonly<Record<Shown, { readonly mark: string; readonly style: Style }>> = {
   inconsistent: { mark: "!", style: { color: "magenta", bold: true, inverse: true } },
   unmeetable: { mark: "⊘", style: { color: "red", bold: true } },
   counterexample: { mark: "✗", style: { color: "red", bold: true } },
   unsupported: { mark: "!", style: { color: "magenta" } },
+  undecided: { mark: "◐", style: { color: "yellow", bold: true } },
   unknown: { mark: "?", style: { color: "yellow" } },
   bounded: { mark: "~", style: { color: "yellow" } },
   vacuous: { mark: "○", style: { color: "yellow" } },
   proved: { mark: "✓", style: { color: "green" } },
 }
-const WORST_FIRST = Object.keys(VERDICTS) as ReadonlyArray<LawStatus>
-const worst = (statuses: ReadonlyArray<LawStatus>): LawStatus => WORST_FIRST.find((s) => statuses.includes(s)) ?? "proved"
+const WORST_FIRST = Object.keys(VERDICTS) as ReadonlyArray<Shown>
+const worst = (statuses: ReadonlyArray<Shown>): Shown => WORST_FIRST.find((s) => statuses.includes(s)) ?? "proved"
 /** How many of each verdict, the worst first. */
-const tally = (statuses: ReadonlyArray<LawStatus>): Array<readonly [LawStatus, number]> =>
+const tally = (statuses: ReadonlyArray<Shown>): Array<readonly [Shown, number]> =>
   WORST_FIRST.flatMap((s) => {
     const n = statuses.filter((x) => x === s).length
     return n === 0 ? [] : [[s, n] as const]
@@ -70,8 +74,7 @@ const beside = (mark: ReactNode, ...lines: ReadonlyArray<ReactNode>): ReactNode 
     h(Box, { flexShrink: 0, marginRight: 1 }, typeof mark === "string" ? h(Text, null, mark) : mark),
     h(Box, { flexDirection: "column", flexShrink: 1 }, ...lines),
   )
-const marked = (s: LawStatus, ...lines: ReadonlyArray<ReactNode>): ReactNode =>
-  beside(styled(VERDICTS[s].style, VERDICTS[s].mark), ...lines)
+const marked = (s: Shown, ...lines: ReadonlyArray<ReactNode>): ReactNode => beside(styled(VERDICTS[s].style, VERDICTS[s].mark), ...lines)
 const indented = (...lines: ReadonlyArray<ReactNode>): ReactNode => h(Box, { flexDirection: "column", paddingLeft: 2 }, ...lines)
 
 /** A value as JavaScript writes it, so a counterexample can be pasted into a call: `0n`, `"a"`, `[1, NaN]`, `{ id: "a" }`. */
@@ -154,6 +157,23 @@ const law =
       ...(l.abstract === undefined ? [] : leaning(l.abstract, specs)),
       ...(l.reason === undefined ? [] : [line(l.reason)]),
     )
+
+/** Where the laws leave a result open: the part, the two results both kept by every law, the input, and what to do. */
+const undecided = (u: Undecided): ReactNode =>
+  marked(
+    "undecided",
+    line([BOLD, "undecided"], "", [DIM, `(${u.differ})`]),
+    line(
+      u.results === undefined
+        ? "two results that differ there keep every law at one input: the laws do not say which the code answers"
+        : `both ${literal(u.results[0])} and ${literal(u.results[1])} keep every law here: the laws do not say which the code answers`,
+    ),
+    ...witness(u),
+    ...(u.reason === undefined ? [] : [line([DIM, u.reason])]),
+    line(
+      `add the law that picks one, or say in the spec that the choice is the code's: \`open: [${JSON.stringify(u.differ.split(" ")[0])}]\``,
+    ),
+  )
 
 const asked = (o: ObligationResult): string =>
   o.kind === "invariant"
@@ -275,9 +295,14 @@ export const contract = ({ v, ms }: Verified, { every, full, width }: Shape): Re
     return marked("unsupported", line(name, "", [VERDICTS.unsupported.style, "not verified"]), line(v.unsupported))
   const shown = (s: LawStatus) => every || s !== "proved"
   return marked(
-    worst([...v.laws.map((l) => l.status), ...v.obligations.map((o) => o.status)]),
+    worst([
+      ...v.laws.map((l) => l.status),
+      ...v.obligations.map((o) => o.status),
+      ...(v.undecided === undefined ? [] : ["undecided" as const]),
+    ]),
     line(name, "", ...summary(v, !every), "", [DIM, `(${Math.round(ms)} ms)`]),
     ...v.laws.filter((l) => shown(l.status)).map(law(new Map(v.trusted.flatMap((t) => (t.spec === undefined ? [] : [[t.name, t.spec]]))))),
+    ...(v.undecided === undefined ? [] : [undecided(v.undecided)]),
     ...proofCode(v.obligations.filter((o) => shown(o.status))),
     ...(every ? trusted(v.trusted, full) : []),
     ...(full && v.cover.length > 0
@@ -292,7 +317,8 @@ const totals = (all: ReadonlyArray<Verification>, files: number, seconds: number
   const laws = all.flatMap((v) => v.laws.map((l) => l.status))
   const obligations = all.flatMap((v) => v.obligations.map((o) => o.status))
   const unread = all.filter((v) => v.unsupported !== undefined).length
-  const item = (s: LawStatus, text: string): Array<Piece> => [
+  const open = all.filter((v) => v.undecided !== undefined).length
+  const item = (s: Shown, text: string): Array<Piece> => [
     [VERDICTS[s].style, VERDICTS[s].mark],
     [VERDICTS[s].style, text],
   ]
@@ -304,6 +330,7 @@ const totals = (all: ReadonlyArray<Verification>, files: number, seconds: number
       .filter(([s]) => s !== "proved")
       .map(([s, n]) => item(s, `${n} ${s} among obligations`)),
     ...(unread > 0 ? [item("unsupported", `${unread} not verified`)] : []),
+    ...(open > 0 ? [item("undecided", `${open} undecided`)] : []),
   ]
   const proved = [
     [laws.filter((s) => s === "proved").length, "law"],

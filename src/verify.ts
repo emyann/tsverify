@@ -129,8 +129,27 @@ export interface Verification {
    * proved, such a law is reported `bounded`.
    */
   readonly obligations: ReadonlyArray<ObligationResult>
+  /** Set when the laws leave a result open between two kinds at some input: code could answer either. */
+  readonly undecided?: Undecided
   /** Set when the function or `requires` could not be lowered: no law is checked then. */
   readonly unsupported?: string
+}
+
+/**
+ * An input `requires` allows where two results of different kinds each keep every law: code could answer either, and
+ * a proof of the laws says nothing of which. Two results differ in kind where a closed part of them differs, a value of a
+ * few literal cases (a union of strings, a boolean) or whether it is `undefined` or `null`; never a free string or
+ * number, such as a message.
+ */
+export interface Undecided {
+  /** The closed part they differ in: `output`, a field of it (`output.status`), or whether it is `undefined`. */
+  readonly differ: string
+  /** The input, as a call's arguments; unset where it is too long to show (`reason`). */
+  readonly args?: ReadonlyArray<unknown>
+  /** The two results, each keeping every law at `args`. */
+  readonly results?: readonly [unknown, unknown]
+  /** Why the input is not shown. */
+  readonly reason?: string
 }
 
 export interface Options {
@@ -358,7 +377,12 @@ const lawWith = (side: Lowered, law: Law, output: Val, calls: Val | undefined): 
  */
 const lawOnAnyResult = (side: Lowered, law: Law): Bool | undefined => {
   try {
-    return lawWith(side, law, anyOf(side, law, "output", side.result), side.trace === undefined ? undefined : anyOf(side, law, "calls", side.trace))
+    return lawWith(
+      side,
+      law,
+      anyOf(side, law, "output", side.result),
+      side.trace === undefined ? undefined : anyOf(side, law, "calls", side.trace),
+    )
   } catch (e) {
     if (e instanceof Unsupported) return undefined
     throw e
@@ -369,7 +393,10 @@ const lawOnAnyResult = (side: Lowered, law: Law): Bool | undefined => {
  * Each of `laws` on one result they all share, any value of their run's type, and a computation's calls likewise: what
  * some result would have to keep at once. `undefined` when no law takes a result, or one cannot be read on it.
  */
-const lawsOnOneResult = (side: Lowered, laws: ReadonlyArray<Law>): ReadonlyArray<{ readonly name: string; readonly holds: Bool }> | undefined => {
+const lawsOnOneResult = (
+  side: Lowered,
+  laws: ReadonlyArray<Law>,
+): ReadonlyArray<{ readonly name: string; readonly holds: Bool }> | undefined => {
   const checker = side.L.checker
   const takes = laws.find((l) => {
     const run = l.law.parameters[0]
@@ -392,7 +419,12 @@ const lawsOnOneResult = (side: Lowered, laws: ReadonlyArray<Law>): ReadonlyArray
  * of them leaves a result that keeps the rest. Empty when some result keeps every law, or when that cannot be asked. A law broken there is broken by the spec:
  * no code could keep it.
  */
-const conflictsAt = async (side: Lowered, laws: ReadonlyArray<Law>, args: ReadonlyArray<unknown>, opts: Options): Promise<ReadonlyArray<string>> => {
+const conflictsAt = async (
+  side: Lowered,
+  laws: ReadonlyArray<Law>,
+  args: ReadonlyArray<unknown>,
+  opts: Options,
+): Promise<ReadonlyArray<string>> => {
   const { u } = side
   const z3 = u.z3
   const each = lawsOnOneResult(side, laws)
@@ -423,6 +455,113 @@ const conflictsAt = async (side: Lowered, laws: ReadonlyArray<Law>, args: Readon
     if (without.length > 0 && (await solver.check(...without.map((k) => k.mark))) === "unsat") kept = without
   }
   return kept.map((m) => m.name)
+}
+
+/** A closed part of a result: a value of a few literal cases, or whether the result is `undefined` or `null`, read where `present`. */
+interface Part {
+  readonly path: string
+  readonly value: Val
+  readonly present: Bool
+}
+
+const UNDEFINED = ts.TypeFlags.Undefined | ts.TypeFlags.Void
+const NULLISH = UNDEFINED | ts.TypeFlags.Null
+const literalCase = (t: ts.Type): boolean => t.isLiteral() || (t.flags & (ts.TypeFlags.BooleanLiteral | NULLISH)) !== 0
+
+/**
+ * The closed parts of `v`, a value of `type`: itself where every case of its type is a literal; whether it is `undefined`
+ * or `null`, and the closed parts of its value, where it may be either; and the closed parts of each field of a record, two
+ * levels down. Free strings and numbers have none: two results that differ only there are of one kind.
+ */
+const closedParts = (L: Lowering, type: ts.Type, v: Val, at: ts.Node, path: string, present: Bool, depth: number): ReadonlyArray<Part> => {
+  const z3 = L.u.z3
+  const cases = type.isUnion() ? type.types : [type]
+  if (cases.length > 1 && cases.every(literalCase)) return [{ path, value: v, present }]
+  if (v.kind === "maybe") {
+    if (v.value === undefined) return []
+    const there = z3.And(present, z3.Not(v.isNull), z3.Not(v.isUndefined))
+    return [
+      ...(cases.some((t) => (t.flags & UNDEFINED) !== 0)
+        ? [{ path: `${path} === undefined`, value: { kind: "bool", term: v.isUndefined } as Val, present }]
+        : []),
+      ...(cases.some((t) => (t.flags & ts.TypeFlags.Null) !== 0)
+        ? [{ path: `${path} === null`, value: { kind: "bool", term: v.isNull } as Val, present }]
+        : []),
+      ...closedParts(L, L.checker.getNonNullableType(type), v.value, at, path, there, depth),
+    ]
+  }
+  if (v.kind !== "record" || v.entries !== undefined || depth >= 2) return []
+  return L.checker.getPropertiesOfType(type).flatMap((p) => {
+    const t = L.checker.getTypeOfSymbol(p)
+    try {
+      return closedParts(L, t, member(L, v, p.name, at, type, t), at, `${path}.${p.name}`, present, depth + 1)
+    } catch (e) {
+      if (e instanceof Unsupported) return []
+      throw e
+    }
+  })
+}
+
+/**
+ * An input `requires` allows where two results of different kinds each keep every law (`Undecided`), asked on the search
+ * side: what it looks for is an example, and every model the search side finds is a real input, found quickly where the
+ * proof side's unbounded records leave the solver without an answer. It reads no code: two results free of it, each with
+ * every law asserted on it, required to differ in a closed part. Undefined where none is found within the search side's
+ * bound, the laws take no result, or the result has no closed part.
+ */
+const undecidedOf = async (
+  side: Lowered,
+  laws: ReadonlyArray<Law>,
+  open: ReadonlyArray<string>,
+  opts: Options,
+): Promise<Undecided | undefined> => {
+  const { u, L } = side
+  const z3 = u.z3
+  const checker = L.checker
+  const takes = laws.find((l) => {
+    const run = l.law.parameters[0]
+    return run !== undefined && checker.getPropertyOfType(checker.getTypeAtLocation(run), "output") !== undefined
+  })
+  if (takes === undefined) return undefined
+  const run = takes.law.parameters[0]!
+  const type = checker.getTypeOfSymbol(checker.getPropertyOfType(checker.getTypeAtLocation(run), "output")!)
+  try {
+    const answer = () => {
+      const root = u.fresh("answer")
+      const value = symbolicOf(L, type, [root], u.openBounds(), run)
+      // A part the spec leaves open, or one under it, is not asked: `output.error` leaves `output.error._tag` open too.
+      const asked = (p: Part) => !open.some((o) => p.path === o || p.path.startsWith(`${o}.`) || p.path.startsWith(`${o} `))
+      return { root, value, parts: closedParts(L, type, value, run, "output", z3.Bool.val(true), 0).filter(asked) }
+    }
+    const a = answer()
+    const b = answer()
+    if (a.parts.length === 0 || a.parts.length !== b.parts.length) return undefined
+    const differs = a.parts.map((p, i) => z3.And(p.present, b.parts[i]!.present, z3.Not(strictEq(u, p.value, b.parts[i]!.value, run))))
+    const keeps = [a, b].flatMap((x) => laws.map((l) => lawWith(side, l, x.value, undefined)))
+    // A query's whole work, not unmeetable's tenth: the input is free here, and a run's records are large.
+    const solver = new z3.Solver()
+    limited(solver, opts.work ?? WORK)
+    vectorsBy(u, solver)
+    for (const f of [...u.assumptions, ...L.hints, side.pre, ...keeps, z3.Or(...differs)]) solver.add(f)
+    if ((await solver.check()) !== "sat") return undefined
+    const model = solver.model()
+    const at = differs.findIndex((d) => z3.isTrue(model.eval(d, true)))
+    const differ = a.parts[at]?.path ?? "output"
+    try {
+      return {
+        differ,
+        args: side.params.map((p) => fromModel(u, model, p)),
+        results: [ended(fromModel(u, model, a.root)), ended(fromModel(u, model, b.root))],
+      }
+    } catch (e) {
+      // Found, and too long to show: still undecided.
+      if (e instanceof TooLong) return { differ, reason: `the input holds ${e.message}; too long to show` }
+      throw e
+    }
+  } catch (e) {
+    if (e instanceof Unsupported || e instanceof TooLong) return undefined
+    throw e
+  }
 }
 
 export const verify = async (z3: Ctx, project: Project, file: string, name: string, opts: Options = {}): Promise<Verification> => {
@@ -737,10 +876,19 @@ export const judge = async (
     leaning === undefined && proof.u.truncated === undefined
       ? cover
       : cover.map((c) => (c.status === "unreachable" ? { ...c, status: "bounded" as const } : c))
+  // Last, as it adds roots of its own to the search side: whether the laws decide every input, asked of the spec alone. A
+  // law not read could be the one that decides, so it is asked only where every law is.
+  const undecided =
+    // A pure function's alone: a computation's laws read its calls, and two runs that share calls no code of it could make
+    // would be undecided wherever its laws pin no trace, which is most of them.
+    source.kind !== "function" || source.open === true || opts.only !== undefined || read.some((r) => r.unsupported !== undefined)
+      ? undefined
+      : await undecidedOf(search, source.ensures, source.open ?? [], opts)
+  if (undecided !== undefined) opts.progress?.(`undecided: ${undecided.differ}`)
   const trusted = trustedOf(trust)
   const notes = [...ALWAYS, ...new Set([...proof.u.notes, ...search.u.notes])]
   if (trusted.some((t) => t.purity === "checked")) notes.push(`A purity check takes on trust that ${PURITY_TRUSTS.join("; that ")}.`)
-  return { contract: name, laws, cover: coverOut, notes, trusted, obligations }
+  return { contract: name, laws, cover: coverOut, notes, trusted, obligations, ...(undecided === undefined ? {} : { undecided }) }
 }
 
 /**

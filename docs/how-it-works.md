@@ -84,7 +84,9 @@ Each contract is lowered twice:
 
 A law the proof side can't settle in time, and the search side can't break, is reported as `bounded`, never as `proved`. A
 law proved that no result could break is reported as `vacuous`, and a law broken at an input where no result keeps every
-law at once is reported as `unmeetable`, naming the laws that leave none: the spec is at fault there, not the code.
+law at once is reported as `unmeetable`, naming the laws that leave none: the spec is at fault there, not the code. Last,
+on the proof side and with no code, a contract whose laws let two results of different kinds through at one input is
+reported `undecided`.
 
 **Every proof is checked against the search side.** The proof side's encoding (havoc, loops read through invariants) is
 where a verifier's own bugs hide, and one did: a loop left early was once read as having run to its end. So each proof

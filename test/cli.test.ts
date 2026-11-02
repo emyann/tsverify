@@ -54,7 +54,7 @@ it("verifies every contract under a folder, and exits 1 on a vacuous law", () =>
 it("exits 0 when every law and every obligation is proved", () => {
   const r = cli(...["account.contract", "withdraw", "withdraw.async", "effects.contract"].map((f) => `examples/account/${f}.ts`))
   assert.equal(r.code, 0, r.out + r.err)
-  assert.match(r.out, /\n✓ 28 laws, 10 obligations proved\n {2}7 contracts in 4 files · \d+\.\d s\n$/)
+  assert.match(r.out, /\n✓ 31 laws, 10 obligations proved\n {2}7 contracts in 4 files · \d+\.\d s\n$/)
   // Over several files, a contract whose laws all hold is its one line: no law under it.
   assert.doesNotMatch(r.out, /^ {4}/m)
 })
@@ -65,10 +65,10 @@ it("over several files lists only the laws that need a look, and every law with 
   assert.match(r.out, /^examples\/charge\/charge\.ts\n {2}✓ charge {2}2 laws {2}\(\d+ ms\)\nexamples\/lodash\/labels\.contract\.ts\n/)
   assert.match(
     r.out,
-    /\n {2}✗ labels +1 counterexample, 1 proved · trusts uniq \(lodash-es\) {2}\(\d+ ms\)\n {4}✗ severalOnlyWithTwoDifferent {2}\(/,
+    /\n {2}✗ labels +1 counterexample, 2 proved · trusts uniq \(lodash-es\) {2}\(\d+ ms\)\n {4}✗ severalOnlyWithTwoDifferent {2}\(/,
   )
   assert.ok(!r.out.includes("noneExactlyWhenEmpty"), r.out)
-  assert.match(r.out, /\n✗ 1 counterexample\n✓ 6 laws proved\n {2}3 contracts in 2 files · /)
+  assert.match(r.out, /\n✗ 1 counterexample\n✓ 7 laws proved\n {2}3 contracts in 2 files · /)
   const verbose = cli("examples/charge", "examples/lodash", "--verbose")
   assert.match(verbose.out, /\n {4}✓ noneExactlyWhenEmpty {2}\(/)
   assert.match(verbose.out, /\n {4}assumed:\n/)
@@ -120,7 +120,8 @@ it("finds an implementation typed by its spec's module, which imports no tsverif
       caller,
       `import { contract } from "@emyann/tsverify"\nimport { shipsFree } from "./checkout.ts"\n\n` +
         `export const freeFrom50 = contract(shipsFree, {\n  requires: ({ input: [total] }) => total >= 0,\n` +
-        `  ensures: { from50: ({ input: [total], output }) => total < 50 || output },\n})\n`,
+        // It says only the free side: under 50, what the code answers is its own (`open`), as the callee's spec says nothing.
+        `  ensures: { from50: ({ input: [total], output }) => total < 50 || output },\n  open: true,\n})\n`,
     )
     const c = spawnSync(process.execPath, [path.join(root, "src/cli.ts"), "src/checkout.contract.ts", "freeFrom50"], {
       cwd: dir,
@@ -189,7 +190,7 @@ it("--json: one document and nothing else, its passed what the exit code says", 
     report.contracts.map((c) => [c.file, c.contract, c.passed, c.laws.map((l) => l.status)]),
     [["examples/charge/charge.ts", "charge", true, ["proved", "proved"]]],
   )
-  assert.deepEqual(report.totals, { contracts: 1, files: 1, laws: { proved: 2 }, obligations: {}, unsupported: 0 })
+  assert.deepEqual(report.totals, { contracts: 1, files: 1, laws: { proved: 2 }, obligations: {}, unsupported: 0, undecided: 0 })
 })
 
 it("--json: a counterexample's world is what the world gave the code, none of the verifier's own names", () => {

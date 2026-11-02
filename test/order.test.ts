@@ -30,18 +30,24 @@ describe("statusOf against its doc comment", () => {
     assert.equal(v.unsupported, undefined)
   })
 
-  it("proves nine laws and refutes one", () => {
+  it("proves fifteen laws and refutes one", () => {
     assert.deepEqual(Object.fromEntries(v.laws.map((l) => [l.name, l.status])), {
       finalExactlyWhenResolved: "proved",
       fulfilledCompletes: "proved",
       refundedRefunds: "proved",
+      voidedVoids: "proved",
       cancelOutranks: "proved",
       cancelingOnlyWhenAsked: "proved",
       onItsWay: "counterexample",
       movingMeansAnOpenShipment: "proved",
+      pausedSubscriptionPauses: "proved",
+      pausedOnlyWhenPaused: "proved",
       awaitingNeedsASubscription: "proved",
       noSubscriptionNeverWaits: "proved",
+      awaitingOnlyOnceDelivered: "proved",
+      waitsOnceDelivered: "proved",
       placedHasNoShipmentThisRound: "proved",
+      settlingHasAShipmentThisRound: "proved",
     })
   })
 

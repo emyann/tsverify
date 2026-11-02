@@ -15,6 +15,8 @@ export const signed = contract(sign, {
     /** Its condition is never met: `n < n` is false for every `n`. */
     neverAsked: ({ input: [n], output }) => !(n < n) || output === "neg",
   },
+  // A fixture of laws that say nothing: which sign the code answers is left to it, on purpose.
+  open: true,
 })
 
 /** Every input positive: a law that only constrains non-positive inputs says nothing. */

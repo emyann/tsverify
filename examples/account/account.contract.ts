@@ -1,4 +1,4 @@
-// What an account's ledger makes of it: five laws, proved for ledgers of every
+// What an account's ledger makes of it: six laws, proved for ledgers of every
 // length through the invariants its loop carries.
 import { contract } from "@emyann/tsverify"
 import { accountOf, type Entry } from "./account.ts"
@@ -12,6 +12,7 @@ export const folded = contract(accountOf, {
     openedExactlyWhenRecorded: ({ input: [entries], output }) => output.opened === entries.some((e) => e.kind === "opened"),
     closedExactlyWhenRecorded: ({ input: [entries], output }) => output.closed === entries.some((e) => e.kind === "closed"),
     frozenOnlyWhenRecorded: ({ input: [entries], output }) => output.frozen === null || entries.some((e) => e.kind === "frozen"),
+    frozenWhenRecorded: ({ input: [entries], output }) => output.frozen !== null || !entries.some((e) => e.kind === "frozen"),
     noMoreTransactionsThanEntries: ({ input: [entries], output }) => output.transactions.length <= entries.length,
     noDebtWithoutWithdrawals: ({ input: [entries], output }) =>
       output.balance >= 0n || entries.some((e) => e.kind === "withdrawn" || e.kind === "resolved"),

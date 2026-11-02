@@ -1,5 +1,5 @@
 // A loop read through its invariants: an account folded from its ledger
-// (examples/account/account.ts). The verifier proves the five laws of
+// (examples/account/account.ts). The verifier proves the six laws of
 // `account.contract.ts` for ledgers of every length; each planted bug is caught
 // with a ledger that breaks the planted code when it runs; and with no
 // invariant written, it finds the five itself, and still catches each bug.
@@ -63,7 +63,7 @@ describe("the account fold, verified", () => {
     assert.deepEqual(diagnostics(loadProject([spec], tsconfig), spec), [])
   })
 
-  it("proves the five laws and every invariant, for ledgers of every length", async () => {
+  it("proves the six laws and every invariant, for ledgers of every length", async () => {
     const v = await verifyWith(z3)
     assert.equal(v.unsupported, undefined)
     assert.deepEqual(statuses(v), Object.fromEntries(LAWS.map((n) => [n, "proved"])))

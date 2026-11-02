@@ -12,8 +12,9 @@ built, and the translator is checked against the real function on 300 random inp
 ## A state machine: an order's status
 
 `examples/order/order.ts` maps an order's record to one of 10 statuses. It calls `awaitsReorder` and `roundOf`, and its
-doc comment states six ordered rules, which `order.contract.ts` turns into 10 laws. `test/order.test.ts` shows:
-- **9 laws proved** for every order, with arrays of any length.
+doc comment states six ordered rules, which `order.contract.ts` turns into 16 laws, each rule said both ways. `test/order.test.ts`
+shows:
+- **15 laws proved** for every order, with arrays of any length.
 - **1 law refuted:** `onItsWay`. The doc comment says "in transit once picked up", but the code tests `pickedUpAt` by
   truthiness, so a shipment picked up at `""` reads `awaiting-pickup`. The type (`string | null`) allows `""`. The
   counterexample is run through the real function, which agrees.
@@ -26,14 +27,17 @@ edge-biased random orders (`examples/order/generate.ts`: every literal, `""`, Na
 
 | | solver | property testing, 100 to 10,000 runs |
 |---|---|---|
-| bugs caught (of 17) | **10**, under a second each | 10 |
-| missed bugs explained | **7 of 7** | none |
+| bugs caught (of 17) | **15**, under two seconds each | 15 |
+| missed bugs explained | **2 of 2** | none |
 
-- **Both catch the same 10.** On a pure function with a small state space, a well-tuned property tester finds bugs as
-  well as the solver does.
+- **Both catch the same 15.** On a pure function with a small state space, a well-tuned property tester finds bugs as
+  well as the solver does, over the same laws.
 - **The solver explains every miss.** For each, it proves whether the planted `statusOf` equals the original for every
-  order. Two are harmless in context, proved equivalent (W1, W5), as is the control. Five change a result no law forbids,
-  each with the order that shows it: the laws have a gap there, and a person decides which behaviour is intended.
+  order. The two missed are harmless in context, proved equivalent (W1, W5), as is the control.
+- **The laws had five gaps, and the spec alone showed them.** With the first 10 laws, five planted bugs changed a result
+  no law forbade. Those laws said when a status may not hold, and not always when it must, so the spec was `undecided`
+  ([Reading a report](verdicts.md)): asked of the laws alone, it found an order the laws left open between `placed` and
+  `settling`. The six laws added to decide every order, one for each part of a rule said one way only, catch all five.
 
 The value over property testing on this kind of code is not catching more bugs. It is proofs instead of samples,
 equivalence (is this change behaviour-preserving?), reachability with witnesses, and gap witnesses where the spec is weak.
@@ -42,14 +46,14 @@ equivalence (is this change behaviour-preserving?), reachability with witnesses,
 
 `examples/account/account.ts` folds a ledger into an account: a `for…of` loop over seven kinds of entry, a `switch`, a
 `push`, changes through what `.find` found, bigint arithmetic, and `??=`. Its loop carries five invariants, and
-`account.contract.ts` five laws. `test/account.test.ts` shows:
-- **The five laws and the ten invariant obligations are proved** for ledgers of every length, in about a second.
+`account.contract.ts` six laws. `test/account.test.ts` shows:
+- **The six laws and the ten invariant obligations are proved** for ledgers of every length, in about a second.
 - **`requires` matters.** The balance law holds because deposits are positive; without that requirement, the solver
   finds a deposit-only ledger that ends in debt, and running the fold on it agrees.
 - **Five planted bugs, five counterexamples**, each confirmed by running the planted fold: a second close that reopens, an
   opening lost after a freeze, a dispute that freezes, a deposit recorded twice, a deposit taken out.
 - **A harmless change stays proved.**
-- **Without its invariants, the five laws are still proved.** The verifier guesses each law, restated for the entries
+- **Without its invariants, the six laws are still proved.** The verifier guesses each law, restated for the entries
   gone through, keeps those proved on entry and kept, and proves the laws through them; each bug planted in the fold
   without invariants is still refuted, its law's guess dropped.
 - **The laws hold on 2,000 random ledgers**, run for real; and the purity check reads the fold as pure.
