@@ -201,7 +201,7 @@ export const runMutants = async (z3: Ctx, suite: MutantSuite, progress: MutantPr
         `import { contract } from "@emyann/tsverify"`,
         `import { ${main} } from ${JSON.stringify(relative(sameSpec, suite.source))}`,
         `import { ${main} as planted } from ${JSON.stringify(relative(sameSpec, planted))}`,
-        `export const same = contract(${main}, { ensures: { same: (${[...params, "r"].join(", ")}) => r === planted(${params.join(", ")}) } })`,
+        `export const same = contract(${main}, { ensures: { same: ({ input: [${params.join(", ")}], output: r }) => r === planted(${params.join(", ")}) } })`,
       ].join("\n")
       const p = loadProject(
         [sameSpec],
