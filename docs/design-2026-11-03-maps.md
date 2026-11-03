@@ -140,11 +140,18 @@ Three smaller changes the work showed were needed:
 | `agreedInherited` | bounded | unknown |
 | `disagreedLeftOut` | bounded | unknown |
 | `leftOutOnlyDisagreed` | proved, first round | proved, first round |
-| `leftOutNamesEachRun` | bounded | unknown |
+| `leftOutNamesEachRun` | bounded, or proved, first round | unknown |
 | `nothingElse` | unknown | unknown |
 | time, peak memory | 44 s, 1.2 GB | 61 s, 1.2 GB |
 
 The one obligation, a key read (`p.labels[key]`), is proved. No law is refuted on the code as written.
+
+`leftOutNamesEachRun` sits at the work limit, and its verdict at bound 1 is not the same on every run. Run alone four
+times on one machine with the same flags, `--predictable-gc-schedule` among them, the first round proved it twice and
+ran out of work twice; queries stopped as `canceled` on some of those runs and not on others, with the query timeout
+turned off too. CI found it proved once, in the `maps` job. Something besides the collector's schedule orders the
+solver's terms (`docs/roadmap.md`), and a law this close to the limit flips with it. `test/maps.test.ts` asks only
+that none of the four is refuted.
 
 **Two laws that do not hold** (`inheritedLabelsWrong`) are refuted at bound 1: that a typed key is never held, and that
 a key the runs agree on is never held. The first round proves neither. Each counterexample breaks its law when the
@@ -197,7 +204,7 @@ that do not hold.
 
 1. **Four laws stay bounded or unknown:** `agreedInherited`, `disagreedLeftOut`, `leftOutNamesEachRun`, `nothingElse`.
    - They need what the first loop writes to the map, or (`leftOutNamesEachRun`) each run's value it pushes, read
-     through the runs again. Read key by key, the pass's body is read at each key the law reads, inside the
+     through the runs again; that one the first round proves on some runs, at the work limit (*Verdicts*). Read key by key, the pass's body is read at each key the law reads, inside the
      law's own quantifier: `named(key)` (a search of the card's entries and of the edits), the `flatMap` over the runs at
      that key, and `values.every`.
    - Its facts sit in every branch of the lookup, including where a later loop decides the key, and the solver runs out

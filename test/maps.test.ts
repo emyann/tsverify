@@ -1,8 +1,8 @@
 // A map the code builds at keys it computes (fixtures/maps.ts): Nemia's `inheritedLabels`, copied as it is written. Four
 // of its laws are proved, by the round that reads what its first loop writes at each key as unknown; the other four are
-// left bounded or unknown, never refuted on the code as written. Two laws that do not hold are refuted, and a bug planted
-// against each law proved is caught, each counterexample breaking the law when the code runs on it. Each construct it
-// takes is checked against JavaScript on its own, in a process of its own (`maps-constructs.test.ts`).
+// never refuted on the code as written, one of them proved on some runs. Two laws that do not hold are refuted, and a
+// bug planted against each law proved is caught, each counterexample breaking the law when the code runs on it. Each
+// construct it takes is checked against JavaScript on its own, in a process of its own (`maps-constructs.test.ts`).
 import assert from "node:assert/strict"
 import { readFileSync, rmSync, writeFileSync } from "node:fs"
 import path from "node:path"
@@ -73,9 +73,13 @@ describe("inheritedLabels, as Nemia writes it", () => {
     )
   })
 
-  it("the other four are never refuted on the code as written: each is bounded or unknown", () => {
+  // `leftOutNamesEachRun` sits at the work limit: the first round proves it on some runs and runs out of work on others,
+  // on one machine with the same flags (`docs/design-2026-11-03-maps.md`, *Verdicts*). What holds on every run is that
+  // none of the four is refuted.
+  it("the other four are never refuted on the code as written: each is bounded or unknown, or proved", () => {
     assert.ok(v !== undefined, "verified above")
-    for (const name of OPEN) assert.ok(["bounded", "unknown"].includes(lawOf(v, name).status), `${name}: ${lawOf(v, name).status}`)
+    for (const name of OPEN)
+      assert.ok(["bounded", "unknown", "proved"].includes(lawOf(v, name).status), `${name}: ${lawOf(v, name).status}`)
   })
 
   it("two laws that do not hold are refuted, the round that reads the loop's writes as unknown proving neither", async () => {

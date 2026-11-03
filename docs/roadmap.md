@@ -10,6 +10,10 @@ In rough order:
 - A query stopped at its work limit, said so: Z3 reports some such stops as `canceled`, which a report reads as "out of
   time: the query ran 5 minutes" though it stopped within seconds, so a reader looks at time where `--work` is what to
   change.
+- The same verdict on every run, as `--work` says. Run alone with `--predictable-gc-schedule`, `fixtures/maps.ts`'s
+  `leftOutNamesEachRun` was proved on some runs and out of work on others, and queries stopped as `canceled` on some runs
+  only, the query timeout turned off too: something besides the collector's schedule orders the solver's terms
+  (`docs/design-2026-11-03-maps.md`, *Verdicts*).
 - The core first, by the published Z3 problems it still refuses (`fixtures/corpus/`): a string's `split` and spread, by
   code units and by code points; `%` and `**` of computed values on `number`; arithmetic that rounds, read as IEEE 754
   rounds it, where it is now only an obligation that it does not.
