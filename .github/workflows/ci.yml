@@ -1,5 +1,5 @@
-# tsverify's check, on clean runners: the suite on each Node it claims, the lint, the types and the command on the examples that hold
-# once, and one job, `ci`, that says whether all of them passed.
+# tsverify's check, on clean runners: the suite on each Node it claims, its maps tests in a job of their own, the lint, the types and
+# the command on the examples that hold once, and one job, `ci`, that says whether all of them passed.
 name: ci
 
 # A pull request is tested by pull_request, which runs a fork's code against a token that can only read.
@@ -44,7 +44,33 @@ jobs:
         timeout-minutes: 10
       # The suite builds the package too: test/install.test.ts packs it (`npm pack`, whose prepack builds dist/) and installs the
       # tarball into a project of its own, from the registry, so a broken build fails here.
-      - run: npm test
+      # `npm test`'s command, but the maps tests, which the `maps` job runs: with them the step took 10.3 of its 15 minutes on
+      # 24.16.0 on 3 November, and ran past them on a runner twice as slow.
+      - name: npm test, but the maps tests
+        run: node --predictable-gc-schedule --conditions=tsverify-source --test $(ls test/*.test.ts | grep -v '^test/maps')
+        timeout-minutes: 15
+
+  maps:
+    # The maps tests (`test/maps*.test.ts`): Nemia's `inheritedLabels` verified, a bug planted against each law it proves, and each
+    # construct against JavaScript. Beside the suite's other files they ran about 3 minutes each on a runner.
+    name: maps tests on node ${{ matrix.node }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['24.16.0', '24']
+    steps:
+      - uses: actions/checkout@v7
+        timeout-minutes: 5
+      - uses: actions/setup-node@v7
+        timeout-minutes: 5
+        with:
+          node-version: ${{ matrix.node }}
+      - run: npm ci
+        timeout-minutes: 10
+      - name: the maps tests
+        run: node --predictable-gc-schedule --conditions=tsverify-source --test test/maps*.test.ts
         timeout-minutes: 15
 
   lint:
@@ -116,7 +142,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     if: always()
-    needs: [test, lint, typecheck, verify]
+    needs: [test, maps, lint, typecheck, verify]
     steps:
       - name: Every job succeeded
         # toJSON(needs) goes through env, never into the shell's text: on a pull request from a fork, what the branch controls must not

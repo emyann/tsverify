@@ -27,7 +27,10 @@ page marks its blocks with comments the reader does not see: `<!-- file: src/cha
 file, and `<!-- run -->` (or `<!-- run, exits 1 -->`) before a block of `$ npx tsverify ...` and its output runs it.
 
 Before you commit, run the typecheck, the lint and the tests. CI runs the same on every push and pull request
-(`.github/workflows/ci.yml`), the tests on the Node floor `engines.node` claims and on the latest 24.
+(`.github/workflows/ci.yml`), the tests on the Node floor `engines.node` claims and on the latest 24. The two maps test
+files (`test/maps.test.ts`, `test/maps-constructs.test.ts`) run there in a job of their own, `maps`, so the `test` job
+stays clear of its 15 minutes on a slow runner: beside the other files they took about 3 minutes each, and alone, one file
+at a time, about 2 minutes together. Locally `npm test` runs them with the rest.
 
 A commit that only changes the layout (a new rule of `oxfmt`, say) goes in `.git-blame-ignore-revs`, so `git blame` looks
 past it. GitHub reads the file by itself; locally, `git config blame.ignoreRevsFile .git-blame-ignore-revs` once.
