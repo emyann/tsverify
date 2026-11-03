@@ -155,10 +155,8 @@ export interface Undecided {
 export interface Options {
   /**
    * The work each query may do, on each side, in the solver's own units (Z3's resource limit, `rlimit`): a count of
-   * its steps, not of seconds, so that a verdict is the same on a fast machine and a slow one, idle or busy, when Node
-   * runs with `--predictable-gc-schedule` as the command runs it (when its terms are freed orders the solver's search).
-   * Not yet of every law: one decided near this limit has been proved on one run and not on the next
-   * (`docs/roadmap.md`, first). `WORK` by default.
+   * its steps, not of seconds, so a verdict is the same on a fast machine and a slow one, idle or busy, as the context
+   * of its own each contract is verified in keeps the order of the solver's search (`ownContext`). `WORK` by default.
    */
   readonly work?: number
   /** The search side's longest array. */
@@ -575,12 +573,16 @@ const undecidedOf = async (
   }
 }
 
+/**
+ * The verdicts of contract `name` of `file`, each the same on every run: the contract is verified in a Z3 context of
+ * its own (`ownContext`), deleted once its verdicts are read, so no contract verified before it changes them.
+ */
 export const verify = async (z3: Ctx, project: Project, file: string, name: string, opts: Options = {}): Promise<Verification> => {
-  if (opts.cache === undefined) return verified(z3, project, file, name, opts)
+  if (opts.cache === undefined) return ownContext(z3, (own) => verified(own, project, file, name, opts))
   const key = contractKey(project, file, name, opts)
   const kept = opts.cache.get(key)
   if (kept !== undefined) return kept
-  const v = await verified(z3, project, file, name, opts)
+  const v = await ownContext(z3, (own) => verified(own, project, file, name, opts))
   opts.cache.set(key, v)
   return v
 }
@@ -1141,8 +1143,7 @@ type Outcome =
 
 /**
  * The work a query may do by default: above the most any query of the suite and of the case study needs to end, 9.7
- * million, by half again. Measured on 5,672 queries; one that does not end stopped at the same step on every run there,
- * though not every query does (`docs/roadmap.md`, first).
+ * million, by half again. Measured on 5,672 queries; one that does not end stops at the same step on every run.
  */
 export const WORK = 15_000_000
 /** A guard against a query that never counts its work: far past what `WORK` takes, and said apart when it is reached. */
@@ -1302,15 +1303,80 @@ const vectorsBy = (u: Universe, solver: { set(key: string, value: number): void 
   if (u.vectors) solver.set("smt.bv.solver", 2)
 }
 
-/** Runs `f` with a fresh Z3 context and frees Z3's worker threads after, so the process can exit. */
-/** A Z3 context to verify many contracts with, and how to let it go: a test opens one before its cases and closes it after. */
-export const openZ3 = async (): Promise<{ readonly z3: Ctx; readonly close: () => Promise<void> }> => {
-  const api = await init()
-  // A character of Z3's strings is 16 bits, a UTF-16 code unit, so a string is JavaScript's (`jsString`).
-  api.setParam("encoding", "bmp")
-  return { z3: api.Context("main"), close: async () => await killThreads(api.em) }
+/**
+ * The contexts a verification runs in (`ownContext`): no finalizer frees what they hold, which goes with the context,
+ * all at once, when the verification ends. z3-solver frees each term when JavaScript collects the object that holds
+ * it, and that moment is not the same on every run, nor always between two queries (a collection's finalizers run as
+ * soon as the main thread waits, and it waits while Z3 solves on a thread of its own). A term freed hands its number to
+ * the next one made, and those numbers order the solver's search: a law decided near its work limit was proved on one
+ * run and not on the next (`docs/design-2026-11-03-maps.md`, *Verdicts*).
+ */
+const owned = new WeakSet()
+/** Set while `openZ3`'s contexts make one for a verification: what is made then, the context first, is its own. */
+let making = false
+const Registry = globalThis.FinalizationRegistry
+/** How many `openZ3` are starting z3-solver: the last to finish puts JavaScript's registry back. */
+let starting = 0
+
+/** z3-solver's finalizers, but for an object of a context a verification owns, which that context frees. */
+class Finalizers<T> {
+  readonly #registry: FinalizationRegistry<T>
+  constructor(free: (held: T) => void) {
+    this.#registry = new Registry<T>(free)
+  }
+  register(target: WeakKey, held: T, token?: WeakKey): void {
+    if (making || owned.has((target as { readonly ctx?: object }).ctx ?? target)) return
+    this.#registry.register(target, held, token)
+  }
+  unregister(token: WeakKey): boolean {
+    return this.#registry.unregister(token)
+  }
 }
 
+/** For a context `openZ3` opened, how to make one beside it that a verification owns, and how to delete it. */
+const owning = new WeakMap<Ctx, () => { readonly ctx: Ctx; readonly free: () => void }>()
+
+/** Runs `f` in a context of its own, made beside `z3` and deleted after; a context `openZ3` did not open, as it is. */
+const ownContext = async <A>(z3: Ctx, f: (own: Ctx) => Promise<A>): Promise<A> => {
+  const make = owning.get(z3)
+  if (make === undefined) return f(z3)
+  const { ctx, free } = make()
+  try {
+    return await f(ctx)
+  } finally {
+    free()
+  }
+}
+
+/**
+ * A Z3 context to verify many contracts with, and how to let it go: a test opens one before its cases and closes it
+ * after. `verify` runs each contract in a context of its own beside it (`ownContext`); `lowerSide` and what reads its
+ * side use this one, whose terms are freed as z3-solver frees them.
+ */
+export const openZ3 = async (): Promise<{ readonly z3: Ctx; readonly close: () => Promise<void> }> => {
+  // z3-solver makes its finalizers once, as it starts: these.
+  if (starting++ === 0) (globalThis as { FinalizationRegistry: unknown }).FinalizationRegistry = Finalizers
+  const api = await init().finally(() => {
+    if (--starting === 0) (globalThis as { FinalizationRegistry: unknown }).FinalizationRegistry = Registry
+  })
+  // A character of Z3's strings is 16 bits, a UTF-16 code unit, so a string is JavaScript's (`jsString`).
+  api.setParam("encoding", "bmp")
+  const z3 = api.Context("main")
+  owning.set(z3, () => {
+    making = true
+    let ctx: Ctx
+    try {
+      ctx = api.Context("main")
+    } finally {
+      making = false
+    }
+    owned.add(ctx)
+    return { ctx, free: () => api.Z3.del_context(ctx.ptr) }
+  })
+  return { z3, close: async () => await killThreads(api.em) }
+}
+
+/** Runs `f` with a fresh Z3 context and frees Z3's worker threads after, so the process can exit. */
 export const withZ3 = async <A>(f: (z3: Ctx) => Promise<A>): Promise<A> => {
   const { z3, close } = await openZ3()
   try {

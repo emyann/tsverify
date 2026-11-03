@@ -2,29 +2,9 @@
 
 In rough order:
 
-- The same verdict on every run. `--work` counts the solver's steps, not seconds, and the command runs Node with
-  `--predictable-gc-schedule`, so that a verdict would hang on neither the machine nor its load; it does not yet.
-  - **Measured** on 3 November, on one machine, with the same flags each time (bound 1, work 5 million):
-    `fixtures/maps.ts`'s `inheritedLabelsLaws`, verified alone four times, each in a process of its own. The first round
-    proved `leftOutNamesEachRun` twice, and it ran out of work twice. `disagreedLeftOut` and `nothingElse` stopped as
-    `canceled`, within seconds, on some runs, and ran to their work limit on others. CI's `maps` job found the same law
-    proved once (`docs/design-2026-11-03-maps.md`, *Verdicts*).
-  - **Ruled out:** the 5-minute query timeout: with it turned off, four runs gave the law a proof twice, and `canceled`
-    stops still came and went. The collector's schedule alone: the flag pins it on every run, and the variance stays.
-  - **Still suspect,** as questions: do the finalizers z3-solver registers free terms at moments that hang on when an
-    asynchronous `check` returns, and so hand out other term numbers? Does the lowering make its terms in an order that
-    differs between runs? Do Z3's own threads in the WASM build, or a seed it takes from outside, change its search?
-    What stops a query as `canceled` within seconds, when neither its work nor its time is spent?
-  - **Until it lands,** what `docs/verdicts.md` (*The command*) and `Options.work` in `src/verify.ts` said, a verdict
-    the same on every run, idle or busy, is seen to hold only where the solver decides a law with work to spare; both
-    now say so. A CI that fails on any law not proved can fail on one run and pass on the next, on a law near the
-    limit: Nemia's contracts job is the first.
-  - **Done** when a test verifies `inheritedLabelsLaws` five times, each in a process of its own as `npx tsverify` runs,
-    and finds the same verdict and the same reason for every law each time; `test/maps.test.ts` then asks
-    `leftOutNamesEachRun` for one verdict again.
 - A loop read key by key, its body read only where a law needs it: the facts the pass at a key brings, said under the
   branch that reads that key's entry, so a later loop that decides the key leaves them aside. Nemia's `inheritedLabels`
-  proves four of its eight laws today, with its first loop's writes unknown; the other four need what that loop writes,
+  proves five of its eight laws today, with its first loop's writes unknown; the other three need what that loop writes,
   and its body read at every key a law reads runs the solver out of work. The search side, at two elements, runs out
   of work on it too, and refutes none of its planted bugs there (`docs/design-2026-11-03-maps.md`, *The limit*).
 - A query stopped at its work limit, said so: Z3 reports some such stops as `canceled`, which a report reads as "out of

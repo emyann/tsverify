@@ -322,16 +322,12 @@ tsverify <file.ts> <export> [--json] [--watch] [--cache] [--cache-location <fold
 | 2 | a usage error: a path that is not there, no file or no contract to verify, no `tsconfig.json` |
 | 3 | the verifier itself failed, which says nothing of the code |
 
-The same code is meant to get the same verdicts on every run, on a fast machine or a slow one, idle or busy. Each
-query may do a set amount of the solver's work, counted in its own steps and not in seconds, and the command runs Node
-with `--predictable-gc-schedule`, so JavaScript frees the solver's terms at the same moments and the solver meets its
-formulas in the same order. A program that calls `verify` itself (`@emyann/tsverify/api`, whose `work` option is `--work`)
-gets the same by starting Node with that flag; `NODE_OPTIONS` refuses it.
-
-It does not hold of every law yet. A law the solver decides with work to spare has read the same on every run measured
-so far; one it decides only near its limit has been proved on one run and `bounded` on the next, on one machine with
-the same flags. Until that is fixed ([What comes next](roadmap.md)), a CI that fails on any law not proved can fail
-on one run and pass on the next, on such a law.
+The same code gets the same verdicts on every run, on a fast machine or a slow one, idle or busy, and whatever was
+verified before it. Each query may do a set amount of the solver's work, counted in its own steps and not in seconds,
+and each contract is verified in a Z3 context of its own, which frees none of the solver's terms until its verdicts are
+read: a term freed hands its number to the next one made, the numbers order the solver's search, and JavaScript frees
+a term when it collects it, which is not at the same moment on every run. A program that calls `verify` itself
+(`@emyann/tsverify/api`, whose `work` option is `--work`) gets the same.
 
 ### Verdicts kept between runs
 

@@ -489,7 +489,7 @@ since the verifier reads its laws, so a project's `tsc` checks it with the proje
   times, so no law of that contract is proved, even one the loop has no part in.
 - **A loop read key by key can cost more than a query's work.** A law that needs what such a loop writes reads the
   loop's body at each key it reads, inside the law's own quantifier; where the body searches arrays of its own, the
-  solver may run out of work. On Nemia's `inheritedLabels`, four of eight laws stay bounded or unknown so
+  solver may run out of work. On Nemia's `inheritedLabels`, three of eight laws stay bounded or unknown so
   (`docs/design-2026-11-03-maps.md`).
 - **What `Effect.try` runs is not read, nor recorded.** Its success is any value of its type; a law sees it through the
   outcome alone.

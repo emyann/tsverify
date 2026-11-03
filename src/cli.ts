@@ -70,10 +70,11 @@ if (unknown !== undefined) {
   process.exit(2)
 }
 
-// The same verdict on every run asks for the same collections of the solver's terms: when JavaScript collects them
-// decides which of their numbers the solver hands out again, and so the order of its search. V8 collects on a schedule
-// of its own only by a flag it takes on its command line alone (`NODE_OPTIONS` refuses it), so the command runs itself
-// again with it, and leaves with what that run leaves with.
+// When JavaScript collects the solver's terms decided which of their numbers the solver hands out again, and so the
+// order of its search, until each contract was verified in a Z3 context of its own that frees no term while it is
+// verified (`ownContext` in ./verify.ts). The command still runs itself again with V8 collecting on a schedule of
+// its own, a flag it takes on its command line alone (`NODE_OPTIONS` refuses it), and leaves with what that run
+// leaves with.
 const STEADY = "--predictable-gc-schedule"
 if (!process.execArgv.includes(STEADY)) {
   const run = spawn(process.execPath, [STEADY, ...process.execArgv, ...process.argv.slice(1)], { stdio: "inherit" })

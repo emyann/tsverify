@@ -1,8 +1,9 @@
 # tsverify: maps the code builds
 
-**Date:** 3 November 2026. **Status:** built on the branch `map-model`, uncommitted. Four of `inheritedLabels`' eight
-laws are proved; the other four, the search side's speed at two elements and the planted bugs it misses there are the
-limit (*The limit*), and the next step is on the roadmap.
+**Date:** 3 November 2026. **Status:** released in 0.6.0; since then, unreleased, each contract is verified in a
+context of its own, so its verdicts are the same on every run (*Verdicts*). Five of `inheritedLabels`' eight laws are
+proved at bound 1; the other three, the search side's speed at two elements and the planted bugs it misses there are
+the limit (*The limit*), and the next step is on the roadmap.
 
 ## The answer in one paragraph
 
@@ -13,10 +14,10 @@ Each is a table: what it held when made, with each write on top. A loop whose pa
 arrays is read whole on the proof side, with no invariant, and one over a list of distinct keys that writes a map at
 its element alone is read key by key. Where a loop is read key by key, each law is asked first with what that loop
 writes left unknown. On Nemia's `inheritedLabels`, copied as written, that first round proves `typedWins`,
-`droppedAtStart`, `cardOverRuns` and `leftOutOnlyDisagreed`: the last needs only what the first loop pushes onto
-`leftOut`, which that round still reads. The four laws about which keys the runs agree on, and what the result holds of
-them, need what the first loop writes to the map, and reading it runs the solver out of work: they stay bounded or
-unknown.
+`droppedAtStart`, `cardOverRuns`, `leftOutOnlyDisagreed` and `leftOutNamesEachRun`: the last two need only what the
+first loop pushes onto `leftOut`, which that round still reads. The three laws about which keys the runs agree on, and
+what the result holds of them, need what the first loop writes to the map, and reading it runs the solver out of work:
+they stay bounded or unknown.
 
 ## Why
 
@@ -112,8 +113,8 @@ proof side of its own:
      query's work. That is why `test/maps-constructs.test.ts` asks the proof side for no wrong count, not for every
      count decided.
 7. **This fixture runs at bound 1, with a third of a query's work** (`test/maps.test.ts`).
-   - At bound 2 the search side runs out of work on every law but the four proved, and refutes none of the planted
-     bugs (*Verdicts*).
+   - At bound 2 the search side runs out of work on every law but the four the first round proves there, and refutes
+     none of the planted bugs (*Verdicts*).
    - With the usual work, the queries that do not end hold enough of Z3's memory, one after another, to exhaust it
      within one process.
    - A third of the work is enough for the four proofs, whose queries end in under 2 s at bound 1.
@@ -140,18 +141,27 @@ Three smaller changes the work showed were needed:
 | `agreedInherited` | bounded | unknown |
 | `disagreedLeftOut` | bounded | unknown |
 | `leftOutOnlyDisagreed` | proved, first round | proved, first round |
-| `leftOutNamesEachRun` | bounded, or proved, first round | unknown |
+| `leftOutNamesEachRun` | proved, first round | unknown |
 | `nothingElse` | unknown | unknown |
 | time, peak memory | 44 s, 1.2 GB | 61 s, 1.2 GB |
 
 The one obligation, a key read (`p.labels[key]`), is proved. No law is refuted on the code as written.
 
-`leftOutNamesEachRun` sits at the work limit, and its verdict at bound 1 is not the same on every run. Run alone four
-times on one machine with the same flags, `--predictable-gc-schedule` among them, the first round proved it twice and
-ran out of work twice; queries stopped as `canceled` on some of those runs and not on others, with the query timeout
-turned off too. CI found it proved once, in the `maps` job. Something besides the collector's schedule orders the
-solver's terms (`docs/roadmap.md`), and a law this close to the limit flips with it. `test/maps.test.ts` asks only
-that none of the four is refuted.
+**The same verdicts on every run.** As released in 0.6.0, `leftOutNamesEachRun` sat at the work limit, and its verdict
+at bound 1 changed from run to run: run alone four times on one machine with the same flags, the first round proved it
+twice and ran out of work twice, and queries stopped as `canceled` on some runs and not on others. Neither the query
+timeout (turned off, the runs still differed) nor V8's collection schedule (pinned by `--predictable-gc-schedule`, and
+by flags that stop it marking in the background, which made it worse) was the cause. z3-solver frees each term from a
+finalizer, when JavaScript collects the object that holds it, and runs it as soon as the main thread waits, which it
+does while Z3 solves on a thread of its own; a term freed hands its number to the next one made, and the numbers order
+the solver's search. With no finalizer at all, four runs agreed; with the finalizers held until the next query, five of
+eight did. Each contract is now verified in a Z3 context of its own, whose objects no finalizer frees: the context is
+deleted with all it holds once the contract's verdicts are read (`ownContext`, `src/verify.ts`). Eight runs alone, two
+beside another test file and four without the flag all gave every law the same verdict and reason, and
+`test/maps-steady.test.ts` asks it of five runs, each in a process of its own, the last after another contract. z3-solver
+has a registry that waits for a running query before it frees, but uses it for a context alone: a term goes to the one
+that frees at once. What reads a side `lowerSide` made, on the context `openZ3` returns, still frees as z3-solver does:
+`test/maps-constructs.test.ts`'s pinned queries do, and the flatMap counts it leaves undecided sit near the limit.
 
 **Two laws that do not hold** (`inheritedLabelsWrong`) are refuted at bound 1: that a typed key is never held, and that
 a key the runs agree on is never held. The first round proves neither. Each counterexample breaks its law when the
@@ -159,7 +169,9 @@ function runs on it.
 
 **Planted bugs,** one against each law proved, each refuted at bound 1 and its counterexample replayed on the planted
 code (and kept by the code as written); at bound 2, with the same work, none is refuted, and with the usual work M1's
-search ran five minutes without counting its work:
+search ran five minutes without counting its work. M5 leaves out a key the runs agree on, named with none of its runs:
+with one run, no key has two values, so a key left out can name its runs wrong only where it should not have been left
+out at all.
 
 | plant | law | bound 1 | bound 2 |
 | --- | --- | --- | --- |
@@ -167,6 +179,7 @@ search ran five minutes without counting its work:
 | M2, `key-` sets the key empty | `droppedAtStart` | caught, 11 s | not caught: search out of work, 8 s |
 | M3, the card's key is given its name | `cardOverRuns` | caught, 13 s | not caught: search out of work, 9 s |
 | M4, a key the runs agree on left out too | `leftOutOnlyDisagreed` | caught, 20 s | not caught: search out of work, 9 s |
+| M5, a key the runs agree on left out, named with none of its runs | `leftOutNamesEachRun` | caught, 10 s | not caught: search out of work, 14 s |
 
 Each construct is checked against JavaScript (`test/maps-constructs.test.ts`). The search side checks every
 construct; the proof side checks those it reads exactly. Each input pins the result, and a wrong one is told apart on
@@ -202,10 +215,9 @@ that do not hold.
 
 ## The limit
 
-1. **Four laws stay bounded or unknown:** `agreedInherited`, `disagreedLeftOut`, `leftOutNamesEachRun`, `nothingElse`.
-   - They need what the first loop writes to the map, or (`leftOutNamesEachRun`) each run's value it pushes, read
-     through the runs again; that one the first round proves on some runs, at the work limit (*Verdicts*). Read key by key, the pass's body is read at each key the law reads, inside the
-     law's own quantifier: `named(key)` (a search of the card's entries and of the edits), the `flatMap` over the runs at
+1. **Three laws stay bounded or unknown:** `agreedInherited`, `disagreedLeftOut`, `nothingElse`.
+   - They need what the first loop writes to the map. Read key by key, the pass's body is read at each key the law
+     reads, inside the law's own quantifier: `named(key)` (a search of the card's entries and of the edits), the `flatMap` over the runs at
      that key, and `values.every`.
    - Its facts sit in every branch of the lookup, including where a later loop decides the key, and the solver runs out
      of work.

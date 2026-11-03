@@ -51,8 +51,9 @@ jobs:
         timeout-minutes: 15
 
   maps:
-    # The maps tests (`test/maps*.test.ts`): Nemia's `inheritedLabels` verified, a bug planted against each law it proves, and each
-    # construct against JavaScript. Beside the suite's other files they ran about 3 minutes each on a runner.
+    # The maps tests (`test/maps*.test.ts`): Nemia's `inheritedLabels` verified, a bug planted against each law it proves, the same
+    # verdicts on five runs, and each construct against JavaScript. Beside the suite's other files they ran about 3 minutes each on a
+    # runner, but the five runs, one after another.
     name: maps tests on node ${{ matrix.node }}
     runs-on: ubuntu-latest
     timeout-minutes: 20

@@ -2,7 +2,10 @@
 // keys listed in JavaScript's order, a `Set` spread and sorted, `.flatMap`, a `Map`'s and a `Set`'s changes, `has`,
 // `get`, `size` and iteration, and a loop read key by key. Each computes what JavaScript computes on the search side, and
 // on the proof side where it reads it exactly; each input pins the result, so a wrong one is told apart on every input.
-// Apart from `maps.test.ts`: in one process with its verifications, Z3's memory would not hold both.
+// Apart from `maps.test.ts`: in one process with its verifications, Z3's memory would not hold both. Its sides are
+// lowered on the context `openZ3` returns, not one of their own as `verify` makes, so z3-solver frees their terms when
+// JavaScript collects them, and a query near the work limit may be decided on one run and not the next
+// (`docs/design-2026-11-03-maps.md`, *Verdicts*).
 import assert from "node:assert/strict"
 import path from "node:path"
 import { after, before, describe, it } from "node:test"

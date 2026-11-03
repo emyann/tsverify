@@ -1,8 +1,9 @@
-// A map the code builds at keys it computes (fixtures/maps.ts): Nemia's `inheritedLabels`, copied as it is written. Four
-// of its laws are proved, by the round that reads what its first loop writes at each key as unknown; the other four are
-// never refuted on the code as written, one of them proved on some runs. Two laws that do not hold are refuted, and a
-// bug planted against each law proved is caught, each counterexample breaking the law when the code runs on it. Each
-// construct it takes is checked against JavaScript on its own, in a process of its own (`maps-constructs.test.ts`).
+// A map the code builds at keys it computes (fixtures/maps.ts): Nemia's `inheritedLabels`, copied as it is written. Five
+// of its laws are proved, by the round that reads what its first loop writes at each key as unknown; the other three are
+// left bounded or unknown, never refuted on the code as written. Two laws that do not hold are refuted, and a bug planted
+// against each law proved is caught, each counterexample breaking the law when the code runs on it. Each construct it
+// takes is checked against JavaScript on its own, in a process of its own (`maps-constructs.test.ts`), and the same
+// verdicts are found on five runs (`maps-steady.test.ts`).
 import assert from "node:assert/strict"
 import { readFileSync, rmSync, writeFileSync } from "node:fs"
 import path from "node:path"
@@ -31,8 +32,8 @@ const lawOf = (v: Verification, name: string): LawResult => {
  * usual work, the queries that do not end hold enough of Z3's memory, one after another, to run it out.
  */
 const SETTINGS = { bound: 1, work: 5_000_000, cover: false } as const
-const PROVED = ["typedWins", "droppedAtStart", "cardOverRuns", "leftOutOnlyDisagreed"] as const
-const OPEN = ["agreedInherited", "disagreedLeftOut", "leftOutNamesEachRun", "nothingElse"] as const
+const PROVED = ["typedWins", "droppedAtStart", "cardOverRuns", "leftOutOnlyDisagreed", "leftOutNamesEachRun"] as const
+const OPEN = ["agreedInherited", "disagreedLeftOut", "nothingElse"] as const
 
 type Start = Parameters<typeof fixture.inheritedLabels>[0]
 type Contract = typeof fixture.inheritedLabelsLaws | typeof fixture.inheritedLabelsWrong
@@ -59,7 +60,7 @@ describe("inheritedLabels, as Nemia writes it", () => {
   })
 
   let v: Verification | undefined
-  it("typedWins, droppedAtStart, cardOverRuns and leftOutOnlyDisagreed are proved, by the round that reads the first loop's writes as unknown", async () => {
+  it("typedWins, droppedAtStart, cardOverRuns, leftOutOnlyDisagreed and leftOutNamesEachRun are proved, by the round that reads the first loop's writes as unknown", async () => {
     v = await verify(z3, project, file, "inheritedLabelsLaws", SETTINGS)
     assert.equal(v.unsupported, undefined)
     for (const name of PROVED) {
@@ -73,13 +74,9 @@ describe("inheritedLabels, as Nemia writes it", () => {
     )
   })
 
-  // `leftOutNamesEachRun` sits at the work limit: the first round proves it on some runs and runs out of work on others,
-  // on one machine with the same flags (`docs/design-2026-11-03-maps.md`, *Verdicts*). What holds on every run is that
-  // none of the four is refuted.
-  it("the other four are never refuted on the code as written: each is bounded or unknown, or proved", () => {
+  it("the other three are never refuted on the code as written: each is bounded or unknown", () => {
     assert.ok(v !== undefined, "verified above")
-    for (const name of OPEN)
-      assert.ok(["bounded", "unknown", "proved"].includes(lawOf(v, name).status), `${name}: ${lawOf(v, name).status}`)
+    for (const name of OPEN) assert.ok(["bounded", "unknown"].includes(lawOf(v, name).status), `${name}: ${lawOf(v, name).status}`)
   })
 
   it("two laws that do not hold are refuted, the round that reads the loop's writes as unknown proving neither", async () => {
@@ -109,6 +106,14 @@ describe("inheritedLabels: a bug planted against each law the first round proves
       law: "leftOutOnlyDisagreed",
       what: "a key the runs agree on left out too",
       change: ["else leftOut.push({ key, values })", "leftOut.push({ key, values })"],
+    },
+    {
+      // One run gives a key no two values, so a key left out names its runs wrong only where one the runs agree on is
+      // left out too: two runs disagreeing would need bound 2.
+      id: "M5",
+      law: "leftOutNamesEachRun",
+      what: "a key the runs agree on left out, named with none of its runs",
+      change: ["else leftOut.push({ key, values })", "leftOut.push({ key, values: values.slice(1) })"],
     },
   ] as const
   for (const p of plants)
