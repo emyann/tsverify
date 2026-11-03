@@ -155,9 +155,10 @@ export interface Undecided {
 export interface Options {
   /**
    * The work each query may do, on each side, in the solver's own units (Z3's resource limit, `rlimit`): a count of
-   * its steps, not of seconds, so a verdict is the same on a fast machine and a slow one, idle or busy, when Node runs
-   * with `--predictable-gc-schedule` as the command runs it (when its terms are freed orders the solver's search).
-   * `WORK` by default.
+   * its steps, not of seconds, so that a verdict is the same on a fast machine and a slow one, idle or busy, when Node
+   * runs with `--predictable-gc-schedule` as the command runs it (when its terms are freed orders the solver's search).
+   * Not yet of every law: one decided near this limit has been proved on one run and not on the next
+   * (`docs/roadmap.md`, first). `WORK` by default.
    */
   readonly work?: number
   /** The search side's longest array. */
@@ -1140,7 +1141,8 @@ type Outcome =
 
 /**
  * The work a query may do by default: above the most any query of the suite and of the case study needs to end, 9.7
- * million, by half again. Measured on 5,672 queries; one that does not end stops at the same step on every run.
+ * million, by half again. Measured on 5,672 queries; one that does not end stopped at the same step on every run there,
+ * though not every query does (`docs/roadmap.md`, first).
  */
 export const WORK = 15_000_000
 /** A guard against a query that never counts its work: far past what `WORK` takes, and said apart when it is reached. */
