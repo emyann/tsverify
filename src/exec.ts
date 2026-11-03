@@ -77,6 +77,7 @@ import {
 import {
   type Env,
   type FunctionNode,
+  type Keyed,
   NUM,
   type Thunk,
   UNDEFINED,
@@ -1738,6 +1739,10 @@ const summarized = (
   // the pass's at that key, where the list holds it (`keyedTable`), and no function of the pass's index is made for it.
   const keyed = arr.keyed !== undefined && bindKey !== undefined ? arr.keyed : undefined
   const byKey = new Set<number>()
+  // On the opaque side (`L.opaqueKeyed`), what a pass writes at its key, by its shape: whether it sets or deletes it, and
+  // of which terms its value is made.
+  type Shape = { readonly held: boolean | undefined; readonly value: ReturnType<typeof packed> }
+  const shapes = new Map<number, Shape>()
   // Every pass, at an index the quantifiers bind: what it obliges, and each of its writes, by the pass's index: whether
   // the pass makes it, at which key, with which value, each a function of the index the pass defines; and that every
   // pass that makes it at a key is at most the last that does (`loopEntry` says that the last does).
@@ -1755,6 +1760,10 @@ const summarized = (
       for (const [c, all] of each.writes) {
         if (element !== undefined && all.length > 0 && all.every((w) => identity(w.key) === element)) {
           byKey.add(c)
+          if (L.opaqueKeyed === true) {
+            const [w] = sameKeyMerged(L, all, s)
+            shapes.set(c, { held: w!.present === undefined ? w!.set : undefined, value: packed(L, w!.value, s, st.store.get(c)!.name) })
+          }
           continue
         }
         const name = st.store.get(c)!.name
@@ -1836,7 +1845,11 @@ const summarized = (
     if (byKey.has(c) && keyed !== undefined && bindKey !== undefined) {
       const list = { ...arr, keyed }
       const passes = new Map<string, Pass>()
+      L.keyed = true
+      const shape = shapes.get(c)
+      const opaque = shape === undefined ? undefined : opaqueWrites(L, cell.name, bounds, keyed, shape)
       const writesAt = (k: Val): ReadonlyArray<Write> => {
+        if (opaque !== undefined) return opaque(k)
         const id = identity(k)
         let p = id === undefined ? undefined : passes.get(id)
         if (p === undefined) {
@@ -1871,6 +1884,43 @@ const summarized = (
     "A loop whose passes only write a map the code built, or push onto an array, is read whole on the proof side: each key holds what the last pass that wrote it wrote, and the array what each pass pushed, in order.",
   )
   return { normal: { ...st, store: after }, returns: [], breaks: [], continues: [] }
+}
+
+/**
+ * What a pass read key by key writes at key `k`, on the opaque side: unknown, a function of the key (and of the indices
+ * open where the loop runs) for whether it writes there, whether it sets the key or deletes it, and each term of the
+ * value it sets. Any write the pass could make is one of these, so a law proved with them holds whatever it writes.
+ */
+const opaqueWrites = (
+  L: Lowering,
+  name: string,
+  bounds: ReadonlyArray<Arith>,
+  keyed: Keyed,
+  shape: { readonly held: boolean | undefined; readonly value: ReturnType<typeof packed> },
+): ((k: Val) => ReadonlyArray<Write>) => {
+  const u = L.u
+  const z3 = u.z3
+  const keySort = keyed.kind === "str" ? z3.String.sort() : keyed.kind === "int" ? z3.Int.sort() : z3.Bool.sort()
+  const ints = bounds.map(() => z3.Int.sort())
+  const fn = u.fresh(`${name}.opaque`)
+  const touched = z3.Function.declare(`${fn}.writes`, ...ints, keySort, z3.Bool.sort())
+  const held = shape.held === undefined ? z3.Function.declare(`${fn}.sets`, ...ints, keySort, z3.Bool.sort()) : undefined
+  const parts = shape.value.terms.map((t, p) => z3.Function.declare(`${fn}.value${p}`, ...ints, keySort, t.sort))
+  u.abstracted = true
+  u.approximations.add(
+    "each key a loop read key by key writes is unknown on the side asked first: whether it is written, and with which value",
+  )
+  return (k) => {
+    if (k.kind !== keyed.kind) return []
+    const key: Expr = k.term
+    const writes = touched.call(...bounds, key)
+    const sets = held === undefined ? z3.Bool.val(shape.held!) : held.call(...bounds, key)
+    const value = shape.value.build(parts.map((f) => f.call(...bounds, key)))
+    return [
+      { cond: z3.And(writes, z3.Not(sets)), key: k, set: false, value: UNDEFINED },
+      { cond: z3.And(writes, sets), key: k, set: true, value },
+    ]
+  }
 }
 
 /**

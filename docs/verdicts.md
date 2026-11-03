@@ -142,6 +142,10 @@ No input the spec allows breaks the law: not of the inputs tried, of every one. 
 bigint. A proof is checked again on the exact side ([How it works](how-it-works.md)), and one that side breaks is
 reported `inconsistent`, never `proved`.
 
+A law proved with what a loop read key by key writes left unknown says so under it: "proved with what a loop read key
+by key writes at each key unknown…". It holds whatever that loop writes ([What it reads](reads.md), *Maps the code
+builds*).
+
 ### ✗ `counterexample`
 
 An input the spec allows breaks the law, and `e.g.` gives it, as the arguments of a call: `cap(-1n, 0n)` is `-1n`. The

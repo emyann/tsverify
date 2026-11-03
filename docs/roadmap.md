@@ -2,6 +2,14 @@
 
 In rough order:
 
+- A loop read key by key, its body read only where a law needs it: the facts the pass at a key brings, said under the
+  branch that reads that key's entry, so a later loop that decides the key leaves them aside. Nemia's `inheritedLabels`
+  proves four of its eight laws today, with its first loop's writes unknown; the other four need what that loop writes,
+  and its body read at every key a law reads runs the solver out of work. The search side, at two elements, runs out
+  of work on it too, and refutes none of its planted bugs there (`docs/design-2026-11-03-maps.md`, *The limit*).
+- A query stopped at its work limit, said so: Z3 reports some such stops as `canceled`, which a report reads as "out of
+  time: the query ran 5 minutes" though it stopped within seconds, so a reader looks at time where `--work` is what to
+  change.
 - The core first, by the published Z3 problems it still refuses (`fixtures/corpus/`): a string's `split` and spread, by
   code units and by code points; `%` and `**` of computed values on `number`; arithmetic that rounds, read as IEEE 754
   rounds it, where it is now only an obligation that it does not.

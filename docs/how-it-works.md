@@ -66,7 +66,7 @@ A counterexample's `where names.get gave ""` is the part of w the model chose.
 | `src/narrow.ts` | a field read where the type checker has narrowed its object: the paths whose value can have the read's type |
 | `src/universe.ts` | the Z3 context, its unknowns (one function per path through arrays), assumptions and quantifier scopes |
 | `src/concrete.ts` | model to JS values (replay), and JS values to constraints (the translator check) |
-| `src/verify.ts` | the queries: laws, vacuity, reachability, the cross-check of every proof, and the loop invariants it guesses |
+| `src/verify.ts` | the queries: laws, vacuity, reachability, the cross-check of every proof, the loop invariants it guesses, and a first ask of each law with a loop's writes unknown, where a loop is read key by key |
 | `src/cache.ts` | the verdicts kept between runs (`--cache`), keyed by the text of every file of a contract's program |
 | `src/computation.ts` | outcomes, traces, operations, and the lowering of a computation's body step by step |
 | `src/adapter.ts`, `src/adapters/` | the adapter interface and the three adapters |

@@ -195,6 +195,10 @@ of keys each once (a `Set`'s, a map's keys, either sorted) that writes a map at 
 a key's entry is what the pass at that key writes, where the list holds the key. A pass reads no map the loop builds;
 such a read is refused, naming it.
 
+Where a loop is read key by key, each law is asked first with what that loop writes at each key unknown, whether it
+writes the key, sets it or deletes it, and with which value. A law that holds whatever the loop writes is proved there,
+and the report says so; one that does not is asked of the loop as it is.
+
 ### Narrowing
 
 A check of a value's tag narrows it, as the type checker narrows it. A union whose members give one field different
@@ -483,6 +487,10 @@ since the verifier reads its laws, so a project's `tsc` checks it with the proje
 - **A loop is taken to end.** An invariant proves what holds if the loop ends; a `while` loop's ending is not proved.
 - **A loop of steps over an array of unknown length bounds its whole contract.** The proof side runs it at most 4
   times, so no law of that contract is proved, even one the loop has no part in.
+- **A loop read key by key can cost more than a query's work.** A law that needs what such a loop writes reads the
+  loop's body at each key it reads, inside the law's own quantifier; where the body searches arrays of its own, the
+  solver may run out of work. On Nemia's `inheritedLabels`, four of eight laws stay bounded or unknown so
+  (`docs/design-2026-11-03-maps.md`).
 - **What `Effect.try` runs is not read, nor recorded.** Its success is any value of its type; a law sees it through the
   outcome alone.
 - **Proof calls run.** `invariant`, `assert` and a lemma's call do nothing, but they are calls, and their arguments are

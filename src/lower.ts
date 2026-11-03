@@ -135,6 +135,13 @@ export interface Lowering extends Typing {
   guessBeside?: boolean
   /** Set when a loop of this side has invariants written. */
   wrote?: boolean
+  /** Set when a loop of this side is read key by key (`keyedTable`): `verify` then asks each law with its writes opaque first. */
+  keyed?: boolean
+  /**
+   * Set on the proof side `verify` asks first where a loop is read key by key: what each pass writes at its key is
+   * unknown, whether it sets the key or deletes it and with which value, so a law proved there holds whatever it writes.
+   */
+  opaqueKeyed?: boolean
   /**
    * Set while code already obliged is read again (a pass of a loop read whole, at an index a read asks about): what it
    * obliges is obliged where it was first read, so it is not obliged again (`quietly`).

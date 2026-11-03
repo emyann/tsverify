@@ -213,6 +213,7 @@ export const lowerSide = (
   trust: Trust = trustOf(readAssumptions(project).forTarget(source.target)),
   guessFrom?: ReadonlySet<string>,
   guessBeside = false,
+  opaqueKeyed = false,
 ): Lowered => {
   const u = new Universe(z3, bound)
   const L = lowering(
@@ -220,6 +221,7 @@ export const lowerSide = (
     adapters,
     trust,
   )
+  if (opaqueKeyed) L.opaqueKeyed = true
   const unguessable = new Set<string>()
   const symbolicArgs = (fn: FunctionNode) => {
     const params = fn.parameters.map((p, i) => (ts.isIdentifier(p.name) ? p.name.text : `arg${i}`))
@@ -626,14 +628,18 @@ const verified = async (z3: Ctx, project: Project, file: string, name: string, o
       proof = lowerSide(z3, project, source, undefined, ADAPTERS, trust, guessing, beside)
       search = lowerSide(z3, project, source, bound, ADAPTERS, trust, guessing, beside)
     }
+    // Where a loop is read key by key, each law is asked first with what it writes at each key unknown (`opaqueWrites`):
+    // what the law needs of it is often nothing, and the loop's body read at every key the law reads is costly.
+    const g = guessing
+    const opaque = proof.L.keyed === true ? () => lowerSide(z3, project, source, undefined, ADAPTERS, trust, g, beside, true) : undefined
     const kept = [...new Set(proof.L.obligations.flatMap((o) => (o.guessed === undefined ? [] : [o.guessed])))]
     if (kept.length > 0 || dropped.length > 0)
       proof.u.notes.add(
         `For a loop${beside ? " with invariants written" : " with no invariant written"}, the verifier guessed each law as an invariant, restated for the elements gone through, and kept ${kept.join(", ") || "none"}${dropped.length > 0 ? `; it dropped ${dropped.join(", ")}, not proved on entry and kept` : ""}.`,
       )
-    return { proof, search }
+    return { proof, search, opaque }
   }
-  let sides: { readonly proof: Lowered; readonly search: Lowered }
+  let sides: { readonly proof: Lowered; readonly search: Lowered; readonly opaque: (() => Lowered) | undefined }
   try {
     trust = trustOf(readAssumptions(project).forTarget(source.target))
     sides = await guessed(false)
@@ -651,7 +657,7 @@ const verified = async (z3: Ctx, project: Project, file: string, name: string, o
       obligations: [],
       unsupported: `the lemma \`${name}\` leans on itself`,
     }
-  const first = await judge(z3, project, file, sides.proof, sides.search, trust, opts)
+  const first = await judge(z3, project, file, sides.proof, sides.search, trust, opts, sides.opaque)
   // Only where it can help: a law left bounded while what is written all holds. A broken invariant keeps its law bounded
   // whatever else is guessed.
   if (
@@ -661,7 +667,7 @@ const verified = async (z3: Ctx, project: Project, file: string, name: string, o
     !first.obligations.every((o) => o.status === "proved")
   )
     return first
-  let beside: { readonly proof: Lowered; readonly search: Lowered }
+  let beside: { readonly proof: Lowered; readonly search: Lowered; readonly opaque: (() => Lowered) | undefined }
   try {
     beside = await guessed(true)
   } catch (e) {
@@ -669,7 +675,7 @@ const verified = async (z3: Ctx, project: Project, file: string, name: string, o
     return first
   }
   // Kept only where it proves more: a guess beside an invariant that fails proves nothing the report should carry.
-  const second = await judge(z3, project, file, beside.proof, beside.search, trust, opts)
+  const second = await judge(z3, project, file, beside.proof, beside.search, trust, opts, beside.opaque)
   const proved = (v: Verification) => v.laws.filter((l) => l.status === "proved").length
   return proved(second) > proved(first) ? second : first
 }
@@ -717,6 +723,24 @@ const returning = (side: Lowered, dying: "judged" | "kept" = "judged"): Bool => 
   return each.length === 0 ? z3.Bool.val(true) : z3.And(...each)
 }
 
+/** What a law proved with a loop's writes unknown says of how it was proved. */
+const OPAQUE =
+  "proved with what a loop read key by key writes at each key unknown, whether it sets the key and with which value: the law holds whatever that loop writes"
+
+/**
+ * The side asked first, lowered for one law, and the law read on it; undefined where either cannot be read: the law is
+ * then asked of the loop as it is.
+ */
+const opaqueLaw = (opaque: () => Lowered, law: Law): { readonly side: Lowered; readonly law: Bool } | undefined => {
+  try {
+    const side = opaque()
+    return { side, law: lawOn(side, law) }
+  } catch (e) {
+    if (e instanceof Unsupported) return undefined
+    throw e
+  }
+}
+
 /** What it says when the two sides disagree: what to do with the input. */
 const DISAGREE =
   "the proof side proved it, and the search side found this input breaking it: one side is wrong, a bug of tsverify. Run the code on the input: if it breaks the law, the proof is wrong; if not, the search side is. Report it with the input"
@@ -730,6 +754,7 @@ export const judge = async (
   search: Lowered,
   trust: Trust,
   opts: Options = {},
+  opaque?: () => Lowered,
 ): Promise<Verification> => {
   const source = proof.source
   const name = source.name
@@ -771,13 +796,20 @@ export const judge = async (
       continue
     }
     const { onProof, onSearch } = r0
-    const proved = await solve(proof, [proof.pre, proofRuns, z3.Not(onProof)], opts)
+    // Asked first with what a loop read key by key writes unknown, on a side of its own that reads this law alone; a law
+    // that does not hold there is asked of the loop as it is.
+    const alone = opaque === undefined ? undefined : opaqueLaw(opaque, law)
+    const first =
+      alone === undefined ? undefined : await solve(alone.side, [alone.side.pre, returning(alone.side), z3.Not(alone.law)], opts)
+    const byOpaque = first?.status === "unsat"
+    const proved = byOpaque ? first : await solve(proof, [proof.pre, proofRuns, z3.Not(onProof)], opts)
     // A proof that holds only of the inputs a truncated loop keeps to is no proof; read after the law, which may run it.
+    const truncated = byOpaque ? alone!.side.u.truncated : proof.u.truncated
     const untrusted =
       leaning ??
-      (proof.u.truncated === undefined
+      (truncated === undefined
         ? undefined
-        : `proved only of the inputs that run no loop longer: ${proof.u.truncated}; no counterexample with arrays of at most ${bound} elements`)
+        : `proved only of the inputs that run no loop longer: ${truncated}; no counterexample with arrays of at most ${bound} elements`)
     let r: Omit<LawResult, "name" | "ms">
     if (proved.status === "unsat" && untrusted === undefined) {
       // A proof of a law no result could break is a proof of nothing about the function. A result that breaks it on the
@@ -789,7 +821,9 @@ export const judge = async (
       r =
         breakable?.status === "unsat"
           ? { status: "vacuous", reason: "no result breaks it, whatever the function returns: it says nothing of the function" }
-          : { status: "proved" }
+          : byOpaque
+            ? { status: "proved", reason: OPAQUE }
+            : { status: "proved" }
     } else if (proved.status === "sat" && !proof.u.abstracted) r = { status: "counterexample", ...proved.witness }
     else {
       const found = await solve(search, [search.pre, searchRuns, z3.Not(onSearch)], opts)
