@@ -440,21 +440,25 @@ const conflictsAt = async (
   limited(solver, (opts.work ?? WORK) / 10)
   vectorsBy(u, solver)
   for (const a of [...u.assumptions, ...side.L.hints, side.pre, ...pins]) solver.add(a)
-  // The input itself must be one the model keeps, or every set of laws would read as conflicting.
-  if ((await solver.check()) !== "sat") return []
-  const marks = each.map(({ name, holds }, k) => {
-    const mark = z3.Bool.const(`meets#${k}`)
-    solver.add(z3.Implies(mark, holds))
-    return { name, mark }
-  })
-  if ((await solver.check(...marks.map((m) => m.mark))) !== "unsat") return []
-  const core = new Set([...solver.unsatCore().values()].map((b) => b.id()))
-  let kept = marks.filter((m) => core.has(m.mark.id()))
-  for (const m of kept) {
-    const without = kept.filter((k) => k !== m)
-    if (without.length > 0 && (await solver.check(...without.map((k) => k.mark))) === "unsat") kept = without
+  try {
+    // The input itself must be one the model keeps, or every set of laws would read as conflicting.
+    if ((await solver.check()) !== "sat") return []
+    const marks = each.map(({ name, holds }, k) => {
+      const mark = z3.Bool.const(`meets#${k}`)
+      solver.add(z3.Implies(mark, holds))
+      return { name, mark }
+    })
+    if ((await solver.check(...marks.map((m) => m.mark))) !== "unsat") return []
+    const core = new Set([...solver.unsatCore().values()].map((b) => b.id()))
+    let kept = marks.filter((m) => core.has(m.mark.id()))
+    for (const m of kept) {
+      const without = kept.filter((k) => k !== m)
+      if (without.length > 0 && (await solver.check(...without.map((k) => k.mark))) === "unsat") kept = without
+    }
+    return kept.map((m) => m.name)
+  } finally {
+    solver.release()
   }
-  return kept.map((m) => m.name)
 }
 
 /** A closed part of a result: a value of a few literal cases, or whether the result is `undefined` or `null`, read where `present`. */
@@ -543,20 +547,24 @@ const undecidedOf = async (
     limited(solver, opts.work ?? WORK)
     vectorsBy(u, solver)
     for (const f of [...u.assumptions, ...L.hints, side.pre, ...keeps, z3.Or(...differs)]) solver.add(f)
-    if ((await solver.check()) !== "sat") return undefined
-    const model = solver.model()
-    const at = differs.findIndex((d) => z3.isTrue(model.eval(d, true)))
-    const differ = a.parts[at]?.path ?? "output"
     try {
-      return {
-        differ,
-        args: side.params.map((p) => fromModel(u, model, p)),
-        results: [ended(fromModel(u, model, a.root)), ended(fromModel(u, model, b.root))],
+      if ((await solver.check()) !== "sat") return undefined
+      const model = solver.model()
+      const at = differs.findIndex((d) => z3.isTrue(model.eval(d, true)))
+      const differ = a.parts[at]?.path ?? "output"
+      try {
+        return {
+          differ,
+          args: side.params.map((p) => fromModel(u, model, p)),
+          results: [ended(fromModel(u, model, a.root)), ended(fromModel(u, model, b.root))],
+        }
+      } catch (e) {
+        // Found, and too long to show: still undecided.
+        if (e instanceof TooLong) return { differ, reason: `the input holds ${e.message}; too long to show` }
+        throw e
       }
-    } catch (e) {
-      // Found, and too long to show: still undecided.
-      if (e instanceof TooLong) return { differ, reason: `the input holds ${e.message}; too long to show` }
-      throw e
+    } finally {
+      solver.release()
     }
   } catch (e) {
     if (e instanceof Unsupported || e instanceof TooLong) return undefined
@@ -1134,9 +1142,17 @@ export const solve = async (
     const status = await solver.check()
     return { status, solver }
   }
+  // Each solver is let go once read: one that ran out of work holds much of the memory Z3 may use, until collected.
   const first = await run([])
-  if (first.status === "unsat") return { status: "unsat" }
-  if (first.status === "unknown") return { status: "unknown", reason: unknownWhy(first.solver.reasonUnknown()) }
+  if (first.status === "unsat") {
+    first.solver.release()
+    return { status: "unsat" }
+  }
+  if (first.status === "unknown") {
+    const reason = unknownWhy(first.solver.reasonUnknown())
+    first.solver.release()
+    return { status: "unknown", reason }
+  }
   // A model may pick a huge array or dictionary; ask again with short ones, which narrows the same formula. A `Map`'s
   // or a `Set`'s count is left as it is: bounding it can cost the query its time, and its model is read back whole.
   const counts = new Set(["#len", "#own"])
@@ -1145,7 +1161,10 @@ export const solve = async (
     .map((l) => (l.constant as Arith).le(8))
   const small = short.length > 0 && u.bound === undefined ? await run(short) : undefined
   const model = small?.status === "sat" ? small.solver.model() : first.solver.model()
-  return { status: "sat", witness: witness(side, model) }
+  const found = witness(side, model)
+  first.solver.release()
+  small?.solver.release()
+  return { status: "sat", witness: found }
 }
 
 /** An outcome as it ended: its value on a success, its error on a failure, not both (the model holds both). */
@@ -1223,6 +1242,7 @@ export const disagreements = async (
     vectorsBy(u, solver)
     for (const a of [...u.assumptions, ...pins, z3.Not(strictEq(u, result, valueOf(u, want), side.fn))]) solver.add(a)
     const status = await solver.check()
+    solver.release()
     if (status !== "unsat") out.push({ args, expected: want, status })
   }
   return out
