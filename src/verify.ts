@@ -1250,11 +1250,11 @@ export const disagreements = async (
 
 const valueOf = (u: Universe, want: unknown): Val => {
   if (want === null || want === undefined) return { kind: "nullish", which: want === null ? "null" : "undefined" }
+  if (typeof want === "number") return num(u.z3, want)
   const term = literal(u, want) as never
   if (typeof want === "string") return { kind: "str", term }
   if (typeof want === "boolean") return { kind: "bool", term }
   if (typeof want === "bigint") return { kind: "int", origin: "bigint", term }
-  if (typeof want === "number") return num(u.z3, want)
   throw new Error(`cannot compare a result of type ${typeof want}`)
 }
 

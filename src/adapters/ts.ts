@@ -7,7 +7,8 @@ import ts from "typescript"
 import type { Arith } from "z3-solver"
 import { type Adapter, packageExport } from "../adapter.ts"
 import { emptyEnv, later, lowerExpr } from "../lower.ts"
-import { collectionOf } from "../collections.ts"
+import { tableMethods } from "../collections.ts"
+import { emptyTable, fromTable, mapValue } from "../maps.ts"
 import { Unsupported, type Val, jsString, lazyRecord } from "../value.ts"
 
 const isLib = (checker: ts.TypeChecker, node: ts.Node, name: string): boolean => {
@@ -69,8 +70,8 @@ export const tsAdapter: Adapter = {
 }
 
 /**
- * `new Set(elements?)` and `new Map(pairs?)` of an array the code holds: read through `has` and `get` (`collectionOf`),
- * a map's key its last pair's, as the constructor keeps it.
+ * `new Set(elements?)` and `new Map(pairs?)` of an array the code holds: a map the code may change, read through `has`,
+ * `get` and `size`, and listed (`maps.ts`), a key's value its last pair's, as the constructor keeps it.
  */
 const builtCollection = (
   L: Parameters<NonNullable<Adapter["expr"]>>[0],
@@ -82,17 +83,25 @@ const builtCollection = (
   const args = e.arguments ?? []
   if (args.length > 1) throw new Unsupported(`\`new ${kind}\` of more than one argument`, e)
   const from = args[0] === undefined ? undefined : lowerExpr(L, args[0], env)
-  if (from === undefined || from.kind === "nullish")
-    return collectionOf(L, kind, { length: z3.Int.val(0), maxSize: 0, key: () => ({ kind: "nullish", which: "undefined" }) }, e)
+  if (from === undefined || from.kind === "nullish") return mapValue(emptyTable(L, kind, e), tableMethods)
   if (from.kind !== "array") throw new Unsupported(`\`new ${kind}\` of a ${from.kind}: of an array it is read`, e)
-  const bound = from.maxSize === undefined ? {} : { maxSize: from.maxSize }
-  if (kind === "Set") return collectionOf(L, kind, { length: from.length, ...bound, key: from.elem }, e)
+  if (kind === "Set") return mapValue(fromTable(L, kind, from, from.elem, undefined, e), tableMethods)
   const part = (i: Arith, k: number): Val => {
     const pair = from.elem(i)
     if (pair.kind !== "array") throw new Unsupported(`\`new Map\` of an array of ${pair.kind}s: of pairs it is read`, e)
     return pair.elem(z3.Int.val(k))
   }
-  return collectionOf(L, kind, { length: from.length, ...bound, key: (i) => part(i, 0), value: (i) => part(i, 1), lastWins: true }, e)
+  return mapValue(
+    fromTable(
+      L,
+      kind,
+      from,
+      (i) => part(i, 0),
+      (i) => part(i, 1),
+      e,
+    ),
+    tableMethods,
+  )
 }
 
 /** `new C(message?)` for an `Error` subclass of the program whose members are fields with initializers. */

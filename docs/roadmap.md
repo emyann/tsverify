@@ -7,14 +7,12 @@ In rough order:
   rounds it, where it is now only an obligation that it does not.
 - Checks on a spec alone, before any code: whether the laws decide every input, whether some input has no answer at
   all, and whether linked specs agree (`docs/design-2026-11-01-spec-checks.md`, proposed for 0.5.0).
-- Folds on the proof side: `.join` and `.flatMap`, known there only of none or one element, and `.filter`'s count,
-  only none or some, so their laws are bounded; a fold read by induction over the array, as a loop is read through its
-  invariants.
+- Folds on the proof side: `.join`, known there only of none or one element, and `.filter`'s count, only none or some,
+  so their laws are bounded; a fold read by induction over the array, as a loop is read through its invariants.
 - A `requires` that leaves out a path, found where it is written: the ends of a result say so today (`reaches:`, an end
   `unreachable`), for a union of strings or of records told apart by a tag; the same of each branch of the code.
-- Collections the code changes: `Map.set`, `Set.add` and `delete` on a map the function allocated, its `size` and its
-  iteration, by the keys it holds; `Object.keys` of a record whose type names its fields, where the record is one the
-  code built.
+- `Object.keys` of a record whose type names its fields, where the record is one the code built; a `Map` or a `Set` the
+  code is given, changed after it is copied (`new Map(given)`).
 - A function the code is given, declared pure where a spec says so: the same value for the same arguments, so a law can
   say what two calls of it give, as it can of a declaration's.
 - A query's work, smaller: each number the loops keep whole by construction (a counter) is held as an integer; the rest

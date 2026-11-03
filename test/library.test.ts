@@ -35,10 +35,13 @@ describe("what the lowering reads of the library", () => {
   it("is every name of its lists, each a call", () => {
     assert.equal(calls.length, ARRAY_METHODS.length + STRING_METHODS.length + LIBRARY_FUNCTIONS.length)
   })
-  it("changes nothing, by the purity check: an array's `reverse` alone changes its array", () => {
+  it("changes nothing, by the purity check: an array's `reverse` and `sort` alone change their array", () => {
     const said = calls.map(({ call, callee }) => [callee.getText(), methodCall(project.checker, callee, call.arguments).does])
     const changes = said.filter(([, does]) => does !== "nothing" && does !== "call")
-    assert.deepEqual(changes, [["xs.reverse", "change"]])
+    assert.deepEqual(changes, [
+      ["xs.reverse", "change"],
+      ["xs.sort", "change"],
+    ])
   })
   it("is named in docs/reads.md", () => {
     const docs = readFileSync(path.join(root, "docs/reads.md"), "utf8")

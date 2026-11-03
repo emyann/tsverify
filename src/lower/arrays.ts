@@ -9,6 +9,7 @@ import { type Lowering, bool, later, lowerCall, lowerExpr, member, optionally } 
 import { atIndex, indexOf, relativePosition, shown } from "./strings.ts"
 import { PROTO, dictionaryRead } from "./records.ts"
 import { fresh } from "./numbers.ts"
+import { elementsOf } from "../collections.ts"
 
 const K = ts.SyntaxKind
 
@@ -151,6 +152,8 @@ export const ARRAY_METHODS = [
   "find",
   "toReversed",
   "reverse",
+  "toSorted",
+  "sort",
   "slice",
   "some",
   "every",
@@ -280,6 +283,17 @@ export const arrayMethod = (L: Lowering, arr: Extract<Val, { kind: "array" }>, n
         ...(arr.maxSize === undefined ? {} : { maxSize: arr.maxSize }),
       }
     }
+    case "toSorted":
+    case "sort": {
+      if (e.arguments.length > 0)
+        throw new Unsupported(`\`.${name}\` with a comparison is not modeled: \`.${name}()\` of strings is, by their UTF-16 code units`, e)
+      if (name === "sort" && !fresh(e))
+        throw new Unsupported(
+          "`.sort()` changes the array it is called on, which is read only of a copy made there: write `[...xs].sort()` or `xs.toSorted()`",
+          e,
+        )
+      return sorted(L, arr, e)
+    }
     case "slice":
       return slice(
         L,
@@ -385,11 +399,7 @@ export const arrayMethod = (L: Lowering, arr: Extract<Val, { kind: "array" }>, n
           }),
         }
       }
-      const out = symbolicOf(L, L.checker.getTypeAtLocation(e), [u.fresh("flatMapped")], u.openBounds(), e)
-      if (out.kind !== "array") throw new Unsupported("`.flatMap` whose result is no array", e)
-      u.assume(z3.Implies(arr.length.eq(0), out.length.eq(0)), u.openBounds())
-      folded("as empty when the array is")
-      return out
+      return flatExact(L, arr.length, segment)
     }
     case "filter": {
       // The kept elements, in order. Written out (the search side, and an array of known bound), exactly: element k is
@@ -447,6 +457,142 @@ export const arrayMethod = (L: Lowering, arr: Extract<Val, { kind: "array" }>, n
       return { kind: "array", length: count, ...bounds, elem: memoElems((k) => arr.elem(positionOf(k))) }
     }
   }
+}
+
+/**
+ * `arr`'s strings in ascending order of their UTF-16 code units, as `.sort()` puts them with no comparison (the order Z3
+ * holds strings in, `str.<=`): element `j` is `arr`'s element `σ(j)`, `σ` a permutation of its places, and each is at
+ * most the next. Written out on the search side, `σ` a place for each element below the bound; on the proof side, a
+ * function with its inverse.
+ */
+const sorted = (L: Lowering, arr: Extract<Val, { kind: "array" }>, at: ts.Node): Val => {
+  const u = L.u
+  const z3 = u.z3
+  const n = arr.length
+  const bounds = u.openBounds()
+  const name = u.fresh("sorted")
+  const str = (v: Val): Extract<Val, { kind: "str" }>["term"] => {
+    if (v.kind !== "str") throw new Unsupported(`\`.sort()\` of an array of ${v.kind}s: of strings it is read`, at)
+    return v.term
+  }
+  const written = arr.maxSize ?? u.bound
+  if (written !== undefined) {
+    const place = Array.from({ length: written }, (_, j) => u.leaf([name, `[${j}]`, "$"], "int", bounds, "count") as never as Arith)
+    const facts: Array<Bool> = []
+    for (let j = 0; j < written; j++) {
+      const inside = z3.Int.val(j).lt(n)
+      facts.push(z3.Implies(inside, z3.And(place[j]!.ge(0), place[j]!.lt(n))))
+      for (let k = 0; k < j; k++) facts.push(z3.Implies(inside, z3.Not(place[k]!.eq(place[j]!))))
+      if (j > 0) facts.push(z3.Implies(inside, str(arr.elem(place[j - 1]!)).le(str(arr.elem(place[j]!)))))
+    }
+    u.assume(z3.And(...facts), bounds)
+    return {
+      kind: "array",
+      length: n,
+      maxSize: written,
+      ...(arr.keyed === undefined ? {} : { keyed: arr.keyed }),
+      elem: memoElems((j) => {
+        if (written === 0) return arr.elem(j)
+        if (z3.isIntVal(j)) {
+          const k = Number(j.value())
+          return arr.elem(place[k >= 0 && k < written ? k : written - 1]!)
+        }
+        let v = arr.elem(place[written - 1]!)
+        for (let k = written - 2; k >= 0; k--) v = ite(u, j.eq(k), arr.elem(place[k]!), v, at)
+        return v
+      }),
+    }
+  }
+  const ints = Array.from({ length: bounds.length + 1 }, () => z3.Int.sort())
+  const sigma = z3.Function.declare(`${name}.from`, ...ints, z3.Int.sort())
+  const tau = z3.Function.declare(`${name}.to`, ...ints, z3.Int.sort())
+  const from = (j: Arith): Arith => sigma.call(...bounds, j)
+  const to = (i: Arith): Arith => tau.call(...bounds, i)
+  const j = z3.Int.const(u.fresh("sorted.j"))
+  u.assume(z3.ForAll([j], z3.Implies(z3.And(j.ge(0), j.lt(n)), z3.And(from(j).ge(0), from(j).lt(n), to(from(j)).eq(j)))), bounds)
+  const i = z3.Int.const(u.fresh("sorted.i"))
+  u.assume(z3.ForAll([i], z3.Implies(z3.And(i.ge(0), i.lt(n)), z3.And(to(i).ge(0), to(i).lt(n), from(to(i)).eq(i)))), bounds)
+  // Of any two places, not of neighbours (`flatExact` says why).
+  const a = z3.Int.const(u.fresh("sorted.a"))
+  const b = z3.Int.const(u.fresh("sorted.b"))
+  // What is known of the elements read is said beside the order, as `elementwise` says it.
+  const outer = u.within(a, () => {
+    const x = str(arr.elem(from(a)))
+    const inner = u.within(b, () => x.le(str(arr.elem(from(b)))))
+    const later = z3.And(b.gt(a), b.lt(n))
+    return z3.And(
+      ...(inner.facts.length === 0 ? [] : [z3.ForAll([b], z3.Implies(later, z3.And(...inner.facts)))]),
+      z3.ForAll([b], z3.Implies(z3.And(later, ...inner.facts), inner.result)),
+    )
+  })
+  const placed = z3.And(a.ge(0), a.lt(n))
+  if (outer.facts.length > 0) u.assume(z3.ForAll([a], z3.Implies(placed, z3.And(...outer.facts))), bounds)
+  u.assume(z3.ForAll([a], z3.Implies(z3.And(placed, ...outer.facts), outer.result)), bounds)
+  // The same keys, each still once.
+  return { kind: "array", length: n, elem: memoElems((x) => arr.elem(from(x))), ...(arr.keyed === undefined ? {} : { keyed: arr.keyed }) }
+}
+
+/**
+ * The elements of `n` arrays one after another, as `.flatMap` joins its callback's, read by where each comes from: the
+ * proof side's, of any length. Element `j` is element `off(j)` of the array `src(j)`, and element `q` of array `i` is
+ * at `pos(i, q)`, each the other's inverse; the pairs rise with `j`. So the list is the arrays' elements, each once, in
+ * order: exactly what JavaScript joins, its length their count.
+ */
+export const flatExact = (
+  L: Lowering,
+  n: Arith,
+  segment: (i: Arith) => Extract<Val, { kind: "array" }>,
+): Extract<Val, { kind: "array" }> => {
+  const u = L.u
+  const z3 = u.z3
+  const bounds = u.openBounds()
+  const name = u.fresh("flat")
+  const ints = (k: number) => Array.from({ length: bounds.length + k }, () => z3.Int.sort())
+  const src = z3.Function.declare(`${name}.src`, ...ints(1), z3.Int.sort())
+  const off = z3.Function.declare(`${name}.off`, ...ints(1), z3.Int.sort())
+  const pos = z3.Function.declare(`${name}.pos`, ...ints(2), z3.Int.sort())
+  const S = (j: Arith): Arith => src.call(...bounds, j)
+  const O = (j: Arith): Arith => off.call(...bounds, j)
+  const P = (i: Arith, q: Arith): Arith => pos.call(...bounds, i, q)
+  const length = u.leaf([name, "#len"], "int", bounds, "count") as never as Arith
+  u.assume(length.ge(0), bounds)
+  // Each element is an element of one of the arrays, and is where that element is placed.
+  // Which array it comes from is said of every element outright; what is known of that array's elements, beside, as
+  // `elementwise` says it: under them alone, a model could break them and void the rest.
+  const j = z3.Int.const(u.fresh("flat.j"))
+  const inFlat = z3.And(j.ge(0), j.lt(length))
+  u.assume(z3.ForAll([j], z3.Implies(inFlat, z3.And(S(j).ge(0), S(j).lt(n)))), bounds)
+  const from = u.within(j, () => {
+    const seg = segment(S(j))
+    return z3.And(O(j).ge(0), O(j).lt(seg.length), P(S(j), O(j)).eq(j))
+  })
+  if (from.facts.length > 0) u.assume(z3.ForAll([j], z3.Implies(inFlat, z3.And(...from.facts))), bounds)
+  u.assume(z3.ForAll([j], z3.Implies(z3.And(inFlat, ...from.facts), from.result)), bounds)
+  // Each element of each array is placed, there.
+  const i = z3.Int.const(u.fresh("flat.i"))
+  const q = z3.Int.const(u.fresh("flat.q"))
+  const each = u.within(i, () => segment(i).length)
+  if (each.facts.length > 0) u.assume(z3.ForAll([i], z3.Implies(z3.And(i.ge(0), i.lt(n)), z3.And(...each.facts))), bounds)
+  const p = P(i, q)
+  u.assume(
+    z3.ForAll(
+      [i, q],
+      z3.Implies(
+        z3.And(i.ge(0), i.lt(n), q.ge(0), q.lt(each.result), ...each.facts),
+        z3.And(p.ge(0), p.lt(length), S(p).eq(i), O(p).eq(q)),
+      ),
+    ),
+    bounds,
+  )
+  // In order: by array, then by place in it. Said of any two places, not of neighbours: `k - 1` inside a function
+  // the solver matches on would make it read `k - 2`, and so on without end.
+  const a = z3.Int.const(u.fresh("flat.a"))
+  const b = z3.Int.const(u.fresh("flat.b"))
+  u.assume(
+    z3.ForAll([a, b], z3.Implies(z3.And(a.ge(0), a.lt(b), b.lt(length)), z3.Or(S(a).lt(S(b)), z3.And(S(a).eq(S(b)), O(a).lt(O(b)))))),
+    bounds,
+  )
+  return { kind: "array", length, elem: memoElems((x) => segment(S(x)).elem(O(x))) }
 }
 
 /**
@@ -531,10 +677,12 @@ export const arrayLiteral = (L: Lowering, e: ts.ArrayLiteralExpression, env: Env
     const items = e.elements.map((x) => later(L, () => lowerExpr(L, x, env)))
     // Past its end the array holds nothing; it is read there only on a path that does not happen (`.find` found
     // nothing in it, a loop's iteration beyond it), where any value of its element type stands in.
-    const t = L.checker.getContextualType(e) ?? L.checker.getTypeAtLocation(e)
-    const elementType = L.checker.isArrayType(L.checker.getNonNullableType(t))
-      ? L.checker.getTypeArguments(L.checker.getNonNullableType(t) as ts.TypeReference)[0]
-      : undefined
+    // Its element type: what its place expects, else its own (`[x]` returned where `T | T[]` is expected).
+    const arrayOf = (t: ts.Type | undefined): ts.Type | undefined => {
+      const n = t === undefined ? undefined : L.checker.getNonNullableType(t)
+      return n !== undefined && L.checker.isArrayType(n) ? L.checker.getTypeArguments(n as ts.TypeReference)[0] : undefined
+    }
+    const elementType = arrayOf(L.checker.getContextualType(e)) ?? arrayOf(L.checker.getTypeAtLocation(e))
     const beyond = new Map<string, Val>()
     const past = (i: Arith): Val => {
       if (elementType === undefined || elementType.flags & ts.TypeFlags.Never) return UNDEFINED
@@ -566,7 +714,9 @@ export const arrayLiteral = (L: Lowering, e: ts.ArrayLiteralExpression, env: Env
   type Part = { readonly item: Val } | { readonly spread: Extract<Val, { kind: "array" }> }
   const parts = e.elements.map((x): Part => {
     if (!ts.isSpreadElement(x)) return { item: lowerExpr(L, x, env) }
-    const v = lowerExpr(L, x.expression, env)
+    const read = lowerExpr(L, x.expression, env)
+    // A `Set`'s keys, a `Map`'s pairs, of one the code built.
+    const v = read.kind === "record" && read.table !== undefined ? elementsOf(L, read.table, x) : read
     if (v.kind !== "array") throw new Unsupported(`a spread of a ${v.kind} into an array is not modeled`, x)
     return { spread: v }
   })
@@ -584,10 +734,14 @@ export const arrayLiteral = (L: Lowering, e: ts.ArrayLiteralExpression, env: Env
       maxSize = maxSize === undefined || m === undefined ? undefined : maxSize + m
     }
   }
+  // A spread alone copies its keys, each still once.
+  const only = parts.length === 1 ? parts[0]! : undefined
+  const keyed = only !== undefined && "spread" in only ? only.spread.keyed : undefined
   return {
     kind: "array",
     length,
     ...(maxSize === undefined ? {} : { maxSize }),
+    ...(keyed === undefined ? {} : { keyed }),
     elem: memoElems((i) => {
       // Element i is the part's whose range holds it: below the next part's offset, and not in an earlier part.
       const here = (k: number): Val => {

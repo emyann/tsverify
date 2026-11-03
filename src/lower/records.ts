@@ -3,10 +3,11 @@ import ts from "typescript"
 import type { Arith, Bool } from "z3-solver"
 import { isNullish, ite, strictEq } from "../ops.ts"
 import { type Env, type Thunk, UNDEFINED, Unsupported, type Val, jsString, lazyRecord, locate, memoElems } from "../value.ts"
-import { type Lowering, bool, later, lowerExpr } from "../lower.ts"
+import { type Lowering, bool, later, lowerExpr, oblige } from "../lower.ts"
 import { unwrapParens } from "./numbers.ts"
 import { shown } from "./strings.ts"
 import { propertyKey } from "./patterns.ts"
+import { type Table, emptyTable, givenTable, mapValue, written } from "../maps.ts"
 
 /** What `Object.prototype` holds, which a plain object finds under any key it does not hold itself. */
 export const PROTO = [
@@ -58,7 +59,7 @@ export const dictionaryRead = (L: Lowering, d: Extract<Val, { kind: "record" }>,
     if (L.mode === "spec" && L.defined !== undefined) L.defined.push(z3.Implies(L.guard, goal))
     else {
       const where = locate(at)
-      L.obligations.push({
+      oblige(L, {
         key: `key@${where}#here`,
         kind: "key",
         text: at.getText(),
@@ -142,6 +143,8 @@ const requiredKey = (checker: ts.TypeChecker, type: ts.Type, name: string): bool
 export const objectLiteral = (L: Lowering, e: ts.ObjectLiteralExpression, env: Env): Val => {
   const { u } = L
   const z3 = u.z3
+  const asMap = mapLiteral(L, e, env)
+  if (asMap !== undefined) return asMap
   type Part = { readonly key: string; readonly value: Thunk } | { readonly spread: Thunk; readonly node: ts.Node }
   const parts: Array<Part> = e.properties.map((p): Part => {
     if (ts.isPropertyAssignment(p)) return { key: propertyKey(p.name), value: later(L, () => lowerExpr(L, p.initializer, env)) }
@@ -228,6 +231,45 @@ export const objectLiteral = (L: Lowering, e: ts.ObjectLiteralExpression, env: E
     ),
   })
   return { ...record, own } as Val
+}
+
+/** Whether `t` is a dictionary's type, `Record<string, T>`: keyed by any string, with no property of its own. */
+export const isDictionaryType = (checker: ts.TypeChecker, t: ts.Type): boolean =>
+  checker.getIndexInfosOfType(t).some((info) => (info.keyType.flags & ts.TypeFlags.String) !== 0) &&
+  checker.getPropertiesOfType(t).length === 0 &&
+  t.getCallSignatures().length === 0
+
+/**
+ * An object literal written where a dictionary is expected (`const out: Record<string, string> = {}`): a map the code may
+ * write at keys it computes (`maps.ts`). It holds what a spread first in it holds (a dictionary it was given, or a map it
+ * built), then each property written, in order. Any other spread is read as an object literal is.
+ */
+const mapLiteral = (L: Lowering, e: ts.ObjectLiteralExpression, env: Env): Val | undefined => {
+  const z3 = L.u.z3
+  const expected = L.checker.getContextualType(e)
+  if (expected === undefined || !isDictionaryType(L.checker, L.checker.getNonNullableType(expected))) return undefined
+  const [first, ...rest] = e.properties
+  let t: Table = emptyTable(L, "object", e)
+  const props = first !== undefined && ts.isSpreadAssignment(first) ? rest : e.properties
+  if (first !== undefined && ts.isSpreadAssignment(first)) {
+    const v = lowerExpr(L, first.expression, env)
+    const from =
+      v.kind === "record" ? (v.table ?? (v.entries !== undefined && v.own !== undefined ? givenTable(L, v, first) : undefined)) : undefined
+    if (from === undefined) return undefined
+    t = from
+  }
+  const parts = props.map((p) =>
+    ts.isPropertyAssignment(p)
+      ? { key: propertyKey(p.name), value: p.initializer, at: p }
+      : ts.isShorthandPropertyAssignment(p)
+        ? { key: p.name.text, value: p.name, at: p }
+        : undefined,
+  )
+  for (const p of parts) {
+    if (p === undefined) return undefined
+    t = written(t, z3.Bool.val(true), { kind: "str", term: jsString(z3, p.key) }, true, lowerExpr(L, p.value, env), p.at, p.key)
+  }
+  return mapValue(t)
 }
 
 /** A list of values the code wrote, as an array literal holds them; past its end, `past` (read on no run that happens). */

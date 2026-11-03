@@ -7,6 +7,7 @@
 // lazily, so a field the code never reads is never modeled (and never refused).
 import ts from "typescript"
 import type { Arith, Bool, Context, Seq } from "z3-solver"
+import type { Table } from "./maps.ts"
 
 export type Ctx = Context
 
@@ -46,6 +47,12 @@ export const TYPE_NAMES = ["undefined", "object", "boolean", "number", "bigint",
 
 /** The kinds of a primitive, by the tag a value of more than one kind holds (`mixed`). */
 export const KIND = { bool: 0, str: 1, num: 2, bigint: 3 } as const
+
+/** A list's keys, each once: their kind, and whether a key is one of them. */
+export interface Keyed {
+  readonly kind: "str" | "int" | "bool"
+  readonly member: (k: Val) => Bool
+}
 
 export type Val =
   /**
@@ -117,6 +124,8 @@ export type Val =
        * with no spread, and of a dictionary it is given. Of anything else they are not known.
        */
       readonly own?: () => { readonly keys: Val; readonly values: Val }
+      /** Of a map the code built (a plain object it uses as a dictionary, a `Map`, a `Set`): its table (`maps.ts`). */
+      readonly table?: Table
     }
   /**
    * An array: its length, and its element at an index (built on demand; may refuse). `size` is its length when
@@ -129,6 +138,16 @@ export type Val =
       readonly id?: string
       readonly size?: number
       readonly maxSize?: number
+      /** Of an array a loop builds, as one pass sees it: what the pass pushed onto it, each under its branch (`exec.ts`). */
+      readonly pushes?: {
+        readonly base: Extract<Val, { kind: "array" }>
+        readonly items: ReadonlyArray<{ readonly cond: Bool; readonly value: Val }>
+      }
+      /**
+       * Of a list of keys, each once (a map's, listed; a `Set`'s elements; either sorted): their kind, and whether a key is
+       * one of them. A loop over it that writes a map at its element is read key by key (`exec.ts`).
+       */
+      readonly keyed?: Keyed
     }
   /** A function value: its node and the bindings it closes over. */
   | { readonly kind: "fn"; readonly node: FunctionNode; readonly env: Env }

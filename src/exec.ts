@@ -28,7 +28,7 @@
 // that satisfies them (obligations, proved apart), and after the loop the
 // variables it changes are any values that satisfy them.
 import ts from "typescript"
-import type { Arith, Bool } from "z3-solver"
+import type { Arith, Bool, Expr } from "z3-solver"
 import {
   type Lowering,
   cond as condOf,
@@ -39,17 +39,41 @@ import {
   lowerExpr,
   shownPresent,
   member,
+  oblige,
   onBranch,
+  quietly,
   under,
 } from "./lower.ts"
 import { arithmetic, asNumber, exactly } from "./lower/numbers.ts"
-import { atIndex, indexOf } from "./lower/strings.ts"
+import { atIndex, indexOf, shown } from "./lower/strings.ts"
 import { defaulted, patternElement, patternRest, patternKeys, restOf } from "./lower/patterns.ts"
-import { firstIndex } from "./lower/arrays.ts"
+import { elementwise, firstIndex, flatExact } from "./lower/arrays.ts"
 import { countAsNum, isNullish, isWhole, ite, nullishOr, strictEq, truthy } from "./ops.ts"
 import { CONTRACT_MODULE, declared, functionOf, ownModule } from "./project.ts"
 import { functionIn, inProgram, symbolOf, unwrap } from "./resolve.ts"
 import { symbolicOf } from "./symbolic.ts"
+import { elementsOf, tableMethods } from "./collections.ts"
+import { isDictionaryType } from "./lower/records.ts"
+import {
+  type LoopEffect,
+  type LoopWrites,
+  type MapKind,
+  type Table,
+  type Write,
+  emptyTable,
+  givenTable,
+  keyedTable,
+  loopTable,
+  lookup,
+  mapValue,
+  building,
+  markerTable,
+  pushedArray,
+  pushedItems,
+  tableOf,
+  written,
+  writesSince,
+} from "./maps.ts"
 import {
   type Env,
   type FunctionNode,
@@ -58,10 +82,13 @@ import {
   UNDEFINED,
   Unsupported,
   type Val,
+  identity,
+  jsString,
   lazy,
   lazyRecord,
   locate,
   memoElems,
+  termId,
 } from "./value.ts"
 
 const K = ts.SyntaxKind
@@ -105,7 +132,11 @@ export interface Place {
   readonly steps: ReadonlyArray<Step>
   readonly text: string
 }
-type Step = { readonly kind: "field"; readonly name: string } | { readonly kind: "index"; readonly index: Arith }
+type Step =
+  | { readonly kind: "field"; readonly name: string }
+  | { readonly kind: "index"; readonly index: Arith }
+  /** A key of a map the code built (`out[key]`, `out.team`): `named` where the code writes it as a name. */
+  | { readonly kind: "key"; readonly key: Val; readonly named?: string }
 
 type Binding =
   /** A value fixed for the scope: what a closure captured, a value the caller gave. */
@@ -360,6 +391,8 @@ const readPlace = (L: Lowering, st: State, p: Place): Val => {
     if (s.kind === "field") {
       if (v.kind !== "record") throw new Unsupported(`\`${p.text}\`: a field of a ${v.kind}`)
       v = v.field(s.name) ?? UNDEFINED
+    } else if (s.kind === "key") {
+      throw new Unsupported(`\`${p.text}\`: a key of a map is read as a value, not referred into`)
     } else if (v.kind === "record" && L.u.z3.isIntVal(s.index)) {
       // A tuple's element at a literal index (a call's `args[0]`): its field.
       v = v.field(String(s.index.value())) ?? UNDEFINED
@@ -381,6 +414,36 @@ const update = (L: Lowering, v: Val, steps: ReadonlyArray<Step>, f: (old: Val) =
   if (s === undefined) return under(L, guard, () => f(v))
   const z3 = L.u.z3
   const o = present(v)
+  if (s.kind === "key") {
+    const t = tableOf(o)
+    if (t === undefined) throw new Unsupported("a key set on what is no map the code built", at)
+    if (rest.length > 0)
+      throw new Unsupported(
+        "changes a map's value in place: a value a map holds is replaced (`out[k] = { ...out[k], x }`), never changed",
+        at,
+      )
+    if (absent) return mapValue(written(t, guard, s.key, false, UNDEFINED, at, s.named), tableMethods)
+    // The value it replaces, for `??=` and the like; a pass of a loop read whole only writes with `=`, and reads nothing.
+    const old = building(t) ? undefined : lookup(t, s.key, at)
+    const before: Val =
+      old === undefined
+        ? UNDEFINED
+        : old.value.kind === "maybe"
+          ? { ...old.value, isUndefined: z3.Or(z3.Not(old.found), old.value.isUndefined), isNull: z3.And(old.found, old.value.isNull) }
+          : { kind: "maybe", isNull: z3.Bool.val(false), isUndefined: z3.Not(old.found), value: old.value }
+    return mapValue(
+      written(
+        t,
+        guard,
+        s.key,
+        true,
+        under(L, guard, () => f(before)),
+        at,
+        s.named,
+      ),
+      tableMethods,
+    )
+  }
   if (s.kind === "field") {
     if (o.kind !== "record") throw new Unsupported(`a field set on a ${o.kind}`, at)
     const gone = absent && rest.length === 0
@@ -418,7 +481,7 @@ const prefix = (a: Place, b: Place): boolean =>
   a.steps.length <= b.steps.length &&
   a.steps.every((s, i) => {
     const t = b.steps[i]!
-    return s.kind === "field" ? t.kind === "field" && t.name === s.name : t.kind === "index"
+    return s.kind === "field" ? t.kind === "field" && t.name === s.name : t.kind === s.kind
   })
 
 const borrowsOf = (st: State): Array<{ name: string; place: Place }> =>
@@ -597,7 +660,9 @@ const samePlace = (a: Place, b: Place): boolean =>
   a.steps.length === b.steps.length &&
   a.steps.every((s, i) => {
     const t = b.steps[i]!
-    return s.kind === "field" ? t.kind === "field" && t.name === s.name : t.kind === "index" && t.index.eqIdentity(s.index)
+    if (s.kind === "field") return t.kind === "field" && t.name === s.name
+    if (s.kind === "key") return t.kind === "key" && identity(t.key) !== undefined && identity(t.key) === identity(s.key)
+    return t.kind === "index" && t.index.eqIdentity(s.index)
   })
 
 // ——— Merging paths ———
@@ -932,11 +997,26 @@ const assign = (
   const base = placeOf(L, st, t.expression)
   if (base === undefined)
     throw new Unsupported(`changes \`${t.expression.getText()}\`, which is no variable of this function nor part of one`, at)
-  const step: Step = ts.isPropertyAccessExpression(t) ? { kind: "field", name: t.name.text } : elementStep(L, st, base.place, t)
+  const step: Step = isDictionaryType(L.checker, L.checker.getNonNullableType(objType))
+    ? keyStep(L, st, t)
+    : ts.isPropertyAccessExpression(t)
+      ? { kind: "field", name: t.name.text }
+      : elementStep(L, st, base.place, t)
   const place = extend(base.place, step, t.getText())
   changeable(L, st, place, true, at)
   const next = rhs === undefined ? st : storing(L, st, rhs, place, `\`${t.getText()}\``, at)
   return writePlace(L, next, place, compute, at, deleting)
+}
+
+/** The key `t` writes in a dictionary the code built: `out[key]`, a key it computes, or `out.team`, a name. */
+const keyStep = (L: Lowering, st: State, t: ts.PropertyAccessExpression | ts.ElementAccessExpression): Step => {
+  const z3 = L.u.z3
+  if (ts.isPropertyAccessExpression(t)) return { kind: "key", key: { kind: "str", term: jsString(z3, t.name.text) }, named: t.name.text }
+  const k = t.argumentExpression
+  if (ts.isStringLiteralLike(k)) return { kind: "key", key: { kind: "str", term: jsString(z3, k.text) }, named: k.text }
+  const key = shown(L, lowerExpr(L, k, envOf(L, st)), k)
+  if (key.kind !== "str") throw new Unsupported(`a key of a record that is a ${key.kind}: the code writes it at a string`, k)
+  return { kind: "key", key }
 }
 
 /**
@@ -951,7 +1031,7 @@ const elementStep = (L: Lowering, st: State, base: Place, t: ts.ElementAccessExp
   if (container.kind !== "array") throw new Unsupported(`an element set on a ${container.kind}`, t)
   const { term, whole } = indexOf(L, lowerExpr(L, t.argumentExpression, envOf(L, st)), t.argumentExpression)
   const at = locate(t)
-  L.obligations.push({
+  oblige(L, {
     key: `write@${at}#here`,
     kind: "write",
     text: t.getText(),
@@ -1009,6 +1089,17 @@ const callStatement = (L: Lowering, e: ts.CallExpression, st: State): State => {
       const items = e.arguments.map((a) => later(L, () => lowerExpr(L, a, env)))
       return writePlace(L, next, recv.place, (old) => appended(L, old, items, e), e)
     }
+    if (recv !== undefined && CHANGES.has(method) && isCollectionTyped(L, callee.expression)) {
+      changeable(L, st, recv.place, false, e)
+      let next = st
+      for (const a of e.arguments) {
+        if (ts.isSpreadElement(a)) throw new Unsupported(`\`.${method}(...xs)\` is not modeled`, a)
+        next = storing(L, next, a, undefined, `\`${callee.expression.getText()}\``, e)
+      }
+      const env = envOf(L, st)
+      const args = e.arguments.map((a) => lowerExpr(L, a, env))
+      return writePlace(L, next, recv.place, (old) => changed(L, old, method, args, e), e)
+    }
     if (recv !== undefined && MUTATORS.has(method)) throw new Unsupported(`\`.${method}\` is not modeled; \`.push\` is`, e)
   }
   const run = runInline(L, e, st, true)
@@ -1021,10 +1112,35 @@ const callStatement = (L: Lowering, e: ts.CallExpression, st: State): State => {
   throw new Unsupported(`a call whose result is unused (\`${callee.getText()}\`) has an effect the verifier does not model`, e)
 }
 
+/** The methods that change a `Map` or a `Set` the code built, read as statements. */
+const CHANGES: ReadonlySet<string> = new Set(["set", "add", "delete", "clear"])
+
+/** Whether `e`'s type is a `Map`'s or a `Set`'s. */
+const isCollectionTyped = (L: Lowering, e: ts.Expression): boolean => {
+  const t = L.checker.getNonNullableType(L.checker.getTypeAtLocation(e))
+  const name = t.getSymbol()?.getName()
+  return name === "Map" || name === "Set"
+}
+
+/** A `Map` or a `Set` after `m.set(k, v)`, `s.add(k)`, `x.delete(k)` or `x.clear()`, made under the branch being lowered. */
+const changed = (L: Lowering, v: Val, method: string, args: ReadonlyArray<Val>, at: ts.CallExpression): Val => {
+  const t = tableOf(present(v))
+  if (t === undefined || t.kind === "object") throw new Unsupported(`\`.${method}\` of a collection the code did not build here`, at)
+  const want = method === "set" ? 2 : method === "clear" ? 0 : 1
+  if (args.length !== want || (method === "set" && t.kind !== "Map") || (method === "add" && t.kind !== "Set"))
+    throw new Unsupported(`\`.${method}\` of a \`${t.kind}\` with ${args.length} argument${args.length === 1 ? "" : "s"}`, at)
+  if (method === "clear") return mapValue(emptyTable(L, t.kind, at), tableMethods)
+  const [key, value] = args as [Val, Val | undefined]
+  return mapValue(written(t, L.guard, key, method !== "delete", value ?? UNDEFINED, at), tableMethods)
+}
+
 /** `arr` with `items` after its elements. */
 const appended = (L: Lowering, v: Val, items: ReadonlyArray<Thunk>, at: ts.Node): Val => {
   const arr = present(v)
   if (arr.kind !== "array") throw new Unsupported(`\`.push\` on a ${arr.kind}`, at)
+  // An array a loop builds, as one pass sees it: what it pushes, under the branch that does (`summarized`).
+  if (arr.pushes !== undefined)
+    return pushedArray(L.u, arr.pushes.base, [...arr.pushes.items, ...items.map((item) => ({ cond: L.guard, value: item() }))], at)
   const z3 = L.u.z3
   const n = items.length
   const bound = arr.maxSize ?? arr.size ?? L.u.bound
@@ -1150,7 +1266,7 @@ const writtenClaim = (L: Lowering, call: ts.CallExpression): LoopClaim => ({
 })
 
 const obligateClaim = (L: Lowering, inv: LoopClaim, phase: "entry" | "kept", cond: Bool, goal: Bool): void => {
-  L.obligations.push({
+  oblige(L, {
     key: `${inv.key}#${phase}`,
     kind: "invariant",
     text: inv.text,
@@ -1174,7 +1290,7 @@ const obligate = (
 ): void => {
   const at = locate(node)
   const what = text ?? node.arguments[0]?.getText() ?? node.getText()
-  L.obligations.push({ key: `${kind}@${at}#${phase}`, kind, text: what, at, phase, cond, goal, hints: L.hints.length })
+  oblige(L, { key: `${kind}@${at}#${phase}`, kind, text: what, at, phase, cond, goal, hints: L.hints.length })
 }
 
 /** The outer cells a loop may change: assigned, changed through, or lent to a call that may change them. */
@@ -1353,10 +1469,14 @@ const havoc = (
       const k = z3.Int.const(L.u.fresh(`${cell.name}@${tag}~k`))
       return { kind: "num", cls: z3.Int.val(NUM.finite), real: z3.ToReal(k), whole: z3.Bool.val(true), int: k }
     }
-    store.set(c, {
-      ...cell,
-      thunk: lazy(() => (whole.has(c) ? integer() : symbolicOf(L, type, [L.u.fresh(`${cell.name}@${tag}`)], [], at))),
-    })
+    // A map the code built stays one: any table of its type, which the code may go on writing.
+    const any = (): Val => {
+      const v = symbolicOf(L, type, [L.u.fresh(`${cell.name}@${tag}`)], [], at)
+      return builtKind(L, type) === "object" && v.kind === "record" && v.entries !== undefined
+        ? mapValue(givenTable(L, v, at), tableMethods)
+        : v
+    }
+    store.set(c, { ...cell, thunk: lazy(() => (whole.has(c) ? integer() : any())) })
   }
   L.u.abstracted = true
   L.u.approximations.add(
@@ -1376,28 +1496,35 @@ const forOf = (L: Lowering, s: ts.ForOfStatement, st: State): Exits => {
   const head = init.declarations[0]!.name
   const name = ts.isIdentifier(head) ? head.text : undefined
   const iterPlace = placeOf(L, st, s.expression)
-  const iterated = present(iterPlace !== undefined ? readPlace(L, st, iterPlace.place) : lowerExpr(L, s.expression, envOf(L, st)))
+  const read = present(iterPlace !== undefined ? readPlace(L, st, iterPlace.place) : lowerExpr(L, s.expression, envOf(L, st)))
+  // A `Map` or a `Set` the code built gives its elements, values of their own (`elementsOf`).
+  const map = read.kind === "record" ? read.table : undefined
+  const iterated = map !== undefined ? elementsOf(L, map, s.expression) : read
   if (iterated.kind !== "array") throw new Unsupported(`a \`for…of\` over a ${iterated.kind} is not modeled`, s.expression)
   const arr = iterated
+  const elementPlace = map === undefined ? iterPlace : undefined
   const { invariants: written, rest } = invariantsOf(L, s.statement)
   for (const inv of written) for (const n of namesIn(head)) noElement(L, inv, n)
+  const changed = changedBy(L, st, [s.statement], s.statement)
+  // A loop whose passes only build what it changes is read whole on the proof side (`summarized`): it needs no
+  // invariant, and none is guessed for it, on either side.
+  const builds = written.length === 0 && buildsOnly(L, st, s.statement, changed)
   // What is written, then the verifier's guesses, if it makes any for this loop, each read in the loop's state: when
   // nothing is written, or beside what is (`verify`'s second round, for a law what is written leaves unproved).
   if (written.length > 0) L.wrote = true
-  const guessed = L.guess !== undefined && (written.length === 0 || L.guessBeside === true) ? L.guess(s) : []
+  const guessed = !builds && L.guess !== undefined && (written.length === 0 || L.guessBeside === true) ? L.guess(s) : []
   const invariants: ReadonlyArray<LoopClaim> = [
     ...written.map((call) => writtenClaim(L, call)),
     ...guessed.map((g) => ({ ...g, claim: (at: State, i: Arith) => g.claim(envOf(L, at), i) })),
   ]
-  const changed = changedBy(L, st, [s.statement], s.statement)
   if (iterPlace !== undefined && changed.has(iterPlace.place.cell))
     throw new Unsupported(`changes \`${s.expression.getText()}\` while iterating it`, s)
   const elementType = L.checker.getTypeAtLocation(head)
   const bindElement = (at: State, i: Arith): State => {
     // A pattern takes the element apart, each name a value of it, as a `const` pattern does.
     if (name === undefined) return bindName(L, at, head, () => arr.elem(i), false, elementType)
-    if (iterPlace !== undefined && isObjectType(L, elementType))
-      return bindVar(at, name, { kind: "place", place: extend(iterPlace.place, { kind: "index", index: i }, name) })
+    if (elementPlace !== undefined && isObjectType(L, elementType))
+      return bindVar(at, name, { kind: "place", place: extend(elementPlace.place, { kind: "index", index: i }, name) })
     return newCell(L, at, name, () => arr.elem(i), false, elementType)
   }
   const bound = arr.maxSize ?? arr.size ?? u.bound
@@ -1420,6 +1547,12 @@ const forOf = (L: Lowering, s: ts.ForOfStatement, st: State): Exits => {
     }
     return { normal: merge(L, results.leaving, s), returns: results.returns, breaks: [], continues: [] }
   }
+  // A key the loop is read at, bound as its element is: a value of its own, where the element is not an object.
+  const bindKey =
+    name !== undefined && !(elementPlace !== undefined && isObjectType(L, elementType))
+      ? (at: State, k: Val): State => newCell(L, at, name, () => k, false, elementType)
+      : undefined
+  if (builds) return summarized(L, s, st, arr, rest, bindElement, changed, bindKey)
   // Proof side, unknown length: through the invariants.
   for (const inv of invariants) obligateClaim(L, inv, "entry", st.cond, inv.claim(st, z3.Int.val(0), "asserted"))
   const i = u.leaf([u.fresh("i"), "$"], "int", [], "count") as never as Arith
@@ -1433,6 +1566,392 @@ const forOf = (L: Lowering, s: ts.ForOfStatement, st: State): Exits => {
   if (invariants.length === 0 && changed.size > 0)
     u.notes.add("A loop with no invariant leaves what it changes unknown on the proof side; the search side runs it.")
   return leave(L, st, x, after, z3.And(counted.facts(after), ...invariants.map((inv) => inv.claim(after, arr.length, "assumed"))), s)
+}
+
+/** What a loop builds in a variable, by its type: a map the code built (a dictionary, a `Map`, a `Set`), or an array. */
+const builtKind = (L: Lowering, type: ts.Type | undefined): MapKind | "array" | undefined => {
+  if (type === undefined) return undefined
+  const t = L.checker.getNonNullableType(type)
+  if (t !== type) return undefined
+  if (L.checker.isArrayType(t)) return "array"
+  if (isDictionaryType(L.checker, t)) return "object"
+  const name = t.getSymbol()?.getName()
+  return name === "Map" || name === "Set" ? name : undefined
+}
+
+/**
+ * Whether a loop's passes only build what it changes: each variable it changes is a map the code built or an array,
+ * named in its body only where the body writes it (`out[k] = v`, `out.k = v`, `delete out[k]`, `xs.push(v)`,
+ * `m.set(k, v)`, `s.add(k)`, `m.delete(k)`), and a pass ends at its end or at a `continue`. Its other statements declare
+ * a name, or choose with `if`.
+ */
+const buildsOnly = (L: Lowering, st: State, body: ts.Statement, changed: ReadonlySet<number>): boolean => {
+  if (changed.size === 0) return false
+  for (const c of changed) {
+    const cell = st.store.get(c)
+    if (cell === undefined || !cell.owned || builtKind(L, cell.type) === undefined) return false
+  }
+  // The names of what it builds: every binding of the cells it changes.
+  const names = new Map<string, number>()
+  for (const [n, b] of st.vars) {
+    if (b.kind === "cell" && changed.has(b.cell)) names.set(n, b.cell)
+    if (b.kind === "place" && changed.has(b.place.cell)) return false
+  }
+  const built = (e: ts.Expression): number | undefined => {
+    const x = unwrap(e)
+    if (!ts.isIdentifier(x)) return undefined
+    const d = L.checker.getSymbolAtLocation(x)?.valueDeclaration
+    if (d !== undefined && d.pos >= body.pos && d.end <= body.end) return undefined
+    return names.get(x.text)
+  }
+  let ok = true
+  // Any other mention of what it builds is a read of it.
+  const reads = (n: ts.Node): void => {
+    if (!ok) return
+    if (ts.isIdentifier(n) && built(n) !== undefined) ok = false
+    else ts.forEachChild(n, reads)
+  }
+  const kindOf = (e: ts.Expression) => builtKind(L, st.store.get(built(e)!)!.type)
+  const write = (e: ts.Expression): boolean => {
+    const x = unwrap(e)
+    if (ts.isBinaryExpression(x) && x.operatorToken.kind === K.EqualsToken) {
+      const t = unwrap(x.left)
+      if ((ts.isElementAccessExpression(t) || ts.isPropertyAccessExpression(t)) && built(t.expression) !== undefined) {
+        if (kindOf(t.expression) !== "object") return false
+        if (ts.isElementAccessExpression(t)) reads(t.argumentExpression)
+        reads(x.right)
+        return true
+      }
+      return false
+    }
+    if (ts.isDeleteExpression(x)) {
+      const t = unwrap(x.expression)
+      if ((ts.isElementAccessExpression(t) || ts.isPropertyAccessExpression(t)) && built(t.expression) !== undefined) {
+        if (kindOf(t.expression) !== "object") return false
+        if (ts.isElementAccessExpression(t)) reads(t.argumentExpression)
+        return true
+      }
+      return false
+    }
+    if (ts.isCallExpression(x) && ts.isPropertyAccessExpression(x.expression) && built(x.expression.expression) !== undefined) {
+      const kind = kindOf(x.expression.expression)
+      const method = x.expression.name.text
+      const allowed =
+        kind === "array" ? ["push"] : kind === "Map" ? ["set", "delete"] : kind === "Set" ? ["add", "delete"] : ([] as Array<string>)
+      if (!allowed.includes(method) || x.arguments.some(ts.isSpreadElement)) return false
+      if (method === "push" && x.arguments.length !== 1) return false
+      x.arguments.forEach(reads)
+      return true
+    }
+    return false
+  }
+  const statement = (n: ts.Statement): void => {
+    if (!ok) return
+    if (ts.isBlock(n)) n.statements.forEach(statement)
+    else if (ts.isIfStatement(n)) {
+      reads(n.expression)
+      statement(n.thenStatement)
+      if (n.elseStatement !== undefined) statement(n.elseStatement)
+    } else if (ts.isVariableStatement(n)) reads(n.declarationList)
+    else if (ts.isContinueStatement(n)) ok = n.label === undefined
+    else if (ts.isExpressionStatement(n)) ok = write(n.expression)
+    else if (!ts.isEmptyStatement(n)) ok = false
+  }
+  statement(body)
+  return ok
+}
+
+/**
+ * A loop over an array of unknown length whose passes only build what it changes (`buildsOnly`), read whole on the proof
+ * side, exactly. A pass writes a map at keys it computes, and pushes onto an array, from its element and from what the
+ * loop does not change: no pass sees another's. So each key of a map holds what the last pass that wrote it wrote, or
+ * what it held before (`loopEntry`, in `maps.ts`); an array holds what it held, then what each pass pushed, in order
+ * (`flatExact`). A pass is read once at an index the quantifiers bind, for what every pass obliges and writes, then again
+ * at each index a read asks about: the last pass that wrote a key, the pass an element comes from.
+ */
+const summarized = (
+  L: Lowering,
+  s: ts.ForOfStatement,
+  st: State,
+  arr: Extract<Val, { kind: "array" }>,
+  rest: ReadonlyArray<ts.Statement>,
+  bindElement: (at: State, i: Arith) => State,
+  changed: ReadonlySet<number>,
+  bindKey: ((at: State, k: Val) => State) | undefined,
+): Exits => {
+  const u = L.u
+  const z3 = u.z3
+  const n = arr.length
+  const bounds = u.openBounds()
+  // What each pass starts from: the loop's state, each thing it builds a marker that is written, never read.
+  type Built =
+    | { readonly kind: MapKind; readonly table: Table }
+    | { readonly kind: "array"; readonly base: Extract<Val, { kind: "array" }> }
+  const built = new Map<number, Built>()
+  const store = new Map(st.store)
+  for (const c of changed) {
+    const cell = st.store.get(c)!
+    const kind = builtKind(L, cell.type)!
+    const reads = (): never => {
+      throw new Unsupported(`reads \`${cell.name}\` in the loop that builds it, which is read only where each pass writes it`, s)
+    }
+    if (kind === "array") {
+      const base: Extract<Val, { kind: "array" }> = { kind: "array", length: z3.Int.const(u.fresh(`${cell.name}.before`)), elem: reads }
+      const start: Val = { ...base, pushes: { base, items: [] } }
+      built.set(c, { kind, base })
+      store.set(c, { ...cell, thunk: () => start })
+    } else {
+      const table = markerTable(L, kind, cell.name, s)
+      const start = mapValue(table, tableMethods)
+      built.set(c, { kind, table })
+      store.set(c, { ...cell, thunk: () => start })
+    }
+  }
+  const start: State = { ...st, store }
+  interface Pass {
+    readonly writes: ReadonlyMap<number, ReadonlyArray<Write>>
+    readonly pushes: ReadonlyMap<number, ReadonlyArray<{ readonly cond: Bool; readonly value: Val }>>
+  }
+  const run = (from: State): Pass => {
+    const x = scoped(statements(L, rest, from), st.vars)
+    if (x.returns.length > 0 || x.breaks.length > 0) throw new Error("a pass of a loop read whole leaves it early")
+    const next = merge(L, [x.normal, ...x.continues], s)
+    const writes = new Map<number, ReadonlyArray<Write>>()
+    const pushes = new Map<number, ReadonlyArray<{ readonly cond: Bool; readonly value: Val }>>()
+    for (const [c, b] of built) {
+      const v = next === undefined ? undefined : present(readCell(next, c, st.store.get(c)!.name))
+      if (b.kind === "array") {
+        if (v?.kind === "array" && v.pushes?.base === b.base) pushes.set(c, v.pushes.items)
+        else if (v === undefined || (v.kind === "array" && v.length === b.base.length)) pushes.set(c, [])
+        else throw new Error("a pass of a loop read whole builds its array otherwise than by pushes")
+      } else {
+        const t2 = tableOf(v)
+        const ws = v === undefined ? [] : t2 === undefined ? undefined : writesSince(t2, b.table)
+        if (ws === undefined) throw new Error("a pass of a loop read whole builds its map otherwise than by writes")
+        writes.set(c, ws)
+      }
+    }
+    return { writes, pushes }
+  }
+  const pass = (t: Arith): Pass => run(withCond(bindElement(start, t), z3.And(st.cond, t.ge(0), t.lt(n))))
+  // Over a list of keys, each once, a map each pass writes at its element alone is read key by key: a key's entry is
+  // the pass's at that key, where the list holds it (`keyedTable`), and no function of the pass's index is made for it.
+  const keyed = arr.keyed !== undefined && bindKey !== undefined ? arr.keyed : undefined
+  const byKey = new Set<number>()
+  // Every pass, at an index the quantifiers bind: what it obliges, and each of its writes, by the pass's index: whether
+  // the pass makes it, at which key, with which value, each a function of the index the pass defines; and that every
+  // pass that makes it at a key is at most the last that does (`loopEntry` says that the last does).
+  const i = z3.Int.const(u.fresh("pass"))
+  const inRange = z3.And(i.ge(0), i.lt(n))
+  const effects = new Map<number, Array<LoopEffect>>()
+  const every = elementwise(
+    L,
+    i,
+    inRange,
+    () => {
+      const each = pass(i)
+      const facts: Array<Bool> = []
+      const element = keyed === undefined ? undefined : identity(arr.elem(i))
+      for (const [c, all] of each.writes) {
+        if (element !== undefined && all.length > 0 && all.every((w) => identity(w.key) === element)) {
+          byKey.add(c)
+          continue
+        }
+        const name = st.store.get(c)!.name
+        const made: Array<LoopEffect> = []
+        for (const w of sameKeyMerged(L, all, s)) {
+          const key = packed(L, w.key, s, name)
+          const value = packed(L, w.value, s, name)
+          const k = key.terms[0]
+          if (key.terms.length !== 1 || k === undefined || !["str", "int", "bool"].includes(w.key.kind))
+            throw new Unsupported(
+              `a loop that writes \`${name}\` at a key that is a ${w.key.kind}: of a string, a bigint or a boolean it is read whole`,
+              s,
+            )
+          const fn = u.fresh(`${name}.wrote`)
+          const ints = [...bounds.map(() => z3.Int.sort()), z3.Int.sort()]
+          const cond = z3.Function.declare(`${fn}.cond`, ...ints, z3.Bool.sort())
+          const keyAt = z3.Function.declare(`${fn}.key`, ...ints, k.sort)
+          const valueAt = value.terms.map((v, p) => z3.Function.declare(`${fn}.value${p}`, ...ints, v.sort))
+          const heldAt = w.present === undefined ? undefined : z3.Function.declare(`${fn}.held`, ...ints, z3.Bool.sort())
+          const has = z3.Function.declare(fn, ...bounds.map(() => z3.Int.sort()), k.sort, z3.Bool.sort())
+          const last = z3.Function.declare(`${fn}.last`, ...bounds.map(() => z3.Int.sort()), k.sort, z3.Int.sort())
+          const at = (t: Arith) => [...bounds, t]
+          facts.push(
+            cond.call(...at(i)).eq(w.cond),
+            z3.Implies(
+              w.cond,
+              z3.And(
+                (keyAt.call(...at(i)) as Expr).eq(k),
+                ...value.terms.map((v, p) => (valueAt[p]!.call(...at(i)) as Expr).eq(v)),
+                ...(heldAt === undefined ? [] : [heldAt.call(...at(i)).eq(w.present!)]),
+                has.call(...bounds, k),
+                i.le(last.call(...bounds, k)),
+              ),
+            ),
+          )
+          made.push({
+            held: (t) => (heldAt === undefined ? z3.Bool.val(w.set) : heldAt.call(...at(t))),
+            cond: (t) => cond.call(...at(t)),
+            key: (t) => key.build([keyAt.call(...at(t))]),
+            value: (t) => value.build(valueAt.map((f) => f.call(...at(t)))),
+            has,
+            last,
+          })
+        }
+        effects.set(c, made)
+      }
+      return z3.And(z3.Bool.val(true), ...facts)
+    },
+    true,
+  )
+  u.assume(z3.ForAll([i], z3.Implies(z3.And(inRange, ...every.facts), every.result)), bounds)
+  // What a pass pushes is read again at each index a read asks about, quietly: what it obliges is obliged above.
+  const passes = new Map<string, Pass>()
+  const passAt = (t: Arith): Pass => {
+    const key = termId(t)
+    let p = passes.get(key)
+    if (p === undefined) {
+      p = quietly(L, () => pass(t))
+      passes.set(key, p)
+    }
+    return p
+  }
+  const after = new Map(st.store)
+  for (const [c, b] of built) {
+    const cell = st.store.get(c)!
+    const before = (): Val => present(readCell(st, c, cell.name))
+    if (b.kind === "array") {
+      after.set(c, {
+        ...cell,
+        thunk: later(L, () => {
+          const pushed = flatExact(L, n, (t) => pushedItems(L, passAt(t).pushes.get(c)!, s))
+          const was = before()
+          if (was.kind !== "array") throw new Unsupported(`\`${cell.name}\` is a ${was.kind} before the loop that builds it`, s)
+          return joined(L, was, pushed, s)
+        }),
+      })
+      continue
+    }
+    if (byKey.has(c) && keyed !== undefined && bindKey !== undefined) {
+      const list = { ...arr, keyed }
+      const passes = new Map<string, Pass>()
+      const writesAt = (k: Val): ReadonlyArray<Write> => {
+        const id = identity(k)
+        let p = id === undefined ? undefined : passes.get(id)
+        if (p === undefined) {
+          p = quietly(L, () => run(withCond(bindKey(start, k), z3.And(st.cond, keyed.member(k)))))
+          if (id !== undefined) passes.set(id, p)
+        }
+        const ws = p.writes.get(c) ?? []
+        if (ws.some((w) => identity(w.key) !== id)) throw new Error("a pass read at a key writes another")
+        return ws
+      }
+      after.set(c, {
+        ...cell,
+        thunk: later(L, () => {
+          const prev = tableOf(before())
+          if (prev === undefined) throw new Unsupported(`\`${cell.name}\` is no map the code built before the loop that writes it`, s)
+          return mapValue(keyedTable(prev, list, writesAt, s), tableMethods)
+        }),
+      })
+      continue
+    }
+    const loop: LoopWrites = { n, bounds, effects: effects.get(c) ?? [] }
+    after.set(c, {
+      ...cell,
+      thunk: later(L, () => {
+        const prev = tableOf(before())
+        if (prev === undefined) throw new Unsupported(`\`${cell.name}\` is no map the code built before the loop that writes it`, s)
+        return mapValue(loopTable(prev, loop, s), tableMethods)
+      }),
+    })
+  }
+  u.notes.add(
+    "A loop whose passes only write a map the code built, or push onto an array, is read whole on the proof side: each key holds what the last pass that wrote it wrote, and the array what each pass pushed, in order.",
+  )
+  return { normal: { ...st, store: after }, returns: [], breaks: [], continues: [] }
+}
+
+/**
+ * A pass's writes, those at one key term made one, in order: a later write over an earlier where its branch holds. A
+ * pass that sets or deletes `edit.key` on two branches writes one key, read once.
+ */
+const sameKeyMerged = (
+  L: Lowering,
+  ws: ReadonlyArray<Write>,
+  at: ts.Node,
+): Array<{ readonly cond: Bool; readonly key: Val; readonly set: boolean; readonly value: Val; readonly present?: Bool }> => {
+  const z3 = L.u.z3
+  const out: Array<{ cond: Bool; key: Val; set: boolean; value: Val; present?: Bool }> = []
+  for (const w of ws) {
+    const k = identity(w.key)
+    const prior = k === undefined ? undefined : out.find((o) => identity(o.key) === k)
+    if (prior === undefined) {
+      out.push({ ...w })
+      continue
+    }
+    // Whether the key is held after the two, and its value where it is.
+    const heldBefore = prior.present ?? z3.Bool.val(prior.set)
+    prior.present = z3.If(w.cond, z3.Bool.val(w.set), heldBefore)
+    prior.value = w.set ? (prior.set ? ite(L.u, w.cond, w.value, prior.value, at) : w.value) : prior.value
+    prior.set = prior.set || w.set
+    prior.cond = z3.Or(prior.cond, w.cond)
+  }
+  return out
+}
+
+/**
+ * A value a loop's pass writes, as the terms that make it and how to make it again of other terms: of a string, a
+ * boolean, a bigint, a number (its class, its value, whether it is `-0`), and of one of those that may be missing.
+ */
+const packed = (
+  L: Lowering,
+  v: Val,
+  at: ts.Node,
+  name: string,
+): { readonly terms: ReadonlyArray<Expr>; readonly build: (terms: ReadonlyArray<Expr>) => Val } => {
+  const z3 = L.u.z3
+  switch (v.kind) {
+    case "str":
+    case "bool":
+    case "int":
+      return { terms: [v.term], build: ([t]) => ({ ...v, term: t }) as Val }
+    case "num":
+      return {
+        terms: [v.cls, v.real, v.negZero ?? z3.Bool.val(false)],
+        build: ([cls, real, negZero]) => ({ kind: "num", cls: cls as Arith, real: real as Arith, negZero: negZero as Bool }),
+      }
+    case "nullish":
+      return { terms: [], build: () => v }
+    case "maybe": {
+      const inner = v.value === undefined ? undefined : packed(L, v.value, at, name)
+      return {
+        terms: [v.isNull, v.isUndefined, ...(inner?.terms ?? [])],
+        build: ([isNull, isUndefined, ...rest]) => ({
+          kind: "maybe",
+          isNull: isNull as Bool,
+          isUndefined: isUndefined as Bool,
+          value: inner?.build(rest),
+        }),
+      }
+    }
+    default:
+      throw new Unsupported(
+        `a loop that writes \`${name}\` a ${v.kind}: a map a loop builds is read whole where it holds strings, numbers, booleans or bigints`,
+        at,
+      )
+  }
+}
+
+/** `a` followed by `b`, as `[...a, ...b]` is. */
+const joined = (L: Lowering, a: Extract<Val, { kind: "array" }>, b: Extract<Val, { kind: "array" }>, at: ts.Node): Val => {
+  if (a.size === 0) return b
+  return {
+    kind: "array",
+    length: a.length.add(b.length),
+    elem: memoElems((j) => ite(L.u, j.lt(a.length), a.elem(j), b.elem(j.sub(a.length)), at)),
+  }
 }
 
 /**

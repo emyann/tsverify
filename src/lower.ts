@@ -135,6 +135,11 @@ export interface Lowering extends Typing {
   guessBeside?: boolean
   /** Set when a loop of this side has invariants written. */
   wrote?: boolean
+  /**
+   * Set while code already obliged is read again (a pass of a loop read whole, at an index a read asks about): what it
+   * obliges is obliged where it was first read, so it is not obliged again (`quietly`).
+   */
+  quiet?: boolean
 }
 
 /** An invariant the verifier guessed: its obligation's key, place and words, and its claim in a scope at `i`. */
@@ -236,15 +241,44 @@ export const inSpec = <A>(L: Lowering, f: () => A): A => {
 export const later = (L: Lowering, f: () => Val, guard: Bool = L.guard): Thunk => {
   const mode = L.mode
   const depth = L.u.depth
+  const quiet = L.quiet === true
   return lazy(() => {
     const prev = L.mode
     L.mode = mode
+    const wasQuiet = L.quiet
+    L.quiet = quiet
     try {
       return L.u.outside(depth, () => under(L, guard, f))
     } finally {
       L.mode = prev
+      L.quiet = wasQuiet
     }
   })
+}
+
+/** Obliges `o`, unless the code is read again quietly (`quietly`): it was obliged where it was first read. */
+export const oblige = (L: Lowering, o: Obligation): void => {
+  if (L.quiet !== true) L.obligations.push(o)
+}
+
+/**
+ * Runs `f`, code already obliged where it was first read, as code: what it obliges is not obliged again, nor gathered as
+ * a law's (`exact`, `defined`). Bindings it makes stay quiet when they are read later (`later`).
+ */
+export const quietly = <A>(L: Lowering, f: () => A): A => {
+  const { mode, exact, defined, quiet } = L
+  L.mode = "exec"
+  L.exact = undefined
+  L.defined = undefined
+  L.quiet = true
+  try {
+    return f()
+  } finally {
+    L.mode = mode
+    L.exact = exact
+    L.defined = defined
+    L.quiet = quiet
+  }
 }
 
 const K = ts.SyntaxKind

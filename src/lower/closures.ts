@@ -2,6 +2,7 @@
 // kept for later still reads what it captured.
 import ts from "typescript"
 import { undefinedOr } from "../ops.ts"
+import { methodCall } from "../effects.ts"
 import { type Purity, purityOf } from "../purity.ts"
 import { functionNamed } from "../resolve.ts"
 import type { AssumedFn } from "../trust.ts"
@@ -174,16 +175,24 @@ const changedNames = (body: ts.Node, checker: ts.TypeChecker): Set<string> => {
       const r = rootName(n.expression)
       if (r !== undefined) found.add(r)
     } else if (ts.isCallExpression(n)) {
-      if (ts.isPropertyAccessExpression(n.expression)) {
-        const r = passedName(n.expression.expression)
+      // A method of the library changes what it says it changes (`effects.ts`): `Object.entries(card)` and
+      // `edits.some(...)` nothing, `xs.push(x)` its receiver.
+      const lib = ts.isPropertyAccessExpression(n.expression) ? methodCall(checker, n.expression, n.arguments) : undefined
+      if (lib?.does === "change") {
+        const r = passedName(lib.target)
         if (r !== undefined) found.add(r)
-      }
-      // A function of the program the purity check reads as pure changes nothing it is passed.
-      if (!changesNothing(checker, n, body.parent))
-        for (const a of n.arguments) {
-          const r = passedName(a)
+      } else if (lib?.does !== "nothing" && lib?.does !== "call") {
+        if (ts.isPropertyAccessExpression(n.expression)) {
+          const r = passedName(n.expression.expression)
           if (r !== undefined) found.add(r)
         }
+        // A function of the program the purity check reads as pure changes nothing it is passed.
+        if (!changesNothing(checker, n, body.parent))
+          for (const a of n.arguments) {
+            const r = passedName(a)
+            if (r !== undefined) found.add(r)
+          }
+      }
     }
     ts.forEachChild(n, visit)
   }

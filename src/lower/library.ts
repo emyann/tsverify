@@ -6,7 +6,7 @@ import { isLib } from "../effects.ts"
 import { MAX_TIME } from "../symbolic.ts"
 import type { Universe } from "../universe.ts"
 import { type Env, NUM, UNDEFINED, Unsupported, type Val, locate, memoElems } from "../value.ts"
-import { type Lowering, bool, lowerExpr, num } from "../lower.ts"
+import { type Lowering, bool, lowerExpr, num, oblige } from "../lower.ts"
 import { TWO_52, TWO_53, asNumber, unwrapParens } from "./numbers.ts"
 import { shown } from "./strings.ts"
 import { ownOf, tupleOf } from "./records.ts"
@@ -257,7 +257,7 @@ export const roundedQuotient = (L: Lowering, f: Val, e: ts.CallExpression, env: 
   if (L.mode === "spec") L.exact?.push(z3.Implies(L.guard, goal))
   else {
     const where = locate(quotient)
-    L.obligations.push({
+    oblige(L, {
       key: `exact@${where}#here`,
       kind: "exact",
       text: e.getText(),

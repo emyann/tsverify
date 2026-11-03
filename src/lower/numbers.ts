@@ -4,7 +4,7 @@ import ts from "typescript"
 import type { Arith } from "z3-solver"
 import { countAsNum, intOf, isNegZero, isWhole } from "../ops.ts"
 import { NUM, Unsupported, type Val, locate } from "../value.ts"
-import type { Lowering } from "../lower.ts"
+import { type Lowering, oblige } from "../lower.ts"
 
 const K = ts.SyntaxKind
 
@@ -296,7 +296,7 @@ export const exactly = (
   } else if (L.mode === "spec") L.exact?.push(z3.Implies(L.guard, goal))
   else {
     const where = locate(at)
-    L.obligations.push({
+    oblige(L, {
       key: `exact@${where}#here`,
       kind: "exact",
       text: at.getText(),
@@ -349,7 +349,7 @@ const divided = (L: Lowering, op: ts.SyntaxKind, l: Val & { kind: "int" }, r: Va
   if (L.mode === "spec" && L.defined !== undefined) L.defined.push(z3.Implies(L.guard, nonZero))
   else {
     const at = locate(e.right)
-    L.obligations.push({
+    oblige(L, {
       key: `division@${at}#here`,
       kind: "division",
       text: e.right.getText(),

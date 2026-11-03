@@ -60,7 +60,8 @@ A counterexample's `where names.get gave ""` is the part of w the model chose.
 | `src/lower.ts` | pure TypeScript to symbolic values, with JavaScript's semantics, and the branch each runs on, which a division's obligation holds on: the state of a lowering, names, members, conditions, operators and the dispatch of calls |
 | `src/lower/` | the rest of the lowering, a file to what it reads: `patterns`, `closures` (and the check of a closure kept for later), `calls`, `library` (`Math`, `Number`, `Object`, `Date`), `numbers`, `strings`, `arrays`, `records` |
 | `src/resolve.ts` | what a name refers to: its symbol, through an import or a shorthand property, and the function a declaration holds |
-| `src/exec.ts` | statements: state, places and ownership, loops through their invariants, and the obligations of the proof code and of each division |
+| `src/exec.ts` | statements: state, places and ownership, loops through their invariants (or read whole, where a loop only builds maps and arrays), and the obligations of the proof code and of each division |
+| `src/maps.ts` | a map the code builds (a dictionary it writes, a `Map` or a `Set` it allocates): writes over what it held, a key's entry, its keys listed, a loop's writes read whole or key by key |
 | `src/ops.ts` | truthiness, `===`, `<`, `??` and conditional values, exactly as JavaScript defines them |
 | `src/narrow.ts` | a field read where the type checker has narrowed its object: the paths whose value can have the read's type |
 | `src/universe.ts` | the Z3 context, its unknowns (one function per path through arrays), assumptions and quantifier scopes |

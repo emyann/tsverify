@@ -17,6 +17,9 @@ part as a harmless one.
   function that changes nothing, each call some value of its return type, on which a counterexample leans;
 - a dictionary the code is given, `Record<string, T>`, read at any key, and its keys, values and entries
   (*Dictionaries*, below);
+- a map the code builds: an object it allocates as a dictionary (`const out: Record<string, string> = {}`), written
+  and deleted at keys it computes, and a `Map` or a `Set` it allocates, changed by `set`, `add` and `delete`, read
+  through `has`, `get` and `size`, and listed (*Maps the code builds*, below);
 - values of more than one primitive kind (`boolean | "strict"`), each the kind it is, `typeof` telling them apart
   (*Narrowing*, below);
 - a `Date` the code is given, read through `getTime()` and `valueOf()`: `NaN` or a whole number of milliseconds within
@@ -41,8 +44,8 @@ part as a harmless one.
 - `x instanceof C`, of a class the program declares: false of a primitive; of an `unknown`, whether it is one of the
   class's instances, never another's but where one class extends the other. Of a package's class (`Error`), whose
   ancestry its declarations need not show, it is refused;
-- `Object.keys`, `Object.values` and `Object.entries` of a dictionary the code is given and of an object literal it
-  wrote, in the order JavaScript lists them (*Dictionaries*, below);
+- `Object.keys`, `Object.values` and `Object.entries` of a dictionary the code is given, of an object literal it
+  wrote and of a map it builds, in the order JavaScript lists them (*Dictionaries* and *Maps the code builds*, below);
 - `"key" in obj`, of a key written as a string (*Narrowing*, below), and of any key of a dictionary;
 - a record read at a key its type holds to a few names (`WORDS[phase]`, `phase: "waiting" | "running"`), as the field
   of the name it is;
@@ -57,8 +60,8 @@ part as a harmless one.
 - on arrays: `.length`, an element at any index, `xs[i]` and `.at(i)` (*Indexes*, below), `.some`, `.every`, `.includes`
   (of a string, a boolean, a bigint or a count), `.find`, inside a `.some` or an `.every` too, `.slice` with
   JavaScript's positions, `.map`, `.toReversed()`,
-  `.reverse()` of a copy made where it is called (`[...xs].reverse()`), and `.filter`, `.join` and `.flatMap` (*Folds*,
-  below);
+  `.reverse()` of a copy made where it is called (`[...xs].reverse()`), `.sort()` with no comparator of strings, on such
+  a copy or as `.toSorted()`, and `.filter`, `.join` and `.flatMap` (*Folds*, below);
 - calls of the program's functions, read from source and inlined, by name or through a namespace import
   (`laws.readsFirst`, from `import * as laws`), and of functions a declaration covers;
 - a tuple's element at a literal index, a call's `args[0]` among them.
@@ -133,10 +136,13 @@ not hold there: guard it, `b === 0n || …`.
 
 `.map` keeps the length, and its element `i` is the callback's of element `i`; the callback runs on every element, as
 JavaScript runs it, so what it obliges (an exact operation) it obliges of each. `.join` and `.flatMap` build their result
-from every element. The search side writes them out over its arrays of at most 4 elements, exactly; the proof side
-knows `.join` of none and one element (`""`, and the element itself) and `.flatMap` only as empty when its array is, so
-a law about more is bounded at best, with the reason saying which call: `cells.join(",")` is known on the proof side
-only for none or one element.
+from every element. The search side writes them out over its arrays of at most 4 elements, exactly. The proof side
+reads `.flatMap` exactly too: each element's part, in order, at a place counted from the parts before it. It knows
+`.join` of none and one element (`""`, and the element itself), so a law about more is bounded at best, with the reason
+saying which call: `cells.join(",")` is known on the proof side only for none or one element.
+
+`.sort()` with no comparator orders strings by their code units, as JavaScript does: the search side picks each place's
+element and holds them in order, and the proof side reads the result as the same elements rearranged, in order.
 
 `.filter` keeps its elements in order. The search side writes it out: element `k` is kept where the predicate holds of
 it, and the `j`-th kept is the one with `j` kept before it, so `xs.filter(p)[0]` and `.at(-1)` are exact. The proof side
@@ -149,7 +155,8 @@ A `Map` or a `Set` is the array of its entries, read through `has` and `get`: a 
 (`NaN` finds `NaN`), a `Map` the code is given gives a key's first entry, and one built from pairs its last, as its
 constructor keeps it. `get` is `undefined` where the key has no entry. A `Map` or a `Set` the code is given has keys
 that are strings, booleans or bigints, and reads back in a counterexample as `new Map([...])` or `new Set([...])`. Its
-`size`, its iteration and every change to it are refused.
+`size`, its iteration and every change to it are refused. One the code allocates is a map it builds (*Maps the code
+builds*, below).
 
 ### Dictionaries
 
@@ -165,6 +172,28 @@ names of array positions (`"0"`, `"12"`) first, by number, then the rest. Of an 
 a spread, they are its keys and values in that same order, a key written as a number (`1: "z"`) being the name
 JavaScript gives it (`0x10` is `"16"`). Of a record the code is given whose type names its fields they are refused: it
 may hold keys its type does not name.
+
+### Maps the code builds
+
+An object the code allocates whose type is a dictionary (`const out: Record<string, string> = {}`, a `{}` given that
+type, a spread of a dictionary first), and a `Map` or a `Set` it allocates (`new Map()`, `new Set(xs)`), is what it held
+when made with each change on top: `out[k] = v`, `delete out[k]`, `m.set(k, v)`, `s.add(k)`, `m.delete(k)`, at keys the
+code computes, each where its branch holds. A key's entry is the last change's that names it, else what the map held
+before. `out[k]`, `k in out`, `Object.hasOwn(out, k)`, `has`, `get` and `size` read it. A primitive written at
+`__proto__` sets no key, as JavaScript does, so a law about every key it writes needs `__proto__` ruled out; an object
+written there sets the prototype instead, so that its key is another is an obligation.
+
+Its keys listed (`Object.keys`, `Object.entries`, a spread, a `for…of`) are, on the search side, exactly JavaScript's:
+an object's array positions first, by number, then the rest as first written; a `Map`'s and a `Set`'s as first written;
+a key deleted and written again, last. On the proof side they are a list of the keys it holds, each once, in an order
+not known, so a law about which comes first is bounded at best, and the report says so. A map no change touched since it
+was made from a dictionary, or one of two such (`input.card ?? {}`), is listed exactly on both sides.
+
+A loop whose passes only change maps and push onto arrays the code built before it needs no invariant on the proof side:
+each key holds what the last pass that wrote it wrote, and the array what each pass pushed, in order. A loop over a list
+of keys each once (a `Set`'s, a map's keys, either sorted) that writes a map at its element alone is read key by key:
+a key's entry is what the pass at that key writes, where the list holds the key. A pass reads no map the loop builds;
+such a read is refused, naming it.
 
 ### Narrowing
 
@@ -204,7 +233,9 @@ Each refusal names the place, `file:line:column`, and the reason.
 | `xs[i]` on an array, without `noUncheckedIndexedAccess` | its type says the element is there, which may be false | `noUncheckedIndexedAccess` turned on, or `xs.at(i)`, whose type says it may be missing |
 | `.includes(x)` of a `number` | it finds `NaN`, which `===` does not | `.some((y) => y === x)` |
 | `.reverse()` of an array something else holds | it turns that array around | `[...xs].reverse()` or `xs.toReversed()` |
-| a `Map`'s or a `Set`'s `size`, its iteration, `set`, `add`, `delete`; a key that is a `number` or an object | not modeled | `has` and `get`; string keys |
+| a `Map`'s or a `Set`'s `size`, its iteration, `set`, `add`, `delete`, of one the code is given; a key that is a `number` or an object | not modeled | `has` and `get`; a copy the code builds; string keys |
+| a read, in a loop, of a map that loop builds | a pass is read whole, from what it writes | the map read after the loop |
+| `.sort` with a comparator, or of other than strings | not modeled | `.sort()` of strings |
 | `"key" in obj` of a key the type makes optional | an absent key and one holding `undefined` read alike | `obj.key !== undefined` |
 | a `Date`'s methods but `getTime()` and `valueOf()`; `new Date(x)` | not modeled | the time, `getTime()`, and arithmetic on it |
 | a member of a value the type checker has not shown present | it may be missing | a check first, or `?.` |

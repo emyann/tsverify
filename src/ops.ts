@@ -5,6 +5,8 @@
 // string's truthiness is its being non-empty.
 import type { Arith, Bool } from "z3-solver"
 import type { Universe } from "./universe.ts"
+import { givenTable, mapValue, mergeTables, pushedArray } from "./maps.ts"
+import { tableMethods } from "./collections.ts"
 import { KIND, NUM, UNDEFINED, Unsupported, type Val, jsString, lazyRecord, memoElems, termId } from "./value.ts"
 import type ts from "typescript"
 
@@ -286,6 +288,12 @@ export const ite = (u: Universe, c: Bool, a: Val, b: Val, at: ts.Node): Val => {
   // A count where the other path has a number (`let high = xs.length`, later `high = mid`): a number, which holds it.
   if (a.kind === "int" && a.origin === "count" && b.kind === "num") return ite(u, c, countAsNum(u, a.term), b, at)
   if (a.kind === "num" && b.kind === "int" && b.origin === "count") return ite(u, c, a, countAsNum(u, b.term), at)
+  if (a.kind === "record" && b.kind === "record" && (a.table !== undefined || b.table !== undefined)) {
+    // A map the code built on one path, and one it built or a dictionary it was given on the other: one table.
+    const ta = a.table ?? (a.entries !== undefined ? givenTable(b.table!.L, a, at) : undefined)
+    const tb = b.table ?? (b.entries !== undefined ? givenTable(a.table!.L, b, at) : undefined)
+    if (ta !== undefined && tb !== undefined) return mapValue(mergeTables(c, ta, tb, at), tableMethods)
+  }
   if (a.kind === "record" && b.kind === "record" && a.entries !== undefined && b.entries !== undefined) {
     // Two dictionaries, one on each path: a key read in the one its path holds.
     const ea = a.entries
@@ -337,12 +345,30 @@ export const ite = (u: Universe, c: Bool, a: Val, b: Val, at: ts.Node): Val => {
       ...(a.id === undefined || b.id === undefined ? {} : { id: `ite(${termId(c)},${a.id},${b.id})` }),
       ...(a.effects === undefined && b.effects === undefined ? {} : { effects: () => a.effects?.() ?? b.effects?.() }),
     }
+  if (a.kind === "array" && b.kind === "array" && a.pushes !== undefined && b.pushes !== undefined && a.pushes.base === b.pushes.base) {
+    // One pass's two paths through a loop that builds the array: what each pushed, under its branch.
+    const ia = a.pushes.items
+    const ib = b.pushes.items
+    let common = 0
+    while (common < ia.length && common < ib.length && ia[common] === ib[common]) common++
+    return pushedArray(
+      u,
+      a.pushes.base,
+      [
+        ...ia.slice(0, common),
+        ...ia.slice(common).map((x) => ({ ...x, cond: z3.And(c, x.cond) })),
+        ...ib.slice(common).map((x) => ({ ...x, cond: z3.And(z3.Not(c), x.cond) })),
+      ],
+      at,
+    )
+  }
   if (a.kind === "array" && b.kind === "array") {
     const maxSize = a.maxSize !== undefined && b.maxSize !== undefined ? Math.max(a.maxSize, b.maxSize) : undefined
     return {
       kind: "array",
       length: z3.If(c, a.length, b.length),
-      elem: memoElems((i) => ite(u, c, a.elem(i), b.elem(i), at)),
+      // An empty array's element is read on no run: the other path's stands for it (`cond ? [] : [x]`).
+      elem: memoElems((i) => (a.size === 0 ? b.elem(i) : b.size === 0 ? a.elem(i) : ite(u, c, a.elem(i), b.elem(i), at))),
       ...(a.size !== undefined && a.size === b.size ? { size: a.size } : {}),
       ...(maxSize === undefined ? {} : { maxSize }),
       ...(a.id !== undefined && b.id !== undefined ? { id: `ite(${termId(c)},${a.id},${b.id})` } : {}),
