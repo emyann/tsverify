@@ -25,7 +25,7 @@ jobs:
   test:
     name: test on node ${{ matrix.node }}
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     strategy:
       # Every leg runs: a failure on one Node says nothing about the other.
       fail-fast: false
@@ -44,11 +44,13 @@ jobs:
         timeout-minutes: 10
       # The suite builds the package too: test/install.test.ts packs it (`npm pack`, whose prepack builds dist/) and installs the
       # tarball into a project of its own, from the registry, so a broken build fails here.
-      # `npm test`'s command, but the maps tests, which the `maps` job runs: with them the step took 10.3 of its 15 minutes on
-      # 24.16.0 on 3 November, and ran past them on a runner twice as slow.
+      # `npm test`'s command, but the maps tests, which the `maps` job runs: with them the step took 10.3 of 15 minutes on
+      # 24.16.0 on 3 November, and ran past them on a runner twice as slow. Without them it took 13.5 once each contract was
+      # verified in a context of its own: `corpus-floats.test.ts` ran 12 of them beside the other files, two of its queries
+      # until the 5-minute clock stops them, which no faster runner shortens. Hence 20.
       - name: npm test, but the maps tests
         run: node --predictable-gc-schedule --conditions=tsverify-source --test $(ls test/*.test.ts | grep -v '^test/maps')
-        timeout-minutes: 15
+        timeout-minutes: 20
 
   maps:
     # The maps tests (`test/maps*.test.ts`): Nemia's `inheritedLabels` verified, a bug planted against each law it proves, the same

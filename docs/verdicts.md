@@ -323,11 +323,14 @@ tsverify <file.ts> <export> [--json] [--watch] [--cache] [--cache-location <fold
 | 3 | the verifier itself failed, which says nothing of the code |
 
 The same code gets the same verdicts on every run, on a fast machine or a slow one, idle or busy, and whatever was
-verified before it. Each query may do a set amount of the solver's work, counted in its own steps and not in seconds,
-and each contract is verified in a Z3 context of its own, which frees none of the solver's terms until its verdicts are
-read: a term freed hands its number to the next one made, the numbers order the solver's search, and JavaScript frees
-a term when it collects it, which is not at the same moment on every run. A program that calls `verify` itself
-(`@emyann/tsverify/api`, whose `work` option is `--work`) gets the same.
+verified before it, but where a query runs 5 minutes without counting its work: a clock stops that one, so where it
+stops hangs on the machine. Each query may do a set amount of the solver's work, counted in its own steps and not in
+seconds, and each contract is verified in a Z3 context of its own, which frees none of the solver's terms until its
+verdicts are read: a term freed hands its number to the next one made, the numbers order the solver's search, and
+JavaScript frees a term when it collects it, which is not at the same moment on every run. A report names a stop at
+the 5 minutes "out of time", but it names some stops at the work limit so too, which Z3 reports as `canceled`, so it
+cannot tell the two apart yet (`roadmap.md`). A program that calls `verify` itself (`@emyann/tsverify/api`, whose
+`work` option is `--work`) gets the same.
 
 ### Verdicts kept between runs
 

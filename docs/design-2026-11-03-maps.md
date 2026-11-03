@@ -161,7 +161,9 @@ beside another test file and four without the flag all gave every law the same v
 `test/maps-steady.test.ts` asks it of five runs, each in a process of its own, the last after another contract. z3-solver
 has a registry that waits for a running query before it frees, but uses it for a context alone: a term goes to the one
 that frees at once. What reads a side `lowerSide` made, on the context `openZ3` returns, still frees as z3-solver does:
-`test/maps-constructs.test.ts`'s pinned queries do, and the flatMap counts it leaves undecided sit near the limit.
+`test/maps-constructs.test.ts`'s pinned queries do, and the flatMap counts it leaves undecided sit near the limit. A
+query that runs 5 minutes without counting its work is still stopped by a clock, so where it stops hangs on the
+machine; none of `inheritedLabels`' does.
 
 **Two laws that do not hold** (`inheritedLabelsWrong`) are refuted at bound 1: that a typed key is never held, and that
 a key the runs agree on is never held. The first round proves neither. Each counterexample breaks its law when the

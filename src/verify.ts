@@ -156,7 +156,8 @@ export interface Options {
   /**
    * The work each query may do, on each side, in the solver's own units (Z3's resource limit, `rlimit`): a count of
    * its steps, not of seconds, so a verdict is the same on a fast machine and a slow one, idle or busy, as the context
-   * of its own each contract is verified in keeps the order of the solver's search (`ownContext`). `WORK` by default.
+   * of its own each contract is verified in keeps the order of the solver's search (`ownContext`), but for a query
+   * that never counts its work, which `STUCK_MS`, a clock, stops. `WORK` by default.
    */
   readonly work?: number
   /** The search side's longest array. */
@@ -574,8 +575,9 @@ const undecidedOf = async (
 }
 
 /**
- * The verdicts of contract `name` of `file`, each the same on every run: the contract is verified in a Z3 context of
- * its own (`ownContext`), deleted once its verdicts are read, so no contract verified before it changes them.
+ * The verdicts of contract `name` of `file`, each the same on every run but where `STUCK_MS` stops a query: the
+ * contract is verified in a Z3 context of its own (`ownContext`), deleted once its verdicts are read, so no contract
+ * verified before it changes them.
  */
 export const verify = async (z3: Ctx, project: Project, file: string, name: string, opts: Options = {}): Promise<Verification> => {
   if (opts.cache === undefined) return ownContext(z3, (own) => verified(own, project, file, name, opts))
@@ -1143,10 +1145,14 @@ type Outcome =
 
 /**
  * The work a query may do by default: above the most any query of the suite and of the case study needs to end, 9.7
- * million, by half again. Measured on 5,672 queries; one that does not end stops at the same step on every run.
+ * million, by half again. Measured on 5,672 queries; one that does not end, and counts its work, stops at the same
+ * step on every run.
  */
 export const WORK = 15_000_000
-/** A guard against a query that never counts its work: far past what `WORK` takes, and said apart when it is reached. */
+/**
+ * A guard against a query that never counts its work: far past what `WORK` takes, and named "out of time" when it is
+ * reached. A clock, so where it stops a query hangs on the machine: the one stop that may not be the same on every run.
+ */
 const STUCK_MS = 300_000
 
 const limited = (solver: { set(key: string, value: number): void }, work: number): void => {
