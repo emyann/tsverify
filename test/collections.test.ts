@@ -1,6 +1,7 @@
-// Collections and keys (fixtures/collections.ts): every law proved; the laws hold when the functions run, on empty,
-// one and several entries; a bug planted in each is caught; what is refused is refused with its reason; and the ends
-// of a union told apart by `kind` are each found or shown never made.
+// Collections and keys (fixtures/collections.ts): every law proved, among them that a `.filter` keeps every element its
+// predicate holds of; the laws hold when the functions run, on empty, one and several entries; a bug planted in each is
+// caught; what is refused is refused with its reason; and the ends of a union told apart by `kind` are each found or
+// shown never made.
 import assert from "node:assert/strict"
 import path from "node:path"
 import { after, before, describe, it } from "node:test"
@@ -11,6 +12,7 @@ import { openZ3, verify } from "../src/verify.ts"
 import { checkFixture } from "./fixture-plants.ts"
 
 const job = (id: string, done: boolean, turn?: number): fixture.Job => (turn === undefined ? { id, done } : { id, done, turn })
+const rel = (tag: string): fixture.Release => ({ tag })
 checkFixture(
   "collections.ts",
   fixture,
@@ -38,6 +40,12 @@ checkFixture(
       [["a"], 3],
       [[], 1],
       [["a", "b"], 1],
+    ],
+    retainedOnes: [
+      [[], { current: "a", pinned: [] }],
+      [[rel("a"), rel("b"), rel("c")], { current: "", pinned: [] }],
+      [[rel("a"), rel("b"), rel("c")], { current: "a", pinned: [] }],
+      [[rel("a"), rel("b"), rel("c"), rel("d"), rel("e")], { current: "c", pinned: ["d"] }],
     ],
     saidOfAMove: [[{ to: "x", note: "n" }], [{ refused: "r" }]],
     taggedWhenAsked: [[true], [false]],
@@ -69,6 +77,8 @@ checkFixture(
     },
     { id: "K4", what: "read from the start", change: ["[...jobs].reverse().find(", "[...jobs].find("], contract: "lastWithATurn" },
     { id: "K5", what: "the first n, not the last", change: ["ids.slice(-n)", "ids.slice(0, n)"], contract: "lastIdsKept" },
+    { id: "R1", what: "the third newest kept too", change: ["i >= RELEASES_KEPT", "i > RELEASES_KEPT"], contract: "retainedOnes" },
+    { id: "R2", what: "a pinned release removed", change: [" && !inUse.pinned.includes(r.tag)", ""], contract: "retainedOnes" },
     { id: "K6", what: "the note for the destination", change: [": moved.to\n", ": moved.note\n"], contract: "saidOfAMove" },
     {
       id: "K7",
