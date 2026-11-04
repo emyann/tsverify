@@ -1,6 +1,7 @@
-// Collections and keys: the elements a `.filter` keeps, a `Map` and a `Set` the code is given or builds and reads
-// through `has` and `get`, a copy turned around, a `.slice` of positions counted from the end, and `in`, of an object
-// the code built and of a union it is given. `test/collections.test.ts` asks each.
+// Collections and keys: the elements a `.filter` keeps (every one its predicate holds of, by element and by index, as
+// the releases a retention removes), a `Map` and a `Set` the code is given or builds and reads through `has` and `get`,
+// a copy turned around, a `.slice` of positions counted from the end, and `in`, of an object the code built and of a
+// union it is given. `test/collections.test.ts` asks each.
 import { contract } from "../src/contract.ts"
 
 export interface Job {
@@ -76,6 +77,38 @@ export const lastIdsKept = contract(lastIds, {
     atMostN: ({ input: [, n], output }) => output.length <= n,
     allWhenFewer: ({ input: [ids, n], output }) => ids.length > n || output.length === ids.length,
     endsTheSame: ({ input: [ids], output }) => output.length === 0 || output.at(-1) === ids.at(-1),
+  },
+})
+
+export interface Release {
+  readonly tag: string
+}
+
+export interface InUse {
+  readonly current: string
+  readonly pinned: ReadonlyArray<string>
+}
+
+const RELEASES_KEPT = 2
+
+const inUseBy = (inUse: InUse, tag: string): boolean => tag === inUse.current || inUse.pinned.includes(tag)
+
+/** The releases to remove: none while no release is current; else every one past the two newest that is neither current nor pinned. */
+export function retire(
+  installed: ReadonlyArray<Release>,
+  inUse: InUse,
+): { readonly remove: ReadonlyArray<string>; readonly held: string | null } {
+  if (inUse.current === "") return { remove: [], held: "no release is current" }
+  const current = inUse.current
+  const remove = installed.filter((r, i) => i >= RELEASES_KEPT && r.tag !== current && !inUse.pinned.includes(r.tag)).map((r) => r.tag)
+  return { remove, held: null }
+}
+
+export const retainedOnes = contract(retire, {
+  ensures: {
+    everyOtherGoes: ({ input: [installed, inUse], output }) =>
+      output.held !== null || installed.every((r, i) => i < 2 || inUseBy(inUse, r.tag) || output.remove.includes(r.tag)),
+    onlyOthersGo: ({ input: [, inUse], output }) => output.held !== null || output.remove.every((t) => !inUseBy(inUse, t)),
   },
 })
 
