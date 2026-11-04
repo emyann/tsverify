@@ -404,9 +404,9 @@ export const arrayMethod = (L: Lowering, arr: Extract<Val, { kind: "array" }>, n
     case "filter": {
       // The kept elements, in order. Written out (the search side, and an array of known bound), exactly: element k is
       // kept where it is in range and the predicate holds there, and the j-th kept is the k with j kept before it. On
-      // the proof side, a count that is only "none or some", and the j-th kept element an element at an index where
-      // the predicate holds, the indices rising with j: every real filter is one of these, so a proof stands, and a
-      // model there proves nothing.
+      // the proof side, the j-th kept element an element at an index where the predicate holds, the indices rising
+      // with j, and every index where it holds one of them: the kept elements exactly, in order. Only the count is not
+      // read as a number, but as "none or some", so a model there proves nothing.
       if (u.depth > 0) throw new Unsupported("`.filter` inside a quantifier (`.some`, `.every`, another `.filter`) is not modeled", e)
       const p = predicate()
       const bounds = arr.maxSize === undefined ? {} : { maxSize: arr.maxSize }
@@ -452,8 +452,18 @@ export const arrayMethod = (L: Lowering, arr: Extract<Val, { kind: "array" }>, n
       )
       const { result, facts } = elementwise(L, j, inRange, () => p(positionOf(j)), true)
       u.assume(z3.ForAll([j], z3.Implies(z3.And(inRange, ...facts), result)))
+      // And every element the predicate holds of is kept, at the place `rank` gives: the kept indices are exactly those
+      // the predicate holds at, so a law that every passing element is found among the kept ones is proved.
+      const rank = z3.Function.declare(u.fresh("rank"), z3.Int.sort(), z3.Int.sort())
+      const i = z3.Int.const(u.fresh("i"))
+      const inArr = z3.And(i.ge(0), i.lt(arr.length))
+      const passes = elementwise(L, i, inArr, () => p(i), true)
+      const at = rank.call(i)
+      u.assume(
+        z3.ForAll([i], z3.Implies(z3.And(inArr, ...passes.facts, passes.result), z3.And(at.ge(0), at.lt(count), positionOf(at).eq(i)))),
+      )
       u.abstracted = true
-      u.approximations.add(`\`${e.getText()}\` is known on the proof side as some of the elements its predicate keeps, in order`)
+      u.approximations.add(`\`${e.getText()}\` is known on the proof side element by element, and its count only as none or some`)
       return { kind: "array", length: count, ...bounds, elem: memoElems((k) => arr.elem(positionOf(k))) }
     }
   }
