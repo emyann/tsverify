@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run lint)",
+      "Bash(npm run typecheck)",
+      "Bash(node --predictable-gc-schedule --conditions=tsverify-source --test --test-concurrency=1 test/*)",
+      "Bash(gh pr view *)",
+      "Bash(gh pr checks *)"
+    ]
+  }
+}
