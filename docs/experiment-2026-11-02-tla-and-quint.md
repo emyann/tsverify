@@ -83,6 +83,18 @@ The owner sees far more traction for TLA+ than for Quint. What is known so far:
   Fairness is part of the language itself (weak and strong fairness), and TLC checks liveness under it. It has a long
   record in industry, Amazon's included ("How Amazon Web Services Uses Formal Methods", CACM, 2015), and a foundation
   under the Linux Foundation.
+- **tla-ts** ([aidenybai/tla-ts](https://github.com/aidenybai/tla-ts)), read on 2 November 2026 and not yet run: TLC,
+  its parser, PlusCal and TLAPM rewritten in TypeScript, so a model is checked in Node or a browser with no JVM. It reads
+  `.tla` files, never TypeScript: TypeScript is only what it is written in. Two things in it bear on the pilot:
+  - **Traces:** `check()` returns a failing trace as JavaScript values, in the same process as a Node test, which suits
+    replaying it against the engine.
+  - **Liveness:** TLC's liveness checker is ported, and its tests check specs with fairness. Whether it holds on the
+    pilot's model is not yet known.
+
+  Its SMT backend for proofs is a TypeScript port of Z3's core (about 45,000 lines), cut to the one setting TLAPM uses:
+  arithmetic and uninterpreted functions, no strings. That is no reason to change how tsverify calls Z3. It is a week
+  old (0.0.5, one author), and its correctness rests on matching TLC's recorded results on 542 models, so the pilot runs
+  the model through both TLC and tla-ts.
 
 To decide by, measured on the pilot below:
 - **Liveness under fairness.** "Every parked session is eventually resumed" needs "the next daemon eventually takes a
