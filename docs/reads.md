@@ -146,8 +146,9 @@ element and holds them in order, and the proof side reads the result as the same
 
 `.filter` keeps its elements in order. The search side writes it out: element `k` is kept where the predicate holds of
 it, and the `j`-th kept is the one with `j` kept before it, so `xs.filter(p)[0]` and `.at(-1)` are exact. The proof side
-counts the kept as none or some, and knows the `j`-th kept to be some element the predicate holds of, at an index that
-rises with `j`.
+knows the kept elements exactly: the `j`-th kept is an element the predicate holds of, at an index that rises with `j`,
+and every element the predicate holds of is kept, so a law that each passing element is in the result is proved. Only
+the count is not read as a number but as none or some, so a law of `.filter(p).length` is bounded at best.
 
 ### Collections
 

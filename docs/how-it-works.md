@@ -77,8 +77,8 @@ A counterexample's `where names.get gave ""` is the part of w the model chose.
 ## Two sides
 
 Each contract is lowered twice:
-- The **proof side** keeps arrays of any length and real quantifiers. It may over-approximate: a filtered array is modelled
-  by its length as "none or some", and numbers as reals. Its `unsat` is a proof. Its models aren't trusted once an
+- The **proof side** keeps arrays of any length and real quantifiers. It may over-approximate: a filtered array is known
+  element by element, but its length only as "none or some", and numbers as reals. Its `unsat` is a proof. Its models aren't trusted once an
   approximation was used.
 - The **search side** holds arrays to 4 elements, writes quantifiers out element by element, counts filtered elements
   exactly, and keeps numbers to values a double holds exactly. Every model it finds is a real input.
