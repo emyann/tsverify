@@ -441,15 +441,12 @@ export const arrayMethod = (L: Lowering, arr: Extract<Val, { kind: "array" }>, n
       const inRange = z3.And(j.ge(0), j.lt(count))
       // Where the kept indices lie holds of every j in range, whatever is said of the element there; that the predicate
       // holds there leans on what its elements are (their facts), as any statement of every element does.
-      u.assume(
-        z3.ForAll(
-          [j],
-          z3.Implies(
-            inRange,
-            z3.And(positionOf(j).ge(0), positionOf(j).lt(arr.length), z3.Implies(j.gt(0), positionOf(j.sub(1)).lt(positionOf(j)))),
-          ),
-        ),
-      )
+      u.assume(z3.ForAll([j], z3.Implies(inRange, z3.And(positionOf(j).ge(0), positionOf(j).lt(arr.length)))))
+      // Rising, said of any two places, not of neighbours: `j - 1` inside `kept`, which the solver matches on, would
+      // make it read `j - 2`, and so on without end, from each place `rank` gives.
+      const a = z3.Int.const(u.fresh("a"))
+      const b = z3.Int.const(u.fresh("b"))
+      u.assume(z3.ForAll([a, b], z3.Implies(z3.And(a.ge(0), a.lt(b), b.lt(count)), positionOf(a).lt(positionOf(b)))))
       const { result, facts } = elementwise(L, j, inRange, () => p(positionOf(j)), true)
       u.assume(z3.ForAll([j], z3.Implies(z3.And(inRange, ...facts), result)))
       // And every element the predicate holds of is kept, at the place `rank` gives: the kept indices are exactly those
