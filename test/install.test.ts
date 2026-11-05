@@ -165,16 +165,20 @@ describe("tsverify, installed from its tarball", () => {
   })
 
   it("reaches the verdicts the source reaches on the same files", async () => {
-    const [source, installed] = await Promise.all([
+    const [source, installed, workers] = await Promise.all([
       ran(process.execPath, [path.join(root, "src/cli.ts"), ...VERIFIED, "--json"], root),
       ran(process.execPath, [bin, ...VERIFIED, "--json"], project),
+      // The built command's workers: the module it forks is the built one beside it.
+      ran(process.execPath, [bin, ...VERIFIED, "--json", "--workers", "2"], project),
     ])
-    // Exit 1 on both: the lodash example holds a counterexample on purpose.
+    // Exit 1 on each: the lodash example holds a counterexample on purpose.
     assert.equal(source.code, 1, source.err)
     assert.equal(installed.code, 1, installed.err)
+    assert.equal(workers.code, 1, workers.err)
     const s = JSON.parse(source.out) as Report
     const i = JSON.parse(installed.out) as Report
     assert.deepEqual(verdicts(i), verdicts(s))
+    assert.deepEqual(verdicts(JSON.parse(workers.out) as Report), verdicts(s))
     // And what each reads differently once installed, decided as it should be.
     const folded = contract(i, "examples/account/account.contract.ts folded")
     assert.ok(folded.obligations.length > 0 && folded.obligations.every((o) => o.status === "proved"), JSON.stringify(folded.obligations))

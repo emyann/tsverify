@@ -228,7 +228,11 @@ itself: where it is weak, what the code can reach, and which laws say nothing.
 npm install --save-dev @emyann/tsverify  # add `effect` for Effect programs
 npx tsverify                             # every contract under the current folder
 npx tsverify --watch                     # again on every save, until all is proved
+npx tsverify --workers 4                 # the files verified four at a time, the same report
 ```
+
+A `tsverify.config.json` beside them lists the folders a run with none named verifies, and its options
+([The command](docs/verdicts.md#the-command)).
 
 It needs Node 24.16 or later, and brings its own `typescript` and `z3-solver`. It reads every file that imports
 `@emyann/tsverify`, whatever its name; these pages name a spec's file `*.contract.ts`, which no test runner mistakes for a test.
