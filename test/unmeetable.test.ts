@@ -42,3 +42,15 @@ it("the unmeetable law keeps its input, and its reason names the laws and the fi
   assert.match(law.reason ?? "", /atMostTen and atLeastTheInput together/)
   assert.match(law.reason ?? "", /change the spec/)
 })
+
+it("whether a counterexample's input leaves any result, unsettled at a tenth of the work, leaves the counterexample and says so", async () => {
+  // Found by sweeping `work` with z3-solver 5.3.2 on `capped`: its counterexample is found from 300 up, and whether any
+  // result keeps both laws there, asked at a tenth, runs out up to 1000 and is settled (unmeetable) from 1500. Picked
+  // again the same way after a z3-solver upgrade.
+  const law = (await verify(z3, project, spec, "capped", { work: 600, cover: false })).laws.find((l) => l.name === "atLeastTheInput")!
+  assert.equal(law.status, "counterexample")
+  assert.deepEqual(
+    law.unanswered?.map(({ question, side, end }) => ({ question, side, end })),
+    [{ question: "unmeetable", side: "proof", end: "out of work" }],
+  )
+})

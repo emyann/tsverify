@@ -114,19 +114,24 @@ The command exits 0 only when every law is proved and no contract is undecided.
 
 ## When a run is slow
 
-- **Find the law first.** The one-contract form and `--verbose` print each law's time. The time is Z3's, not the reading of
-  the TypeScript, and a few laws hold most of it.
+- **Find the law first, then its question.** The one-contract form and `--verbose` print each law's time. The time is
+  Z3's, not the reading of the TypeScript, and a few laws hold most of it. `--json` says which question took it: each
+  law's `asked` sums its queries by question (`proof`, `says-anything`, `search`, `unmeetable`), by side and by how they
+  ended (`answered`, `out of work`, `out of time`, `gave up`), and each contract's `asked` its own (`cross-check`,
+  `cover`, `undecided`, `obligation`).
 - **A proved law asks more than its proof.** It also asks whether any result could break it (the `vacuous` check), a
-  question over every input and every result, which is often its slowest query: a law proved in a second can spend minutes
-  there.
+  question over every input and every result. It is asked at a tenth of `--work`: one it cannot settle in that leaves the
+  law `proved`, with a note under it.
 - **`--work N` is each query's budget**, in Z3's own steps, 15,000,000 by default. A query that runs out spends all of it,
-  from seconds to minutes depending on what it asks, and its law may ask two or three such queries. A reason that says
-  "out of time: the query ran 5 minutes" on a law that took seconds is a stop at the work limit (`docs/roadmap.md`).
+  from seconds to minutes depending on what it asks, and says "out of work"; "out of time" is a query stopped at 5
+  minutes, which never counted its work.
 - **While you write, lower it**: `--work 3000000` took one contract from 5 minutes to 40 seconds, every law still proved. A
   law proved at a lower budget is proved for every input `requires` allows.
-- **In CI, keep the default.** What a lower budget loses is the checks around a proof: whether the law says anything, and
-  whether the exact search side agrees with it. Those end without an answer and the law still reads `proved`, so its
-  verdicts cannot show the loss. Lower the budget only where you will verify again at the default.
+- **In CI, lower it too, and read the notes.** What a lower budget loses is the checks around a proof: whether the law says
+  anything, whether the exact search side agrees with it, whether a counterexample's input leaves any result, whether the
+  laws decide every input. Each that ends without an answer is a note under its law or contract, counted on the contract's
+  line and in the totals (`totals.unanswered` in `--json`), and the exit code does not change. Where a note matters to
+  you, verify that contract again at the default.
 - **`--bound N`** is the longest array the search side tries, 4 by default; maps and loops grow fast with it, so lower it
   while you write a law over them. A run that exits 3 holding about 2 GB has run Z3 out of memory: lower `--bound` and
   `--work`, or verify that contract alone.

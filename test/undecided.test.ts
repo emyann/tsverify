@@ -60,3 +60,36 @@ it("a union of strings left open is undecided, and a hole outside requires is no
 it("two results that differ only in a free string are of one kind", async () => {
   assert.equal((await of("freeLabel")).undecided, undefined)
 })
+
+/**
+ * Works at which `refusesOnly`'s laws are proved and a question around them runs out, found by sweeping `work` with
+ * z3-solver 5.3.2: whether the laws decide every input runs out up to 2000 and answers from 2500, and the laws are
+ * proved from 120 up; the cross-check of the laws against the search side runs out from 120 to 175 and answers from 200.
+ * Picked again the same way after a z3-solver upgrade.
+ */
+const UNDECIDED_RUNS_OUT = 800
+const CROSS_CHECK_RUNS_OUT = 150
+
+it("whether the laws decide every input, unsettled, leaves the contract unflagged and says so", async () => {
+  const v = await verify(z3, project, spec, "refusesOnly", { work: UNDECIDED_RUNS_OUT, cover: false })
+  assert.deepEqual(
+    v.laws.map((l) => l.status),
+    ["proved", "proved"],
+  )
+  assert.equal(v.undecided, undefined)
+  assert.deepEqual(
+    v.unanswered?.map(({ question, side, end }) => ({ question, side, end })),
+    [{ question: "undecided", side: "search", end: "out of work" }],
+  )
+})
+
+it("the cross-check of a proved law, unsettled, leaves it proved and says so", async () => {
+  const v = await verify(z3, project, spec, "refusesOnly", { work: CROSS_CHECK_RUNS_OUT, cover: false })
+  for (const l of v.laws) {
+    assert.equal(l.status, "proved", l.name)
+    assert.ok(
+      l.unanswered?.some((u) => u.question === "cross-check" && u.side === "search" && u.end === "out of work"),
+      `${l.name}: ${JSON.stringify(l.unanswered)}`,
+    )
+  }
+})

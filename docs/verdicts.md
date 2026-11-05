@@ -191,6 +191,11 @@ only the inputs, which `requires` already settles. The verifier asks it of every
 value of the result's type in place of the function's. Rewrite the law to constrain the result, or drop it. A vacuous law
 fails the command, as a law that says nothing should.
 
+The check is asked at a tenth of a query's work (`--work`), as `unmeetable`'s is: it is asked of every law proved, over
+every input and every result, and it was most of a run's time where it ran out of work. One it cannot settle in that
+reads as saying something: the law stays `proved`, and a note under it says the check was not settled, and how each side
+ended (below).
+
 ### ~ `bounded`
 
 Not proved, and no input with arrays of up to 4 elements breaks it (`--bound` sets the length). The reason says what
@@ -231,6 +236,25 @@ splitting a law into smaller ones, or a lemma, often helps more.
 
 The proof side proved the law, and the search side, which is exact, found an input that breaks it. One of the two is
 wrong, which is a bug of tsverify, not a verdict on the code. The input is given; please report it.
+
+## Questions without an answer
+
+Some questions of a verification can end without an answer and leave the verdict as it was: whether a proved law says
+anything, whether a counterexample's input leaves any result (`unmeetable`), the cross-check of what the proof side
+proved against the search side, and whether the laws decide every input (`undecided`). Each that ends without one is a
+note, under its law or its contract, which says what was not settled, how it ended and what the verdict took of it:
+
+```
+  ✓ signed  1 law · 1 unanswered  (38 ms)
+    ✓ zeroOnlyAtZero  (17 ms)
+      whether it says anything of the function was not settled (out of work on both sides, at a tenth of `--work`): read as saying something
+```
+
+A law with a note is listed in a folder's run even when proved, the contract's line counts the notes, and so does the
+totals line (`✓ 2 laws proved · 1 question unanswered`). The exit code does not change: a note is not a failure. A
+query ends `out of work` at the work limit, the same on every run, `out of time` at the 5 minutes, or with the solver's
+own reason. A lower `--work` makes more notes, and loses nothing a reader cannot see; `--work` again at the default, or
+higher, answers them.
 
 ## Proof code
 
@@ -385,8 +409,8 @@ stops hangs on the machine. Each query may do a set amount of the solver's work,
 seconds, and each contract is verified in a Z3 context of its own, which frees none of the solver's terms until its
 verdicts are read: a term freed hands its number to the next one made, the numbers order the solver's search, and
 JavaScript frees a term when it collects it, which is not at the same moment on every run. A report names a stop at
-the 5 minutes "out of time", but it names some stops at the work limit so too, which Z3 reports as `canceled`, so it
-cannot tell the two apart yet (`roadmap.md`). A program that calls `verify` itself (`@emyann/tsverify/api`, whose
+the 5 minutes "out of time", and a stop at the work limit "out of work", Z3's `canceled` before the 5 minutes among
+them. A program that calls `verify` itself (`@emyann/tsverify/api`, whose
 `work` option is `--work`) gets the same.
 
 ### Verdicts kept between runs
@@ -400,7 +424,9 @@ own, each it imports, the declarations of the packages and of JavaScript those b
 under, and the verifier's own code and Z3's version. A contract whose program reads the same text again is answered
 from the folder, and not verified. A change to a file verifies again each contract whose program holds it, and only
 those: a contract that leans on a changed function is verified again, and one whose program never reads it is not. A
-verdict the solver ran out of work on is not kept, and one not used for 14 days is removed at the end of a run.
+verdict left `unknown` is not kept, nor one a question of which ran out of time at the 5 minutes, whose stop hangs on
+the machine; one with a question out of work is kept, note and all, as the work limit stops it alike on every run. A
+verdict not used for 14 days is removed at the end of a run.
 
 A counterexample answered from the folder is one an earlier run found. The verdict is the same, but its input may not
 be the one a run without `--cache` would print, since the solver's choice among the inputs that break a law follows
@@ -447,19 +473,45 @@ The same verdicts as one document: `passed` (what the exit code says), `contract
       "file": "src/cap.ts",
       "contract": "cap",
       "laws": [
-        { "name": "withinTheLimit", "status": "proved", "ms": 90.1 },
+        {
+          "name": "withinTheLimit",
+          "status": "proved",
+          "ms": 90.1,
+          "asked": [
+            { "question": "proof", "side": "proof", "end": "answered", "queries": 1, "ms": 31.5 },
+            { "question": "says-anything", "side": "search", "end": "answered", "queries": 1, "ms": 52.0 }
+          ]
+        },
         { "name": "neverNegative", "status": "counterexample", "args": ["-1n", "0n"], "ms": 11.2 }
       ],
       "obligations": [],
       "trusted": [],
       "cover": [],
       "notes": ["…"],
+      "asked": [{ "question": "cross-check", "side": "search", "end": "answered", "queries": 1, "ms": 4.2 }],
+      "ms": 160.3,
       "passed": false
     }
   ],
-  "totals": { "contracts": 1, "files": 1, "laws": { "proved": 1, "counterexample": 1 }, "obligations": {}, "unsupported": 0 }
+  "totals": {
+    "contracts": 1,
+    "files": 1,
+    "laws": { "proved": 1, "counterexample": 1 },
+    "obligations": {},
+    "unsupported": 0,
+    "undecided": 0,
+    "unanswered": 0
+  }
 }
 ```
+
+Where the time went: each law's `asked`, and each contract's for its own questions, sums its queries by `question`
+(`proof`, `says-anything`, `search` for a counterexample, `unmeetable`; a contract's `cross-check`, `cover`,
+`undecided` and `obligation`, a lemma's queries and the rounds that guess a loop's invariants among them), by `side`,
+and by `end`: `answered`, `out of work`, `out of time` or `gave up`. A contract's `ms` is its whole time, the reading of
+its code with it. A question that ended without an answer is in `unanswered`, the law's or the contract's, each with its
+`question`, `end`, the `side` where one side alone ended so, and the note's `reason`; `totals.unanswered` counts them.
+Only the times differ between two runs of the same code, each named `ms`.
 
 A counterexample's values are JSON; a value JSON cannot hold is a string of its JavaScript text (`"-1n"`, `"undefined"`,
 `"NaN"`, `"-0"`). Its `world`, for a computation, holds what each operation gave the code on that run, its outcome by call, and

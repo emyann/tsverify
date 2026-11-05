@@ -7,10 +7,6 @@ In rough order:
   proves five of its eight laws today, with its first loop's writes unknown; the other three need what that loop writes,
   and its body read at every key a law reads runs the solver out of work. The search side, at two elements, runs out
   of work on it too, and refutes none of its planted bugs there (`docs/design-2026-11-03-maps.md`, *The limit*).
-- A query stopped at its work limit, said so: Z3 reports some such stops as `canceled`, which a report reads as "out of
-  time: the query ran 5 minutes" though it stopped within seconds, so a reader looks at time where `--work` is what to
-  change, and cannot tell it from a stop at the 5 minutes, whose place hangs on the machine (the search side of
-  `reciprocalsOfEquals`, `fixtures/corpus/floats.ts`, is one).
 - The core first, by the published Z3 problems it still refuses (`fixtures/corpus/`): a string's `split` and spread, by
   code units and by code points; `%` and `**` of computed values on `number`; arithmetic that rounds, read as IEEE 754
   rounds it, where it is now only an obligation that it does not.

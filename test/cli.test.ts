@@ -74,6 +74,58 @@ it("over several files lists only the laws that need a look, and every law with 
   assert.match(verbose.out, /\n {4}assumed:\n/)
 })
 
+it("over several files lists a proved law whose check of saying something ended without an answer, with why, and counts it", () => {
+  // At this work the check, at a tenth of it, runs out for `zeroOnlyAtZero` (test/vacuous.test.ts, `PINNED_WORK`). The
+  // sign the code answers is left open, so whether the laws decide it is not asked: that would run out here too.
+  const sign =
+    `import { contract } from "@emyann/tsverify"\n\nexport function sign(n: bigint): "neg" | "zero" | "pos" {\n  return n < 0n ? "neg" : n === 0n ? "zero" : "pos"\n}\n\n` +
+    `export const signed = contract(sign, { ensures: { zeroOnlyAtZero: ({ input: [n], output }) => output !== "zero" || n === 0n }, open: true })\n`
+  const dir = project({ "src/clamp.ts": clamp("(n < 0n ? 0n : n)"), "src/sign.ts": sign })
+  try {
+    const run = (...args: Array<string>) =>
+      spawnSync(process.execPath, [path.join(root, "src/cli.ts"), "src", "--work", "800", ...args], {
+        cwd: dir,
+        env: plain,
+        encoding: "utf8",
+        timeout: 300_000,
+      })
+    const r = run()
+    assert.equal(r.status, 0, r.stdout + r.stderr)
+    assert.match(
+      r.stdout,
+      /\n {2}✓ signed +1 law · 1 unanswered {2}\(\d+ ms\)\n {4}✓ zeroOnlyAtZero {2}\(\d+ ms\)\n {6}whether it says anything/,
+    )
+    assert.match(r.stdout, /\n✓ 2 laws proved · 1 question unanswered\n/)
+    const j = run("--json")
+    assert.equal(j.status, 0, j.stderr)
+    const report = JSON.parse(j.stdout) as {
+      readonly passed: boolean
+      readonly totals: { readonly unanswered: number }
+      readonly contracts: ReadonlyArray<{
+        readonly contract: string
+        readonly laws: ReadonlyArray<{ readonly asked?: unknown; readonly unanswered?: ReadonlyArray<{ readonly question: string }> }>
+      }>
+    }
+    assert.equal(report.passed, true)
+    assert.equal(report.totals.unanswered, 1)
+    const law = report.contracts.find((c) => c.contract === "signed")!.laws[0]!
+    assert.ok(Array.isArray(law.asked))
+    assert.deepEqual(
+      law.unanswered?.map((u) => u.question),
+      ["says-anything"],
+    )
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+  // A contract's own question unsettled is said under the contract, after its laws: at this work, whether `refusesOnly`'s
+  // laws decide every input runs out (test/undecided.test.ts, `UNDECIDED_RUNS_OUT`).
+  const own = cli("fixtures/undecided/start.contract.ts", "--work", "800")
+  assert.match(
+    own.out,
+    /\n {2}✓ refusesOnly +2 laws · 3 unanswered {2}\(\d+ ms\)\n(?: {6}.*\n| {4}✓.*\n)* {4}whether the laws decide every input was not settled/,
+  )
+})
+
 it("finds a spec's implementation in a folder, the spec file holding none", () => {
   const r = cli("examples/charge")
   assert.equal(r.code, 0, r.out + r.err)
@@ -229,7 +281,15 @@ it("--json: one document and nothing else, its passed what the exit code says", 
     report.contracts.map((c) => [c.file, c.contract, c.passed, c.laws.map((l) => l.status)]),
     [["examples/charge/charge.ts", "charge", true, ["proved", "proved"]]],
   )
-  assert.deepEqual(report.totals, { contracts: 1, files: 1, laws: { proved: 2 }, obligations: {}, unsupported: 0, undecided: 0 })
+  assert.deepEqual(report.totals, {
+    contracts: 1,
+    files: 1,
+    laws: { proved: 2 },
+    obligations: {},
+    unsupported: 0,
+    undecided: 0,
+    unanswered: 0,
+  })
 })
 
 it("--json: a counterexample's world is what the world gave the code, none of the verifier's own names", () => {

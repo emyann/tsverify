@@ -1,6 +1,6 @@
 # tsverify: each question to the engine suited to it
 
-**Date:** 5 November 2026. **Status:** proposed, nothing built. A plan in six phases: time each question, cap the
+**Date:** 5 November 2026. **Status:** Phases 0 and 1 built and measured (below); the rest proposed. A plan in six phases: time each question, cap the
 slowest one, move to effect 4.1.2, find examples by running the code, ask the spec's own questions of the spec alone,
 and check actors over time with TLA+ beside tsverify. Every number below is measured unless it is marked as a
 prediction.
@@ -57,6 +57,9 @@ phrased for Z3 (`design-2026-11-03-maps.md`, and the roadmap's first item). This
 
 ## Phase 0: time by question, built in
 
+**Built.** Each law's `asked` in `--json` sums its queries by question, side and end, and each contract's `asked` its
+own questions; each contract has its whole `ms` (`docs/verdicts.md`, *`--json`*).
+
 The measurements above came from a script that wrapped `Solver.check`. Built in, `--json` gives each law's time by
 question (proof, says-anything on each side, counterexample search, cover, undecided, unmeetable, cross-check,
 obligations) and by end (answered, out of work, out of time).
@@ -73,6 +76,175 @@ obligations) and by end (answered, out of work, out of time).
 - **Fold in the roadmap's `canceled` item**: a stop at the work limit named as one, never as "out of time: 5 minutes".
 - **Prediction:** `rewired` and `approvalRefusal` each under a minute at the default work, every law still proved.
 - **Done when** the baseline's verdicts are unchanged and its time is measured again.
+
+**Built.** The check is asked at a tenth of `--work` on both sides. One it cannot settle leaves the law `proved`, with
+a note, and so does a cross-check, `unmeetable` or `undecided` that ends without an answer. A stop Z3 calls `canceled`
+before the 5 minutes is named "out of work".
+
+### Measured: the baseline, then the cap
+
+**How.** Each target was run with this checkout's CLI, `--json`, without `--cache`, one command at a time, on a machine
+other work shares (WSL2, 12 cores, 15 GB). The targets were each of Nemia's four roots as one folder
+(`tools/contracts/legs.ts`, `ROOTS`), each folder of `examples/` and each file of `fixtures/corpus/`. The baseline is
+tsverify at cfdf956 (Phase 0 alone). After is 7455ec1 (Phase 1), whose code is that of this change's head. Nemia's
+`main` moved three times while the baseline ran, so both trees read one frozen copy of Nemia at ab395d4, taken with
+`git archive`, its `node_modules` linked to the checkout's. Nothing was written into the checkout. `--json` asks
+`cover`, which CI's text run does not: *less cover* is a contract's time without its cover queries, which is what CI
+pays. A difference under about 20% is noise here: the same query, stopped at the same work, took 12.6 s in one run and
+23.7 s in the other.
+
+**Verdicts.** 137 contracts and 506 laws were measured. Every law's status and counterexample are the same before and
+after. Five reasons changed, each from "out of time: the query ran 5 minutes" to "out of work": the queries had stopped
+at the work limit after 5 to 93 seconds, and Z3 had reported each stop as `canceled`. They are
+`assoc`, `iffEqual` (`fixtures/corpus/floats.ts`), `differ` (`arrays.ts`), `countsWhatItWrote`
+(`examples/account/imports.contract.ts`) and Nemia's `standing.overBudgetWhereATryIsTheWayOn`.
+
+**Notes.** After the cap, 64 laws carry a note, every one a says-anything check out of work, all in five of Nemia's
+contracts: `observe` 24 of its 31 laws, `standing` 13 of 14, `approvalRefusal` 12 of 13, `wiringRefusal` 11 of 11,
+`rewired` 4 of 8. The examples and the corpus carry none. In the baseline, most of these checks answered at the whole
+work, many in under a second. The cap trades those answers for notes, and it cut the run's longest checks.
+
+**By contract** (seconds):
+
+| Contract | Laws | Before | Before, less cover | After | After, less cover | Gain, less cover |
+|---|---|---|---|---|---|---|
+| `observe` (`agent-runtime/src/core/domain.ts`) | 31 | 931.3 | 482.7 | 541.6 | 52.3 | 89% |
+| `wiringRefusal` (`agent-orchestrator/src/wiring/wiring.ts`) | 11 | 382.2 | 382.2 | 30.7 | 30.7 | 92% |
+| `rewired` (same file) | 8 | 176.4 | 176.4 | 19.7 | 19.7 | 89% |
+| `approvalRefusal` (`agent-orchestrator/src/gate/gate.ts`) | 13 | 60.4 | 60.4 | 32.9 | 32.9 | 46% |
+| `standing` (`agent-orchestrator/src/status/status.ts`) | 14 | 22.4 | 22.4 | 43.6 | 43.6 | −95% |
+| `decide` (`domain.ts`) | 5 | 42.8 | 8.5 | 43.1 | 8.5 | 0% |
+| `adopted` (`agent-orchestrator/src/adopt/adopt.ts`) | 10 | 5.8 | 5.8 | 5.2 | 5.2 | 10% |
+| `reciprocalsOfEquals` (`fixtures/corpus/floats.ts`) | 1 | 300.4 | 300.4 | 300.4 | 300.4 | 0%: its search runs to the 5 minutes |
+
+Every other contract took under 25 s before and after, with no gain beyond noise. Each folder's wall-clock went from
+988 s to 596 s for Nemia's runtime (cover is most of what is left) and from 699 s to 185 s for its orchestrator. The
+examples and the corpus did not change beyond noise.
+
+**The prediction holds.** `rewired` takes 20 s and `approvalRefusal` 33 s at the default work, every law still
+proved. On this tree they took 176 s and 60 s before the cap: tsverify 0.7.0 already halved the plan's 0.5.1 figures.
+`observe`, without cover, went from 483 s to 52 s.
+
+**`standing`** is slower for two reasons. Its bounded law's proof query stops out of work in both runs, and took 12.6 s
+then 23.7 s: the machine's load, not the change. Its says-anything checks used to answer in 0.4 s at the whole work,
+and now run out at a tenth, so the proof side is asked too, for about 1 s each.
+
+**`adopted`** ends `undecided` (`output.generation === undefined`) on this tree, before and after. Its undecided query
+answers in about 4.5 s, and the time of each question is:
+
+| Question | Side | End | Queries | Seconds, before | Seconds, after |
+|---|---|---|---|---|---|
+| undecided | search | answered | 1 | 4.7 | 4.2 |
+| says-anything | search | answered | 10 | 0.8 | 0.7 |
+| proof | proof | answered | 10 | 0.1 | 0.1 |
+| cross-check | search | answered | 1 | 0.0 | 0.0 |
+
+That answer needs between 6,000,000 and 7,000,000 of the default 15,000,000 steps. Asked alone at a lower `--work`,
+the undecided query runs out at 6,000,000 or less, and answers from 7,000,000 up. Before this change, a query that ran out was silent and the contract passed as
+decided: on Nemia's CI (tsverify 0.5.1) it ended `undecided` after 27.9 s at aa3ca26 and `proved` in 23.2 s at
+2198f9c. Now a run that stops short says so under the contract ("whether the laws decide every input was not
+settled (out of work)") instead of passing in silence.
+
+**By law**, for the contracts named above (seconds; the slowest question by side, end and time):
+
+**`observe`** (`packages/agent-runtime/src/core/domain.ts`)
+
+| Law | before (s) | after (s) | gain | slowest question before | after | note after |
+|---|---|---|---|---|---|---|
+| settledExactly | 6.4 | 0.9 | 86% | says-anything (search), answered, 6.1 | says-anything (proof), out of work, 0.5 | says-anything, out of work |
+| theStopOutranksTheDeadline | 0.2 | 3.9 | -1717% | says-anything (search), answered, 0.2 | says-anything (search), out of work, 3.1 | says-anything, out of work |
+| anEndOfItsOwnOutranksTheDeadline | 3.8 | 5.5 | -42% | proof (proof), answered, 3.3 | says-anything (search), out of work, 4.0 | says-anything, out of work |
+| noDeadlinePassesWhileDrained | 82.4 | 0.7 | 99% | says-anything (search), out of work, 78.0 | says-anything (proof), out of work, 0.5 | says-anything, out of work |
+| aHeldAttemptsDeadlineDoesNotPass | 0.7 | 0.5 | 21% | says-anything (search), answered, 0.6 | says-anything (search), answered, 0.5 |  |
+| aDeadlineCountsFromTheLastResume | 24.9 | 0.8 | 97% | says-anything (search), answered, 24.9 | says-anything (proof), out of work, 0.7 | says-anything, out of work |
+| aDeadlineIsOneSet | 13.2 | 0.8 | 94% | says-anything (search), answered, 13.1 | says-anything (proof), out of work, 0.6 | says-anything, out of work |
+| aSightingIsAdopted | 1.2 | 1.0 | 16% | says-anything (search), answered, 0.9 | says-anything (search), answered, 0.8 |  |
+| anUnreadHarnessIsNeitherRestartedNorLost | 52.3 | 1.1 | 98% | says-anything (search), out of work, 48.6 | says-anything (search), answered, 0.9 |  |
+| anUnreadHarnessLosesNothing | 0.9 | 1.6 | -84% | says-anything (search), answered, 0.6 | says-anything (search), answered, 1.4 |  |
+| lostOnlyOnceSpawned | 1.3 | 1.2 | 13% | says-anything (search), answered, 0.8 | proof (proof), answered, 0.5 | says-anything, out of work |
+| inFlightEventsOnlyInFlight | 4.2 | 2.1 | 49% | says-anything (search), answered, 3.2 | proof (proof), answered, 1.4 | says-anything, out of work |
+| inFlightSeesOnlyItsSession | 3.3 | 1.1 | 65% | says-anything (search), answered, 3.1 | says-anything (search), answered, 0.9 |  |
+| aStopWithNothingInFlight | 0.3 | 4.2 | -1110% | says-anything (search), answered, 0.3 | says-anything (search), out of work, 3.3 | says-anything, out of work |
+| nothingOpenOnlyOnAStop | 2.0 | 0.7 | 64% | says-anything (search), answered, 2.0 | says-anything (proof), out of work, 0.6 | says-anything, out of work |
+| closedOnlyWhenClosed | 8.5 | 0.9 | 90% | says-anything (search), answered, 8.4 | says-anything (proof), out of work, 0.6 | says-anything, out of work |
+| aPersonOutranksTheDeadline | 1.1 | 0.9 | 22% | says-anything (search), answered, 1.0 | says-anything (search), answered, 0.8 |  |
+| aPersonIsWaitedOnOnlyWhenHeldOpen | 40.2 | 0.7 | 98% | says-anything (search), answered, 40.1 | says-anything (proof), out of work, 0.5 | says-anything, out of work |
+| onlyALongLivedTaskIdles | 45.7 | 0.9 | 98% | says-anything (search), out of work, 44.2 | says-anything (proof), out of work, 0.6 | says-anything, out of work |
+| onlyALongLivedTaskOrAParkedJobRestarts | 14.8 | 1.1 | 92% | says-anything (search), answered, 14.3 | says-anything (proof), out of work, 0.5 | says-anything, out of work |
+| aParkedJobIsContinued | 32.0 | 2.0 | 94% | says-anything (search), answered, 30.6 | proof (proof), answered, 1.1 | says-anything, out of work |
+| aParkedJobIsHeldWhileDrained | 6.4 | 1.2 | 81% | says-anything (search), answered, 6.0 | says-anything (proof), out of work, 0.6 | says-anything, out of work |
+| heldOnlyWhenParkedAndDrained | 4.7 | 1.2 | 74% | says-anything (search), answered, 4.2 | says-anything (proof), out of work, 0.6 | says-anything, out of work |
+| queuedOnlyWhenQueued | 3.5 | 1.4 | 60% | says-anything (search), answered, 2.9 | says-anything (proof), out of work, 0.6 | says-anything, out of work |
+| aStartIsTheNextAttempt | 42.2 | 3.3 | 92% | says-anything (search), out of work, 36.8 | proof (proof), answered, 2.6 | says-anything, out of work |
+| aQueuedTaskIsNeverStarted | 14.6 | 0.9 | 94% | says-anything (search), answered, 14.3 | says-anything (proof), out of work, 0.4 | says-anything, out of work |
+| aWaitingTurnIsQueued | 8.7 | 0.9 | 89% | says-anything (search), answered, 8.4 | says-anything (proof), out of work, 0.4 | says-anything, out of work |
+| queuedOnlyWhileWaiting | 16.6 | 2.1 | 87% | says-anything (search), answered, 16.1 | proof (proof), answered, 1.5 | says-anything, out of work |
+| aClosedTaskIsSeenClosed | 0.3 | 0.3 | 8% | says-anything (search), answered, 0.3 | says-anything (search), answered, 0.2 |  |
+| previousLiveOnlyWhenSeen | 39.0 | 1.4 | 96% | says-anything (search), out of work, 35.7 | proof (proof), answered, 0.8 | says-anything, out of work |
+| noSessionToContinueOnlyInALaterTurn | 2.0 | 0.9 | 57% | says-anything (search), answered, 1.9 | says-anything (proof), out of work, 0.6 | says-anything, out of work |
+
+**`rewired`** (`packages/agent-orchestrator/src/wiring/wiring.ts`)
+
+| Law | before (s) | after (s) | gain | slowest question before | after | note after |
+|---|---|---|---|---|---|---|
+| detachWithdraws | 0.7 | 0.8 | -9% | says-anything (search), answered, 0.7 | says-anything (search), answered, 0.8 |  |
+| fireLeaves | 1.0 | 1.0 | -3% | says-anything (search), answered, 0.9 | says-anything (search), answered, 1.0 |  |
+| scheduleHolds | 0.9 | 1.0 | -11% | says-anything (search), answered, 0.8 | says-anything (search), answered, 0.9 |  |
+| unscheduleLeaves | 1.5 | 2.4 | -65% | says-anything (search), answered, 1.4 | says-anything (search), out of work, 1.3 | says-anything, out of work |
+| keepsRepos | 59.4 | 4.3 | 93% | says-anything (search), out of work, 43.9 | says-anything (search), out of work, 3.0 | says-anything, out of work |
+| hireNames | 19.3 | 4.0 | 79% | says-anything (search), answered, 19.2 | says-anything (search), out of work, 2.6 | says-anything, out of work |
+| keepsItsName | 91.7 | 4.8 | 95% | says-anything (proof), out of work, 49.2 | says-anything (search), out of work, 2.9 | says-anything, out of work |
+| attachOffers | 1.7 | 1.2 | 29% | says-anything (search), answered, 1.6 | says-anything (search), answered, 1.1 |  |
+
+**`approvalRefusal`** (`packages/agent-orchestrator/src/gate/gate.ts`)
+
+| Law | before (s) | after (s) | gain | slowest question before | after | note after |
+|---|---|---|---|---|---|---|
+| emptyWords | 5.6 | 2.1 | 63% | says-anything (search), answered, 4.9 | says-anything (proof), out of work, 1.2 | says-anything, out of work |
+| aStepOfTheWorkflow | 4.4 | 6.3 | -43% | says-anything (search), answered, 4.3 | says-anything (search), out of work, 4.9 | says-anything, out of work |
+| aCancelledRunFilesNothing | 1.9 | 2.3 | -20% | says-anything (search), answered, 1.9 | says-anything (proof), out of work, 1.2 | says-anything, out of work |
+| aPrunedRunFilesNothing | 6.2 | 1.6 | 75% | says-anything (search), answered, 6.1 | says-anything (proof), out of work, 1.3 | says-anything, out of work |
+| aHeldRunFilesNothing | 0.7 | 0.5 | 20% | says-anything (search), answered, 0.6 | says-anything (search), answered, 0.5 |  |
+| onlyAGate | 2.7 | 1.6 | 39% | says-anything (search), answered, 2.5 | says-anything (proof), out of work, 1.3 | says-anything, out of work |
+| onceATry | 2.5 | 1.8 | 27% | says-anything (search), answered, 1.9 | says-anything (proof), out of work, 1.1 | says-anything, out of work |
+| notWhileASendBackIsAsked | 6.6 | 2.3 | 65% | says-anything (search), answered, 6.0 | says-anything (proof), out of work, 1.8 | says-anything, out of work |
+| onlyWhereItWaits | 5.5 | 1.6 | 71% | says-anything (search), answered, 5.3 | says-anything (proof), out of work, 1.3 | says-anything, out of work |
+| takenAtItsGate | 8.2 | 3.3 | 59% | says-anything (search), answered, 6.9 | proof (proof), answered, 1.6 | says-anything, out of work |
+| heldOpenForIt | 5.0 | 1.8 | 63% | says-anything (search), answered, 4.9 | says-anything (proof), out of work, 1.5 | says-anything, out of work |
+| anEndingAlreadyLanded | 5.5 | 2.2 | 60% | says-anything (search), answered, 5.0 | says-anything (proof), out of work, 1.4 | says-anything, out of work |
+| anEndingWhileItsWorkIsSentBack | 2.6 | 2.2 | 15% | says-anything (search), answered, 2.3 | says-anything (proof), out of work, 1.5 | says-anything, out of work |
+
+**`adopted`** (`packages/agent-orchestrator/src/adopt/adopt.ts`)
+
+| Law | before (s) | after (s) | gain | slowest question before | after | note after |
+|---|---|---|---|---|---|---|
+| keepsItsName | 0.0 | 0.0 | 4% | says-anything (search), answered, 0.0 | says-anything (search), answered, 0.0 |  |
+| keepsItsRepos | 0.0 | 0.0 | 37% | says-anything (search), answered, 0.0 | says-anything (search), answered, 0.0 |  |
+| keepsItsSchedules | 0.1 | 0.1 | 8% | says-anything (search), answered, 0.1 | says-anything (search), answered, 0.1 |  |
+| keepsItsInstruction | 0.0 | 0.0 | 6% | says-anything (search), answered, 0.0 | says-anything (search), answered, 0.0 |  |
+| keepsItsVolumes | 0.0 | 0.0 | 8% | says-anything (search), answered, 0.0 | says-anything (search), answered, 0.0 |  |
+| keepsItsHarnessSettings | 0.2 | 0.2 | 6% | says-anything (search), answered, 0.2 | says-anything (search), answered, 0.1 |  |
+| offersTheTemplates | 0.0 | 0.0 | 39% | says-anything (search), answered, 0.0 | says-anything (search), answered, 0.0 |  |
+| hiresTheTemplates | 0.2 | 0.2 | 10% | says-anything (search), answered, 0.2 | says-anything (search), answered, 0.2 |  |
+| followsTheTemplates | 0.0 | 0.0 | 7% | says-anything (search), answered, 0.0 | says-anything (search), answered, 0.0 |  |
+| recordsItsTemplate | 0.2 | 0.2 | 8% | says-anything (search), answered, 0.2 | says-anything (search), answered, 0.2 |  |
+
+**`wiringRefusal`** (`packages/agent-orchestrator/src/wiring/wiring.ts`)
+
+| Law | before (s) | after (s) | gain | slowest question before | after | note after |
+|---|---|---|---|---|---|---|
+| hireOnlyIntoOffered | 59.8 | 2.5 | 96% | says-anything (proof), out of work, 48.9 | says-anything (proof), out of work, 1.4 | says-anything, out of work |
+| fireOnlyHired | 28.4 | 2.5 | 91% | says-anything (proof), out of work, 16.2 | says-anything (proof), out of work, 1.4 | says-anything, out of work |
+| detachOnlyOffered | 27.4 | 2.7 | 90% | says-anything (proof), answered, 16.2 | says-anything (proof), out of work, 1.6 | says-anything, out of work |
+| detachLeavesNoHire | 36.7 | 2.9 | 92% | says-anything (proof), out of work, 22.8 | says-anything (proof), out of work, 1.8 | says-anything, out of work |
+| detachLeavesNoSchedule | 39.8 | 2.7 | 93% | says-anything (proof), out of work, 25.1 | says-anything (proof), out of work, 1.5 | says-anything, out of work |
+| scheduleOnlyOffered | 33.6 | 2.7 | 92% | says-anything (proof), out of work, 18.6 | says-anything (search), out of work, 1.3 | says-anything, out of work |
+| unscheduleOnlyScheduled | 30.2 | 2.9 | 90% | says-anything (proof), out of work, 18.0 | says-anything (proof), out of work, 1.6 | says-anything, out of work |
+| attachAccepted | 29.6 | 3.2 | 89% | says-anything (proof), out of work, 18.0 | says-anything (proof), out of work, 1.9 | says-anything, out of work |
+| takesWhatItCan | 25.7 | 2.5 | 90% | says-anything (proof), out of work, 14.8 | says-anything (proof), out of work, 1.3 | says-anything, out of work |
+| aBadNameIsInvalid | 44.2 | 2.6 | 94% | says-anything (proof), out of work, 17.4 | says-anything (proof), out of work, 1.4 | says-anything, out of work |
+| missingOnlyOfWhatIsNotThere | 25.9 | 2.5 | 90% | says-anything (proof), out of work, 15.6 | says-anything (proof), out of work, 1.3 | says-anything, out of work |
+
 
 ## Phase 2: effect 4.1.2
 

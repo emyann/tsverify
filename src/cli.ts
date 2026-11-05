@@ -286,6 +286,8 @@ interface Report {
     readonly obligations: Readonly<Record<string, number>>
     readonly unsupported: number
     readonly undecided: number
+    /** How many questions ended without an answer, the laws' and the contracts' own: each is said where it was asked. */
+    readonly unanswered: number
   }
 }
 const printReport = (verdicts: ReadonlyArray<{ readonly file: string; readonly v: Verification }>) => {
@@ -324,6 +326,10 @@ const printReport = (verdicts: ReadonlyArray<{ readonly file: string; readonly v
       ),
       unsupported: contracts.filter((c) => c.unsupported !== undefined).length,
       undecided: contracts.filter((c) => c.undecided !== undefined).length,
+      unanswered: contracts.reduce(
+        (n, c) => n + (c.unanswered?.length ?? 0) + c.laws.reduce((m, l) => m + (l.unanswered?.length ?? 0), 0),
+        0,
+      ),
     },
   }
   console.log(JSON.stringify(out, null, 2))

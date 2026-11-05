@@ -263,15 +263,17 @@ Your `tsconfig.json` needs `strict` (or at least `strictNullChecks`), and a modu
 | `proved` | No input the spec allows breaks the law. |
 | `counterexample` | One does, and `e.g.` gives it, with what each call returned on that run. |
 | `unmeetable` | One does, and no result keeps every law there at once: the spec, not the code, has to change. It names the laws that leave none. |
-| `vacuous` | Proved, but no result of the function could break it: the law says nothing of the function. |
+| `vacuous` | Proved, but no result of the function could break it: the law says nothing of the function. This check is asked at a tenth of `--work`; one it cannot settle in that leaves the law `proved`, with a note under it that says so. |
 | `undecided` | Of a contract: at an input `requires` allows, two results of different kinds both keep every law, so the laws do not say which the code answers. It names the part left open. |
 | `bounded` | Not proved, and no input with arrays of up to 4 elements breaks it. The reason says what stands in the way. |
 | `unsupported` | The law uses something tsverify does not read. The reason says what to write instead. |
 | `unknown` | The solver gave no answer. |
 | `inconsistent` | tsverify contradicted itself: a bug of tsverify, never a verdict on your code. |
 
-The command exits 0 only when every law is `proved` and no contract is `undecided`. [Reading a report](docs/verdicts.md) has each verdict, what to do
-about it, and `--json` for tools.
+The command exits 0 only when every law is `proved` and no contract is `undecided`. A question that ended without an answer,
+at the work limit or on the clock, is said under its law (or its contract) and counted in the totals, whatever the verdict,
+and `--json` gives each law's time by question and by how its queries ended. [Reading a report](docs/verdicts.md) has each
+verdict, what to do about it, the notes, and `--json` for tools.
 
 ## Learn more
 

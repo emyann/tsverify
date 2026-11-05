@@ -33,8 +33,8 @@ const verdict = (parts: Partial<Verification>): Verification => ({
   ...parts,
 })
 
-/** The laws as a report gives them, without their times. */
-const verdicts = (v: Verification) => v.laws.map(({ ms: _, ...l }) => l)
+/** The laws' verdicts, without their times: how long a law took, and each of its questions. */
+const verdicts = (v: Verification) => v.laws.map(({ ms: _, asked: __, ...l }) => l)
 
 /** A cache in `dir` that counts what it is asked. */
 const counting = (dir: string) => {
@@ -116,6 +116,35 @@ describe("the cover", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
+  })
+})
+
+describe("a lemma's verdict kept", () => {
+  it("adds none of its earlier run's queries to the contract that leans on it", async () => {
+    // `areaNonNegative` leans on the lemma `productNonNegative` (fixtures/loops.ts). Its own verdict is not kept where the
+    // solver left it unknown, while its lemma's may be: verified again, it reads the lemma from the cache.
+    const file = path.join(root, "fixtures/loops.ts")
+    const project = loadProject([file], path.join(root, "tsconfig.json"))
+    const kept = new Map<string, Verification>()
+    const order: Array<string> = []
+    const cache: Cache = {
+      get: (key) => kept.get(key),
+      set: (key, v) => {
+        kept.set(key, v)
+        order.push(key)
+      },
+    }
+    const obligationQueries = (v: Verification) =>
+      (v.asked ?? []).filter((a) => a.question === "obligation").reduce((n, a) => n + a.queries, 0)
+    const cold = await verify(z3, project, file, "areaNonNegative", { cache })
+    // The lemma's verdict is kept first, then the contract's: the contract's alone is let go.
+    assert.equal(order.length, 2)
+    kept.delete(order[1]!)
+    const lemma = kept.get(order[0]!)!
+    const lemmaQueries = [...(lemma.asked ?? []), ...lemma.laws.flatMap((l) => l.asked ?? [])].reduce((n, a) => n + a.queries, 0)
+    assert.ok(lemmaQueries > 0)
+    const warm = await verify(z3, project, file, "areaNonNegative", { cache })
+    assert.equal(obligationQueries(warm), obligationQueries(cold) - lemmaQueries)
   })
 })
 
@@ -224,6 +253,28 @@ describe("a folder of answers", () => {
       for (const key of ["law", "cover", "obligation", "never"]) assert.equal(cache.get(key), undefined, key)
       cache.set("proved", verdict({ laws: [{ name: "l", status: "proved", ms: 1 }] }))
       assert.deepEqual(cache.get("proved"), verdict({ laws: [{ name: "l", status: "proved", ms: 1 }] }))
+    } finally {
+      rmSync(answers, { recursive: true, force: true })
+    }
+  })
+
+  it("keeps a verdict a question of which stopped at the work limit, and none one stopped on the clock", () => {
+    const answers = mkdtempSync(path.join(tmpdir(), "tsverify-verdicts-"))
+    try {
+      const cache = verdictsIn(answers)
+      const law = (end: "out of work" | "out of time") => ({
+        name: "l",
+        status: "proved" as const,
+        ms: 1,
+        asked: [{ question: "says-anything" as const, side: "proof" as const, end, queries: 1, ms: 1 }],
+      })
+      // The work limit stops a query at the same step on every run: kept.
+      cache.set("work", verdict({ laws: [law("out of work")] }))
+      assert.deepEqual(cache.get("work"), verdict({ laws: [law("out of work")] }))
+      // The clock stops it where the machine is: asked again. On a contract's own question too.
+      cache.set("time", verdict({ laws: [law("out of time")] }))
+      cache.set("contract", verdict({ asked: [{ question: "undecided", side: "search", end: "out of time", queries: 1, ms: 1 }] }))
+      for (const key of ["time", "contract"]) assert.equal(cache.get(key), undefined, key)
     } finally {
       rmSync(answers, { recursive: true, force: true })
     }
