@@ -16,6 +16,8 @@ export interface Job {
   readonly bound?: number
   readonly work?: number
   readonly cover: boolean
+  /** Whether a pure function's laws are run first (`Options.run`). */
+  readonly run: boolean
   readonly cacheDir?: string
 }
 

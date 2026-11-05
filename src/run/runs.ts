@@ -175,6 +175,15 @@ export const planOf = (
 /** The child's module beside this one: `.ts` in a checkout, `.js` in the package built. */
 const CHILD = fileURLToPath(new URL(`./child${path.extname(fileURLToPath(import.meta.url))}`, import.meta.url))
 
+/**
+ * The child's flags: the parent's, and where the verifier runs from its own source (a checkout), the condition that
+ * resolves `@emyann/tsverify` to that source too, so a spec imports the same tsverify the verifier is.
+ */
+const EXEC_ARGV =
+  CHILD.endsWith(".ts") && !process.execArgv.some((a) => a.includes("tsverify-source"))
+    ? [...process.execArgv, "--conditions=tsverify-source"]
+    : process.execArgv
+
 const notRun = (why: string, stuck?: true): RunResult => ({
   broken: {},
   saysSomething: [],
@@ -230,7 +239,7 @@ export const runContract = (plan: RunPlan, opts: { readonly stuckMs?: number } =
     }
     try {
       const child = fork(CHILD, [], {
-        execArgv: process.execArgv,
+        execArgv: EXEC_ARGV,
         env,
         stdio: ["ignore", "ignore", "pipe", "ipc"],
         serialization: "advanced",

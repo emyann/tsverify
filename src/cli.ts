@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // tsverify [<file or folder>...] [--project tsconfig.json] [--bound 4] [--work 15000000] [--verbose] [--json] [--watch]
-//          [--cache] [--cache-location <folder>] [--workers 1] [--config tsverify.config.json]
+//          [--cache] [--cache-location <folder>] [--workers 1] [--config tsverify.config.json] [--no-run]
 //   Verifies every contract each file exports: every implementation of a spec (typed `Implementation<S>`, itself or
 //   through the type its spec's module exports), and every `contract`, computation and lemma, in each file under each
 //   folder (the current one by default) that imports tsverify, or imports a file of its own that does: a line per
@@ -15,6 +15,9 @@
 //   from it (`./cache.ts`), in node_modules/.cache/tsverify beside the nearest package.json above the current folder,
 //   or in --cache-location <folder>. A verdict not used for 14 days is removed at the end of a run. A counterexample so
 //   answered is one an earlier run found, which may not be the one a run without it would print.
+// The laws of a pure function's contract are run first, on inputs generated from the parameters' types, each contract in
+//   a child process of its own with a throwaway HOME and TMPDIR (`./run/runs.ts`): a law a run breaks comes back with
+//   that run's input, "found by running", and is not asked of Z3. --no-run runs nothing: every question is Z3's alone.
 // --workers N verifies the files in N processes of their own (`./pool.ts`), 1 by default: the same report, in the same
 //   order, the same document and the same exit code as one process.
 // --config <file>, else tsverify.config.json in the current folder, sets the roots of a run that names none and the
@@ -45,7 +48,7 @@ process.on("uncaughtException", (e) => {
 })
 
 const USAGE =
-  "usage: tsverify [<file or folder>...] [--project tsconfig.json] [--bound N] [--work N] [--verbose] [--json] [--watch] [--cache] [--cache-location <folder>] [--workers N] [--config <file>]\n       tsverify <file.ts> <export> [--json] [--watch] [--cache] [--cache-location <folder>]"
+  "usage: tsverify [<file or folder>...] [--project tsconfig.json] [--bound N] [--work N] [--verbose] [--json] [--watch] [--cache] [--cache-location <folder>] [--workers N] [--config <file>] [--no-run]\n       tsverify <file.ts> <export> [--json] [--watch] [--cache] [--cache-location <folder>]"
 const HELP = `${USAGE}
 
   <file or folder>...    every contract each file exports, the current folder's by default
@@ -61,6 +64,8 @@ const HELP = `${USAGE}
   --workers N            verify the files in N processes, each its own Z3 and its own memory, 1 by default; the report
                          is the one a single process gives
   --config <file>        the config file to read, instead of tsverify.config.json in the current folder
+  --no-run               run nothing: every question asked of Z3 alone. By default a pure function's laws are first run
+                         on generated inputs, in a child process of their own, which loads the code's modules
   --help, -h             this
 
 tsverify.config.json, in the current folder, is JSON of these keys alone: "roots" (the folders and files verified when
@@ -71,7 +76,7 @@ error.
 Exits 0 when everything is proved, 1 when something is not, 2 on a usage error, 3 when the verifier itself fails.`
 const argv = process.argv.slice(2)
 const VALUED = new Set(["--project", "--bound", "--work", "--cache-location", "--workers", "--config"])
-const OPTIONS = new Set([...VALUED, "--verbose", "--json", "--watch", "--cache"])
+const OPTIONS = new Set([...VALUED, "--verbose", "--json", "--watch", "--cache", "--no-run"])
 // Asked before anything is read: an option the command does not take would otherwise be dropped, and a run with no file
 // named verifies every contract under the current folder.
 if (argv.includes("--help") || argv.includes("-h")) {
@@ -157,7 +162,9 @@ const cacheDir = ((): string | undefined => {
 })()
 /** How long a verdict is kept unused: past it, the code it was of has changed. */
 const KEPT_DAYS = 14
+const run = !argv.includes("--no-run")
 const opts: Options = {
+  run,
   ...(bound ? { bound } : {}),
   ...(work ? { work } : {}),
   ...(cacheDir === undefined ? {} : { cache: verdictsIn(cacheDir) }),
@@ -496,6 +503,7 @@ const { found, filesRead } =
           ...(bound ? { bound } : {}),
           ...(work ? { work } : {}),
           cover,
+          run,
           ...(cacheDir === undefined ? {} : { cacheDir }),
         }),
         workers,
