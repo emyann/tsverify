@@ -224,8 +224,8 @@ are then trusted.
 
 Neither side answered: the solver gave up on each, out of work or on a query it cannot decide (quantifiers and
 non-linear arithmetic can do that). The reason gives each side's. `--work` raises the work each query may do (15,000,000
-of the solver's steps by default, about six seconds on a laptop); splitting a law into smaller ones, or a lemma, often
-helps more.
+of the solver's steps by default, which a query takes from seconds to minutes to spend, depending on what it asks);
+splitting a law into smaller ones, or a lemma, often helps more.
 
 ### ! `inconsistent`
 
