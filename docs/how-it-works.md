@@ -140,7 +140,14 @@ What is routed to it, for a pure function's contract alone:
 - **Counterexamples.** A law a run breaks is a `counterexample` by `run`, real by construction, and is not asked of Z3,
   but for one pinned query of the proof side, at a tenth of `--work`, that checks Z3 reads the code as it runs.
 - **Says-anything**, of the spec alone: a generated input meeting `requires` and a generated free result that break a
-  law say it says something.
+  law say it says something. It is asked at the first 100 inputs `requires` met, one free result each, its strings drawn
+  from those the input holds.
+
+Inputs come from the parameters' types: records, unions, literals, arrays, tuples, `Record<string, V>`, `Map`, `Set`,
+functions (each answering the same for the same arguments), `Date`, and `unknown` as any primitive. A record with keys
+of its own beside its fields is given its fields alone, and `object` an empty one: each a value of its type, if not
+every one. A type with no value a run can make (`any`, a class's instance, a library object such as `RegExp`) leaves
+the contract to Z3, and says why.
 
 What stays Z3's: every proof, the search for a counterexample no run found, `cover`, `undecided`, `unmeetable`, the
 obligations, computations and lemmas. A run that finds nothing proves nothing: "no counterexample in 1,000 inputs" is no
