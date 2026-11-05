@@ -47,4 +47,7 @@ it("each law says the time of each question asked of it, by side and by how it e
     v.asked?.some((a) => a.question === "cross-check"),
     JSON.stringify(v.asked),
   )
+  // And its whole time, which is no less than its laws' and its own questions' together.
+  const parts = [...v.laws.flatMap((l) => l.asked ?? []), ...(v.asked ?? [])].reduce((n, a) => n + a.ms, 0)
+  assert.ok(v.ms !== undefined && v.ms >= parts, `${v.ms} < ${parts}`)
 })
