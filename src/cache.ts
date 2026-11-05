@@ -230,3 +230,8 @@ const decode = (x: unknown): unknown => {
       throw new Error(`no kind of value is tagged ${String(tag)}`)
   }
 }
+
+/** A verdict as JSON holds it, every value of its counterexamples kept: how a worker of `--workers` sends one. */
+export const encodeVerdict = (v: Verification): unknown => encode(v)
+/** The verdict `encodeVerdict` wrote. */
+export const decodeVerdict = (x: unknown): Verification => decode(x) as Verification
