@@ -205,9 +205,21 @@ it("each type's shape: brands as their primitive, a library's mapped type as the
   }
   assert.equal(records, 4)
   assert.deepEqual(tree, { kind: "undefined" })
+  // `unknown` is any value: a run gives it the primitives, each a value it may be.
+  const primitives = {
+    kind: "union",
+    of: [{ kind: "undefined" }, { kind: "null" }, { kind: "boolean" }, { kind: "number" }, { kind: "string" }],
+  }
+  assert.deepEqual(shape("Anything"), primitives)
+  // Fields beside keys of its own: the fields alone, a value of the type with no other key.
+  assert.deepEqual(shape("Schema"), {
+    kind: "record",
+    fields: { type: { kind: "literal", value: "object" }, required: { kind: "array", of: { kind: "string" } } },
+    optional: [],
+  })
   for (const [name, text] of [
     ["When", "Date"],
-    ["Anything", "unknown"],
+    ["Loose", "any"],
     ["Held", "Account"],
   ] as const)
     assert.throws(

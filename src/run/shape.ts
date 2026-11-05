@@ -52,7 +52,10 @@ export const shapeOf = (checker: ts.TypeChecker, type: ts.Type, depth = 0): Shap
     throw new NotRunnable(`\`${text()}\` is not generated: ${why}`)
   }
   const f = type.flags
-  if (f & (F.Any | F.Unknown)) return refuse("it may be anything")
+  if (f & F.Any) return refuse("it may be anything, unchecked")
+  // Any value is one of `unknown`: a run gives it the primitives, which a law must narrow to read.
+  if (f & F.Unknown)
+    return { kind: "union", of: [{ kind: "undefined" }, { kind: "null" }, { kind: "boolean" }, { kind: "number" }, { kind: "string" }] }
   if (f & F.Never) return refuse("it has no value")
   if (f & F.TypeParameter) return refuse("a type parameter")
   if (f & (F.ESSymbol | F.UniqueESSymbol)) return refuse("a symbol")
@@ -133,9 +136,9 @@ export const shapeOf = (checker: ts.TypeChecker, type: ts.Type, depth = 0): Shap
   }
   const index = checker.getIndexInfosOfType(type)
   if (index.length > 0) {
-    if (props.length > 0 || index.length > 1 || !(index[0]!.keyType.flags & F.String))
-      return refuse("an object with both fields and keys of its own, or keys other than strings")
-    return { kind: "dictionary", of: inner(index[0]!.type) }
+    if (index.length > 1 || !(index[0]!.keyType.flags & F.String)) return refuse("an object with keys other than strings")
+    // Fields beside keys of its own: the fields alone, a value of the type with no other key.
+    if (props.length === 0) return { kind: "dictionary", of: inner(index[0]!.type) }
   }
   const fields: Record<string, Shape> = {}
   const optional: Array<string> = []
