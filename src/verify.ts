@@ -145,6 +145,8 @@ export interface Verification {
   readonly asked?: ReadonlyArray<Asked>
   /** The contract's own questions that ended without an answer. */
   readonly unanswered?: ReadonlyArray<Unanswered>
+  /** How long its verification took, every question and the reading of its code; that of the run that decided it, when kept. */
+  readonly ms?: number
 }
 
 /**
@@ -594,11 +596,16 @@ const undecidedOf = async (
  * verified before it changes them.
  */
 export const verify = async (z3: Ctx, project: Project, file: string, name: string, opts: Options = {}): Promise<Verification> => {
-  if (opts.cache === undefined) return ownContext(z3, (own) => verified(own, project, file, name, opts))
+  const timed = async (): Promise<Verification> => {
+    const started = performance.now()
+    const v = await ownContext(z3, (own) => verified(own, project, file, name, opts))
+    return { ...v, ms: performance.now() - started }
+  }
+  if (opts.cache === undefined) return timed()
   const key = contractKey(project, file, name, opts)
   const kept = opts.cache.get(key)
   if (kept !== undefined) return kept
-  const v = await ownContext(z3, (own) => verified(own, project, file, name, opts))
+  const v = await timed()
   opts.cache.set(key, v)
   return v
 }
