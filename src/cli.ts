@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // tsverify [<file or folder>...] [--project tsconfig.json] [--bound 4] [--work 15000000] [--verbose] [--json] [--watch]
-//          [--cache] [--cache-location <folder>]
+//          [--cache] [--cache-location <folder>] [--workers 1] [--config tsverify.config.json]
 //   Verifies every contract each file exports: every implementation of a spec (typed `Implementation<S>`, itself or
 //   through the type its spec's module exports), and every `contract`, computation and lemma, in each file under each
 //   folder (the current one by default) that imports tsverify, or imports a file of its own that does: a line per
@@ -15,6 +15,10 @@
 //   from it (`./cache.ts`), in node_modules/.cache/tsverify beside the nearest package.json above the current folder,
 //   or in --cache-location <folder>. A verdict not used for 14 days is removed at the end of a run. A counterexample so
 //   answered is one an earlier run found, which may not be the one a run without it would print.
+// --workers N verifies the files in N processes of their own (`./pool.ts`), 1 by default: the same report, in the same
+//   order, the same document and the same exit code as one process.
+// --config <file>, else tsverify.config.json in the current folder, sets the roots of a run that names none and the
+//   options above (`./config.ts`); a flag beats it, and anything in it the command does not take is a usage error.
 // --watch runs it again on every change to the project's TypeScript, until stopped: each run in a process of its own,
 //   the screen redrawn in a terminal, each run's report after the last one otherwise (with --json, a line per run).
 // --help (or -h) prints the usage and each option, and reads nothing; an option it does not take is a usage error.
@@ -27,9 +31,11 @@ import { fileURLToPath } from "node:url"
 import { styleText } from "node:util"
 import ts from "typescript"
 import { verdictsIn, prune } from "./cache.ts"
-import { contractsIn, loadProject, type Project } from "./project.ts"
-import type { Ctx } from "./value.ts"
-import { type Options, type Verification, verify, withZ3 } from "./verify.ts"
+import { CONFIG_FILE, type Config, configIn, readConfig } from "./config.ts"
+import { verifyInWorkers } from "./pool.ts"
+import { loadProject } from "./project.ts"
+import { type Tell, verifyContract, verifyFile } from "./verify-file.ts"
+import { type Options, type Verification, withZ3 } from "./verify.ts"
 import type { Run } from "./view.ts"
 
 // A failure of the verifier is no verdict on the code: exit 3, so no caller reads it as a law not proved.
@@ -39,7 +45,7 @@ process.on("uncaughtException", (e) => {
 })
 
 const USAGE =
-  "usage: tsverify [<file or folder>...] [--project tsconfig.json] [--bound N] [--work N] [--verbose] [--json] [--watch] [--cache] [--cache-location <folder>]\n       tsverify <file.ts> <export> [--json] [--watch] [--cache] [--cache-location <folder>]"
+  "usage: tsverify [<file or folder>...] [--project tsconfig.json] [--bound N] [--work N] [--verbose] [--json] [--watch] [--cache] [--cache-location <folder>] [--workers N] [--config <file>]\n       tsverify <file.ts> <export> [--json] [--watch] [--cache] [--cache-location <folder>]"
 const HELP = `${USAGE}
 
   <file or folder>...    every contract each file exports, the current folder's by default
@@ -52,11 +58,19 @@ const HELP = `${USAGE}
   --watch                the same again on every change to the project's TypeScript, until stopped
   --cache                keep each contract's verdict, and answer a contract verified before from it
   --cache-location <dir> where --cache keeps them, node_modules/.cache/tsverify by default
+  --workers N            verify the files in N processes, each its own Z3 and its own memory, 1 by default; the report
+                         is the one a single process gives
+  --config <file>        the config file to read, instead of tsverify.config.json in the current folder
   --help, -h             this
+
+tsverify.config.json, in the current folder, is JSON of these keys alone: "roots" (the folders and files verified when
+none is named), "bound", "work", "workers", "cache" (true or false) and "cacheLocation". Its paths are read from its own
+folder. A root named, or a flag, beats it; a flag can only turn on the cache, not off. Anything else in it is a usage
+error.
 
 Exits 0 when everything is proved, 1 when something is not, 2 on a usage error, 3 when the verifier itself fails.`
 const argv = process.argv.slice(2)
-const VALUED = new Set(["--project", "--bound", "--work", "--cache-location"])
+const VALUED = new Set(["--project", "--bound", "--work", "--cache-location", "--workers", "--config"])
 const OPTIONS = new Set([...VALUED, "--verbose", "--json", "--watch", "--cache"])
 // Asked before anything is read: an option the command does not take would otherwise be dropped, and a run with no file
 // named verifies every contract under the current folder.
@@ -95,19 +109,47 @@ const flag = (f: string): string | undefined => {
 }
 const verbose = argv.includes("--verbose")
 const json = argv.includes("--json")
-const bound = flag("--bound") === undefined ? undefined : Number(flag("--bound"))
-const work = flag("--work") === undefined ? undefined : Number(flag("--work"))
-/** Where the verdicts are kept, with `--cache`: `--cache-location <folder>`, else the nearest package's. */
-const cacheDir = ((): string | undefined => {
-  if (!argv.includes("--cache")) return undefined
-  if (argv.includes("--cache-location")) {
-    const given = flag("--cache-location")
-    if (given === undefined || given.startsWith("--")) {
-      console.error(`--cache-location takes the folder to keep the verdicts in\n${USAGE}`)
-      process.exit(2)
-    }
-    return path.resolve(given)
+/** The value a valued flag is given, refused when it has none: the next word an option, or nothing. */
+const valued = (f: string, what: string): string | undefined => {
+  if (!argv.includes(f)) return undefined
+  const given = flag(f)
+  if (given === undefined || given.startsWith("--")) {
+    console.error(`${f} takes ${what}\n${USAGE}`)
+    process.exit(2)
   }
+  return given
+}
+/** The config file of the run, `--config <file>` or the current folder's, and the path it is named by. */
+const configFile = valued("--config", "the config file to read") ?? configIn(process.cwd())
+const config = ((): Config => {
+  if (configFile === undefined) return {}
+  const read = readConfig(configFile)
+  if ("error" in read) {
+    console.error(`${path.relative(process.cwd(), path.resolve(configFile)) || configFile}: ${read.error}\n${USAGE}`)
+    process.exit(2)
+  }
+  return read.config
+})()
+const bound = flag("--bound") === undefined ? config.bound : Number(flag("--bound"))
+const work = flag("--work") === undefined ? config.work : Number(flag("--work"))
+/** How many processes verify the files: `--workers N`, else the config's, else 1. */
+const workers = ((): number => {
+  const given = valued("--workers", "how many processes verify the files, a positive whole number")
+  if (given === undefined) return config.workers ?? 1
+  if (!/^[1-9]\d*$/.test(given)) {
+    console.error(`--workers ${given}: how many processes verify the files is a positive whole number\n${USAGE}`)
+    process.exit(2)
+  }
+  return Number(given)
+})()
+/** The roots a run with none named verifies: the config's, else the current folder. */
+const roots = positional.length > 0 ? positional : (config.roots ?? ["."])
+/** Where the verdicts are kept, with `--cache` or the config's: `--cache-location <folder>`, the config's, else the nearest package's. */
+const cacheDir = ((): string | undefined => {
+  if (!argv.includes("--cache") && config.cache !== true) return undefined
+  const given = valued("--cache-location", "the folder to keep the verdicts in")
+  if (given !== undefined) return path.resolve(given)
+  if (config.cacheLocation !== undefined) return config.cacheLocation
   for (let dir = process.cwd(); ; dir = path.dirname(dir)) {
     if (existsSync(path.join(dir, "package.json"))) return path.join(dir, "node_modules", ".cache", "tsverify")
     if (path.dirname(dir) === dir) return undefined
@@ -221,17 +263,6 @@ const plainArgs = <T extends { readonly args?: ReadonlyArray<unknown>; readonly 
 })
 const rel = (p: string) => path.relative(process.cwd(), p) || p
 
-/** The same verdict, each place it names relative to the current folder, as the files it reports are. */
-const here = (s: string) => s.replaceAll(`${process.cwd()}${path.sep}`, "")
-const relative = (v: Verification): Verification => ({
-  ...v,
-  ...(v.unsupported !== undefined ? { unsupported: here(v.unsupported) } : {}),
-  notes: v.notes.map(here),
-  laws: v.laws.map((l) => (l.reason === undefined ? l : { ...l, reason: here(l.reason) })),
-  obligations: v.obligations.map((o) => ({ ...o, at: here(o.at), ...(o.reason !== undefined ? { reason: here(o.reason) } : {}) })),
-  trusted: v.trusted.map((t) => ({ ...t, declared: t.declared.map(here) })),
-})
-
 const passed = (v: Verification) =>
   v.unsupported === undefined &&
   v.undecided === undefined &&
@@ -303,7 +334,9 @@ const relevant = (name: string): boolean => {
   const parts = name.split(/[\\/]/)
   if (parts.some((p) => p === "node_modules" || p.startsWith("."))) return false
   const base = parts.at(-1) ?? ""
-  return (/\.[cm]?tsx?$/.test(base) && !base.endsWith(".d.ts")) || base === "tsconfig.json" || base === "package.json"
+  return (
+    (/\.[cm]?tsx?$/.test(base) && !base.endsWith(".d.ts")) || base === "tsconfig.json" || base === "package.json" || base === CONFIG_FILE
+  )
 }
 
 /**
@@ -316,10 +349,16 @@ const watching = (): Promise<never> => {
   const args = argv.filter((a) => a !== "--watch")
   const tty = process.stdout.isTTY === true
   const start = path.resolve(positional[0] ?? ".")
-  const config =
+  const tsconfig =
     flag("--project") ??
     ts.findConfigFile(statSync(start, { throwIfNoEntry: false })?.isDirectory() ? start : path.dirname(start), (f) => ts.sys.fileExists(f))
-  const root = config === undefined ? process.cwd() : path.dirname(path.resolve(config))
+  // Roots the config names are read from its folder, which holds them all.
+  const root =
+    positional.length === 0 && configFile !== undefined
+      ? path.dirname(path.resolve(configFile))
+      : tsconfig === undefined
+        ? process.cwd()
+        : path.dirname(path.resolve(tsconfig))
   let child: ChildProcess | undefined
   let pending: string | undefined
   let timer: ReturnType<typeof setTimeout> | undefined
@@ -400,65 +439,86 @@ const reporting = async (files: number, single: boolean): Promise<Run> => {
   return view.run({ live: process.stdout.isTTY === true, files, verbose, single })
 }
 
-/**
- * Verifies one contract of a program read, telling the report as it goes; and how long it took. What its result reaches
- * is asked only when `shown`: a report of every contract under a folder leaves it out.
- */
-const verified = async (z3: Ctx, r: Run, project: Project, file: string, name: string, shown: boolean): Promise<Verification> => {
-  r.verifying(name)
-  const started = performance.now()
-  const v = relative(await verify(z3, project, file, name, { ...opts, cover: shown, progress: r.progress }))
-  r.verified(v, performance.now() - started)
-  return v
-}
+/** The report told what a file's verification tells, `file` as the report names it. */
+const telling = (r: Run, file: string): Tell => ({
+  file: (names) => r.file(rel(file), names),
+  verifying: r.verifying,
+  progress: r.progress,
+  verified: r.verified,
+})
 
 // One contract, named: everything about it.
 const [first, second] = positional
 if (positional.length === 2 && first !== undefined && second !== undefined && !existsSync(second)) {
   const file = path.resolve(first)
-  const config = tsconfigOf(file)
+  const tsconfig = tsconfigOf(file)
   const r = await reporting(1, true)
   await r.reading(rel(file))
-  const project = loadProject([file], config)
-  const v = await withZ3((z3) => verified(z3, r, project, file, second, true))
+  const project = loadProject([file], tsconfig)
+  const v = await withZ3((z3) => verifyContract(z3, project, file, second, { ...opts, cover: true }, telling(r, file)))
   await r.end(1)
   if (json) printReport([{ file, v }])
   leave(passed(v) ? 0 : 1)
 }
 
 // Every contract of every file found.
-const files = (positional.length === 0 ? ["."] : positional)
+const files = roots
   .flatMap((p) => {
     if (!existsSync(p)) {
-      console.error(`${p}: no such file or folder\n${USAGE}`)
+      console.error(`${rel(p)}: no such file or folder\n${USAGE}`)
       process.exit(2)
     }
     return statSync(p).isDirectory() ? contractFilesUnder(path.resolve(p)) : [path.resolve(p)]
   })
   .sort()
 if (files.length === 0) {
-  console.error(`no file that imports tsverify under ${positional.join(", ") || "."}: name a file, or a folder that holds one\n${USAGE}`)
+  console.error(`no file that imports tsverify under ${roots.map(rel).join(", ")}: name a file, or a folder that holds one\n${USAGE}`)
   process.exit(2)
 }
 // Each one's tsconfig.json found first, so a usage error is told before the report starts drawing.
 const configs = new Map(files.map((f) => [f, tsconfigOf(f)]))
 
 const r = await reporting(files.length, false)
-const found: Array<{ readonly file: string; readonly v: Verification }> = []
-let filesRead = 0
-await withZ3(async (z3) => {
-  for (const file of files) {
-    await r.reading(rel(file))
-    // Each file is its own program, read once for all its contracts: the declarations it imports (an implementation,
-    // through its spec) are in force for it alone.
-    const project = loadProject([file], configs.get(file) ?? tsconfigOf(file))
-    const names = contractsIn(project, file)
-    if (names.length === 0) continue
-    filesRead++
-    r.file(rel(file), names)
-    for (const name of names) found.push({ file, v: await verified(z3, r, project, file, name, json || verbose) })
-  }
-})
+const cover = json || verbose
+const { found, filesRead } =
+  workers > 1 && files.length > 1
+    ? await verifyInWorkers(
+        files,
+        (file) => ({
+          file,
+          tsconfig: configs.get(file) ?? tsconfigOf(file),
+          ...(bound ? { bound } : {}),
+          ...(work ? { work } : {}),
+          cover,
+          ...(cacheDir === undefined ? {} : { cacheDir }),
+        }),
+        workers,
+        r,
+        rel,
+      )
+    : await withZ3(async (z3) => {
+        const found: Array<{ readonly file: string; readonly v: Verification }> = []
+        let filesRead = 0
+        for (const file of files) {
+          await r.reading(rel(file))
+          const tell = telling(r, file)
+          const vs = await verifyFile(
+            z3,
+            file,
+            configs.get(file) ?? tsconfigOf(file),
+            { ...opts, cover },
+            {
+              ...tell,
+              file: (names) => {
+                filesRead++
+                tell.file(names)
+              },
+            },
+          )
+          for (const v of vs) found.push({ file, v })
+        }
+        return { found, filesRead }
+      })
 if (found.length === 0) {
   await r.quit()
   console.error(

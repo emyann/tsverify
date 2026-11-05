@@ -109,6 +109,8 @@ The command exits 0 only when every law is proved and no contract is undecided.
   you started, before you finish: it never ends on its own.
 - **`--cache`** keeps each contract's verdict, keyed by the text of every file its program reads: a run after a change verifies
   only the contracts that change reaches.
+- **Several roots**: `tsverify.config.json` (`{ "roots": [...], "workers": 2 }`) lists what `npx tsverify` with no root
+  verifies, each through its own `tsconfig.json`; `--workers N` verifies files in N processes, the same report as one.
 
 ## What a proof holds, and what it does not
 

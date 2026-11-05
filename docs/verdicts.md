@@ -299,7 +299,7 @@ $ npx tsverify src/cap.ts cap
 
 ```text
 tsverify [<file or folder>...] [--project tsconfig.json] [--bound N] [--work N] [--verbose] [--json] [--watch]
-         [--cache] [--cache-location <folder>]
+         [--cache] [--cache-location <folder>] [--workers N] [--config <file>]
 tsverify <file.ts> <export> [--json] [--watch] [--cache] [--cache-location <folder>]
 ```
 
@@ -313,14 +313,71 @@ tsverify <file.ts> <export> [--json] [--watch] [--cache] [--cache-location <fold
 | `--watch` | the same again on every change to the project's TypeScript, until stopped (below) |
 | `--cache` | keep each contract's verdict, and answer a contract verified before from it (below) |
 | `--cache-location` | the folder `--cache` keeps the verdicts in, instead of `node_modules/.cache/tsverify` beside the nearest `package.json` |
+| `--workers` | how many processes verify the files, 1 by default: each takes the next file as it is free, with a Z3 and a memory of its own (below) |
+| `--config` | the config file to read, instead of `tsverify.config.json` in the current folder (below) |
 | `--help`, `-h` | the usage and every option, and nothing read; any other option it does not take is a usage error (exit 2) |
 
 | Exit | |
 | --- | --- |
 | 0 | every law and every obligation, each division's among them, is `proved`, and no contract is `undecided` |
 | 1 | one is not: a counterexample, or a law unmeetable, bounded, vacuous, unsupported, unknown or inconsistent, or a contract undecided or not verified |
-| 2 | a usage error: a path that is not there, no file or no contract to verify, no `tsconfig.json` |
+| 2 | a usage error: a path that is not there, no file or no contract to verify, no `tsconfig.json`, a config file it cannot read |
 | 3 | the verifier itself failed, which says nothing of the code |
+
+### A config file
+
+`tsverify.config.json` in the current folder, or the file `--config` names, sets what a run reads when the command line
+leaves it out: the roots of a run that names none, each read through its own nearest `tsconfig.json`, and the options.
+It is JSON of these keys alone:
+
+| Key | |
+| --- | --- |
+| `roots` | the folders and files verified when the command names none, one or more |
+| `bound`, `work` | as `--bound` and `--work`, positive whole numbers |
+| `workers` | as `--workers` |
+| `cache` | `true` keeps the verdicts, as `--cache` |
+| `cacheLocation` | as `--cache-location` |
+
+Its paths are read from its own folder. A root named on the command line replaces its roots, and a flag beats its key; a
+flag can only turn on the cache it leaves off, not turn off one it turns on. A file that is not JSON, a key it does not
+take, or a value of the wrong type is a usage error, exit 2, before anything is read. Only the current folder is
+looked in, not the folders above it.
+
+With more than one worker the files are verified at once, each in a process of its own, and the report is the one a
+single process prints: the same verdicts, in the same order, the same `--json` document but for its timings, and the
+same exit code, 3 when a worker fails. One `--cache` folder serves them all. Each worker loads a Z3 of its own, so the
+memory a run takes grows with their number.
+
+<!-- file: tsverify.config.json -->
+```json
+{ "roots": ["src"], "workers": 2 }
+```
+
+<!-- run, exits 1 -->
+```text
+$ npx tsverify
+src/cap.ts
+  ✗ cap  1 counterexample, 1 vacuous, 1 proved  (141 ms)
+    ✗ neverNegative  (10 ms)
+      e.g. (-1n, 0n)
+    ○ limitNotNegative  (5 ms)
+      no result breaks it, whatever the function returns: it says nothing of the function
+src/label.ts
+  ! label  1 unsupported, 1 proved  (25 ms)
+    ! unnamedWhenEmpty  (0 ms)
+      src/label.contract.ts:6:76: operator == is not modeled: write `===` (and `x === null || x === undefined` for a nullish check)
+src/largest.ts
+  ~ largest  1 bounded, 1 proved · 2 obligations  (769 ms)
+    ~ oneOfThem  (51 ms)
+      not proved: the loop at src/largest.ts:5:3 is read through its invariants alone, and none rules this run out: write one that does, first in its body (`invariant((i) => ...)`); no counterexample with arrays of at most 4 elements
+src/score.ts
+  ! score  not verified
+    src/score.ts:3:41: `Math` is a binding the verifier cannot see (a `let` or a global): read it from a `const` or an argument, or move it into a function the spec declares with `assume`
+
+✗ 1 counterexample · ! 1 unsupported · ~ 1 bounded · ○ 1 vacuous · ! 1 not verified
+✓ 3 laws, 2 obligations proved
+  4 contracts in 4 files · 2.4 s
+```
 
 The same code gets the same verdicts on every run, on a fast machine or a slow one, idle or busy, and whatever was
 verified before it, but where a query runs 5 minutes without counting its work: a clock stops that one, so where it

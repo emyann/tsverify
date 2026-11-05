@@ -168,7 +168,19 @@ it("--help and -h print the usage and every option, read nothing, and exit 0", (
   const help = cli("--help")
   assert.equal(help.code, 0)
   assert.match(help.out, /^usage: tsverify /)
-  for (const option of ["--project", "--bound", "--work", "--verbose", "--json", "--watch", "--cache", "--cache-location", "--help"])
+  for (const option of [
+    "--project",
+    "--bound",
+    "--work",
+    "--verbose",
+    "--json",
+    "--watch",
+    "--cache",
+    "--cache-location",
+    "--workers",
+    "--config",
+    "--help",
+  ])
     assert.ok(help.out.includes(option), `names ${option}`)
   // The same text with a folder named: the folder's contracts are never read.
   for (const asked of [["-h"], ["examples/charge", "--help"]]) {
