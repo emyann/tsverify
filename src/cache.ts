@@ -47,18 +47,18 @@ export const identity = (): string => {
     }
   }
   walk(root)
-  h.update(`z3-solver ${z3Version()}`)
+  h.update(`z3-solver ${versionOf("z3-solver")}`).update(`fast-check ${versionOf("fast-check")}`)
   ownCode = h.digest("hex")
   return ownCode
 }
 
-/** The version of the `z3-solver` package this one resolves. */
-const z3Version = (): string => {
-  let dir = path.dirname(createRequire(import.meta.url).resolve("z3-solver"))
+/** The version of the package `name` this one resolves: Z3's, or fast-check's, which draws a run's inputs. */
+const versionOf = (name: string): string => {
+  let dir = path.dirname(createRequire(import.meta.url).resolve(name))
   for (;;) {
     try {
       const manifest = JSON.parse(readFileSync(path.join(dir, "package.json"), "utf8")) as { name?: string; version?: string }
-      if (manifest.name === "z3-solver") return manifest.version ?? "unknown"
+      if (manifest.name === name) return manifest.version ?? "unknown"
     } catch {
       // No manifest here: look further up.
     }
@@ -94,6 +94,7 @@ export const contractKey = (project: Project, file: string, name: string, opts: 
       only: opts.only ?? null,
       within: opts.within ?? null,
       cover: opts.cover !== false,
+      run: opts.run === true,
       options: project.program.getCompilerOptions(),
     }),
   )
@@ -103,15 +104,26 @@ export const contractKey = (project: Project, file: string, name: string, opts: 
 }
 
 /**
- * Whether the solver left a verdict of `v` unknown, or a question of it stopped on the clock (`STUCK_MS`), which is not
- * the same on every run: such a verdict is not kept. A question stopped at the work limit is, as it stops at the same
- * step on every run.
+ * The seed a contract's run draws its inputs from: what decides its verdict but where it is read. The text of every
+ * file of its program, its name and `--bound`, never a path nor the current folder, so a laptop and CI draw the same.
+ */
+export const runSeed = (project: Project, name: string, opts: Options): number => {
+  const h = createHash("sha256").update(JSON.stringify({ name, bound: opts.bound ?? null }))
+  for (const hash of project.program.getSourceFiles().map(hashOf).toSorted()) h.update("\0").update(hash)
+  return h.digest().readUInt32BE(0)
+}
+
+/**
+ * Whether the solver left a verdict of `v` unknown, or a question of it stopped on the clock (`STUCK_MS`), or its run
+ * did (`RUN_STUCK_MS`), which is not the same on every run: such a verdict is not kept. A question stopped at the work
+ * limit is, as it stops at the same step on every run.
  */
 const unfinished = (v: Verification): boolean =>
   v.laws.some((l) => l.status === "unknown") ||
   v.cover.some((c) => c.status === "unknown") ||
   v.obligations.some((o) => o.status === "unknown") ||
-  [...(v.asked ?? []), ...v.laws.flatMap((l) => l.asked ?? [])].some((a) => a.end === "out of time")
+  [...(v.asked ?? []), ...v.laws.flatMap((l) => l.asked ?? [])].some((a) => a.end === "out of time") ||
+  (v.ran?.ran === false && v.ran.stuck === true)
 
 /**
  * Verdicts kept in `dir`, a file each, under the hash of the verifier's identity and the contract's key. Writing a file

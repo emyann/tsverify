@@ -14,6 +14,7 @@ import type { Adapter } from "./adapter.ts"
 import {
   type Asked,
   type End,
+  type Engine,
   Ledger,
   type Question,
   type SidesEnd,
@@ -25,7 +26,7 @@ import {
   saysAnything,
   unansweredOf,
 } from "./asked.ts"
-import { type Cache, contractKey } from "./cache.ts"
+import { type Cache, contractKey, runSeed } from "./cache.ts"
 import { asyncAdapter } from "./adapters/async.ts"
 import { effectAdapter } from "./adapters/effect/index.ts"
 import { tsAdapter } from "./adapters/ts.ts"
@@ -47,13 +48,14 @@ import {
   trustOf,
 } from "./lower.ts"
 import { slice } from "./lower/arrays.ts"
+import { type Ran, type RunResult, planOf, runContract } from "./run/runs.ts"
 import { runOf, strictEq, truthy } from "./ops.ts"
 import { type ContractSource, type Project, readContract } from "./project.ts"
 import { unwrap } from "./resolve.ts"
 import { symbolicOf } from "./symbolic.ts"
 import { PURITY_TRUSTS, readAssumptions, type Trusted } from "./trust.ts"
 import { Universe } from "./universe.ts"
-import { type Ctx, type FunctionNode, Unsupported, type Val, fromZ3String, jsString, locate } from "./value.ts"
+import { type Ctx, type FunctionNode, UNDEFINED as UNDEFINED_VAL, Unsupported, type Val, fromZ3String, jsString, locate } from "./value.ts"
 
 /** The adapters every verification reads with, in the order they are asked. */
 export const ADAPTERS: ReadonlyArray<Adapter> = [effectAdapter, asyncAdapter, tsAdapter]
@@ -88,6 +90,11 @@ export interface LawResult {
   /** What the law means, in words, where it is written `{ description, condition }`. */
   readonly description?: string
   readonly status: LawStatus
+  /**
+   * Which engine decided it: `run`, a counterexample found by running the function and the law on a generated input, real
+   * by construction; `z3`, every other verdict. Set on every law decided.
+   */
+  readonly by?: Engine
   /** On a counterexample: the arguments, as JavaScript values. */
   readonly args?: ReadonlyArray<unknown>
   /** On a counterexample of a computation: how each operation call it made ended, by call. */
@@ -160,6 +167,8 @@ export interface Verification {
   readonly unanswered?: ReadonlyArray<Unanswered>
   /** How long its verification took, every question and the reading of its code; that of the run that decided it, when kept. */
   readonly ms?: number
+  /** Where the laws were run on generated inputs (`Options.run`): what the run did, or why there was none. */
+  readonly ran?: Ran
 }
 
 /**
@@ -205,6 +214,11 @@ export interface Options {
    * reads the same text under the same settings is answered from it, and not verified again. None by default.
    */
   readonly cache?: Cache
+  /**
+   * Whether to run the laws of a pure function's contract on generated inputs first, in a child process, before any is
+   * asked of Z3: a law a run breaks comes back as that run's counterexample. False by default; the command sets it.
+   */
+  readonly run?: boolean
 }
 
 /** One side's lowering: the universe, the arguments and result, the precondition. */
@@ -241,6 +255,7 @@ export const lowerSide = (
   guessFrom?: ReadonlySet<string>,
   guessBeside = false,
   opaqueKeyed = false,
+  specAlone = false,
 ): Lowered => {
   const u = new Universe(z3, bound)
   const L = lowering(
@@ -284,10 +299,28 @@ export const lowerSide = (
     const result = inSpec(L, () => lowerCall(L, t, emptyEnv, args, t))
     return { u, L, source, fn: t, params, args, result, trace: undefined, pre: preOf(args), unguessable }
   }
+  // Of the spec alone: the arguments and `requires`, and no call of the function, so none of what the code does rides
+  // along. A law read on it is read on a free result (`lawOnAnyResult`).
+  const alone = (fn: FunctionNode): Lowered => {
+    const { params, args } = symbolicArgs(fn)
+    return {
+      u,
+      L,
+      source,
+      fn,
+      params,
+      args,
+      result: UNDEFINED_VAL,
+      trace: source.kind === "computation" ? UNDEFINED_VAL : undefined,
+      pre: preOf(args),
+      unguessable,
+    }
+  }
   if (source.kind === "function") {
     const t = source.target
     if (!(ts.isArrowFunction(t) || ts.isFunctionExpression(t) || ts.isFunctionDeclaration(t)))
       throw new Unsupported("a `contract` is about a function; a computation takes `computation<...>()`", t)
+    if (specAlone) return alone(t)
     const { params, args } = symbolicArgs(t)
     if (guessFrom !== undefined) {
       L.guess = guesser(L, source, t, args, guessFrom, unguessable)
@@ -309,9 +342,23 @@ export const lowerSide = (
   const c = adapters.map((a) => a.computation?.(L, source.target)).find((x) => x !== undefined)
   if (c === undefined)
     throw new Unsupported("no adapter reads this as a computation (an async function, `Effect.fn(...)(function* ...)`)", source.target)
+  if (specAlone) return alone(c.node)
   const { params, args } = symbolicArgs(c.node)
   const r = runBody(L, c.node, c.style, emptyEnv, args, emptyTrace(L), c.node)
   return { u, L, source, fn: c.node, params, args, result: r.outcome, trace: r.trace, pre: preOf(args), unguessable }
+}
+
+/**
+ * The contract's spec alone on the proof side: its arguments and `requires`, with no call of the function. Whether a law
+ * says anything is asked of it, so the answer is the spec's, whatever the code does. Undefined where it cannot be read.
+ */
+export const lowerSpecSide = (z3: Ctx, project: Project, source: ContractSource, trust: Trust): Lowered | undefined => {
+  try {
+    return lowerSide(z3, project, source, undefined, ADAPTERS, trust, undefined, false, false, true)
+  } catch (e) {
+    if (e instanceof Unsupported) return undefined
+    throw e
+  }
 }
 
 /**
@@ -712,7 +759,14 @@ const verified = async (z3: Ctx, project: Project, file: string, name: string, o
       obligations: [],
       unsupported: `the lemma \`${name}\` leans on itself`,
     }
-  const first = await judge(z3, project, file, sides.proof, sides.search, trust, opts, sides.opaque, ledger)
+  // A pure function's laws are run first, on generated inputs: what a run settles, Z3 is not asked.
+  let ran: RunResult | undefined
+  if (opts.run === true) {
+    const plan = planOf(project, source, trust, opts, runSeed(project, name, opts))
+    ran = "why" in plan ? { broken: {}, saysSomething: [], ran: { ran: false, why: plan.why } } : await runContract(plan)
+    opts.progress?.(ran.ran.ran ? `ran ${ran.ran.inputs} inputs` : `not run: ${ran.ran.why}`)
+  }
+  const first = await judge(z3, project, file, sides.proof, sides.search, trust, opts, sides.opaque, ledger, ran)
   // Only where it can help: a law left bounded while what is written all holds. A broken invariant keeps its law bounded
   // whatever else is guessed.
   if (
@@ -741,7 +795,7 @@ const verified = async (z3: Ctx, project: Project, file: string, name: string, o
     return { ...first, asked: ledger.asked }
   }
   // Kept only where it proves more: a guess beside an invariant that fails proves nothing the report should carry.
-  const second = await judge(z3, project, file, beside.proof, beside.search, trust, opts, beside.opaque, ledger)
+  const second = await judge(z3, project, file, beside.proof, beside.search, trust, opts, beside.opaque, ledger, ran)
   const proved = (v: Verification) => v.laws.filter((l) => l.status === "proved").length
   return proved(second) > proved(first) ? keptOf(second, first) : keptOf(first, second)
 }
@@ -830,6 +884,7 @@ export const judge = async (
   opts: Options = {},
   opaque?: () => Lowered,
   ledger: Ledger = new Ledger(),
+  ran?: RunResult,
 ): Promise<Verification> => {
   const source = proof.source
   const name = source.name
@@ -872,6 +927,12 @@ export const judge = async (
   // result is (`conflictsAt`): it is asked of every proved law. One it cannot settle in that keeps the law proved, said.
   const tenth = { ...opts, work: tenthOf(opts.work ?? WORK) }
   const searchable = new Map<string, Bool>()
+  // The spec alone, read once, where a law's says-anything is not settled by a run.
+  let specSide: Lowered | undefined | null = null
+  const spec = (): Lowered | undefined => (specSide === null ? (specSide = lowerSpecSide(z3, project, source, trust)) : specSide)
+  const inputs = ran?.ran.ran === true ? ran.ran.inputs : 0
+  /** The laws proved, each asked whether it says anything once every proof is decided. */
+  const saysLater: Array<{ readonly k: number; readonly law: Law; readonly own: Ledger; readonly unsettled: Array<Unanswered> }> = []
   for (const r0 of read) {
     const { law } = r0
     if (opts.only !== undefined && !opts.only.includes(law.name)) continue
@@ -887,6 +948,18 @@ export const judge = async (
       continue
     }
     const { onProof, onSearch } = r0
+    const broken = ran?.broken[law.name]
+    if (broken !== undefined) {
+      // A run broke it: the real function on a real input, the real law on its result. Z3 is asked once, the input
+      // pinned, whether the law holds there: where it says so, the run and Z3 disagree.
+      const r = await crossChecked(proof, proofRuns, onProof, broken.args, trust, tenth, ask("cross-check", "proof"))
+      laws.push({ name: law.name, ...described(law), ...r, ms: performance.now() - started })
+      ledgers.push(own)
+      notes.push(unsettled)
+      searchable.set(law.name, onSearch)
+      opts.progress?.(`law ${law.name}: ${r.status}, found by running (${Math.round(performance.now() - started)} ms)`)
+      continue
+    }
     // Asked first with what a loop read key by key writes unknown, on a side of its own that reads this law alone; a law
     // that does not hold there is asked of the loop as it is.
     const alone = opaque === undefined ? undefined : opaqueLaw(opaque, law)
@@ -905,25 +978,9 @@ export const judge = async (
         : `proved only of the inputs that run no loop longer: ${truncated}; no counterexample with arrays of at most ${bound} elements`)
     let r: Omit<LawResult, "name" | "ms">
     if (proved.status === "unsat" && untrusted === undefined) {
-      // A proof of a law no result could break is a proof of nothing about the function. A result that breaks it on the
-      // search side, which is exact, settles that it says something; only where none does is the proof side asked.
-      const onSome = source.kind === "lemma" ? undefined : lawOnAnyResult(search, law)
-      const somewhere =
-        onSome === undefined
-          ? undefined
-          : await solve(search, [search.pre, searchRuns, z3.Not(onSome)], tenth, undefined, ask("says-anything", "search"))
-      const onAny = source.kind === "lemma" || somewhere?.status === "sat" ? undefined : lawOnAnyResult(proof, law)
-      const breakable =
-        onAny === undefined
-          ? undefined
-          : await solve(proof, [proof.pre, proofRuns, z3.Not(onAny)], tenth, undefined, ask("says-anything", "proof"))
-      const says = saysAnything(endedAs(somewhere), endedAs(breakable))
-      if (says.unanswered !== undefined) unsettled.push(says.unanswered)
-      r = says.vacuous
-        ? { status: "vacuous", reason: "no result breaks it, whatever the function returns: it says nothing of the function" }
-        : byOpaque
-          ? { status: "proved", reason: OPAQUE }
-          : { status: "proved" }
+      // Whether it says anything is asked once every law's proof is decided (`saysLater`).
+      saysLater.push({ k: laws.length, law, own, unsettled })
+      r = byOpaque ? { status: "proved", reason: OPAQUE } : { status: "proved" }
     } else if (proved.status === "sat" && !proof.u.abstracted) r = { status: "counterexample", ...proved.witness }
     else {
       const found = await solve(search, [search.pre, searchRuns, z3.Not(onSearch)], opts, undefined, ask("search", "search"))
@@ -945,6 +1002,32 @@ export const judge = async (
     notes.push(unsettled)
     searchable.set(law.name, onSearch)
     opts.progress?.(`law ${law.name}: ${r.status} (${Math.round(performance.now() - started)} ms)`)
+  }
+
+  // A proof of a law no result could break is a proof of nothing about the function. It is a question of the spec alone:
+  // a run that found a free result breaking it settles it; else the proof side is asked, of the spec alone. Asked after
+  // every proof, as its capped queries, asked between them, would change what Z3 does with the next law's proof.
+  for (const { k, law, own, unsettled } of saysLater) {
+    const started = performance.now()
+    const byRun = source.kind !== "lemma" && ran?.saysSomething.includes(law.name) === true
+    if (byRun) own.add("says-anything", undefined, "answered", 0, inputs, "run")
+    const side = source.kind === "lemma" || byRun ? undefined : spec()
+    const onAny = side === undefined ? undefined : lawOnAnyResult(side, law)
+    const breakable =
+      side === undefined || onAny === undefined
+        ? undefined
+        : await solve(side, [side.pre, z3.Not(onAny)], tenth, undefined, { ledger: own, question: "says-anything", side: "proof" })
+    const says = saysAnything(byRun, endedAs(breakable))
+    if (says.unanswered !== undefined) unsettled.push(says.unanswered)
+    const l = laws[k]!
+    laws[k] = {
+      ...l,
+      ...(says.vacuous
+        ? { status: "vacuous", reason: "no result breaks it, whatever the function returns: it says nothing of the function" }
+        : {}),
+      ms: l.ms + performance.now() - started,
+    }
+    if (says.vacuous) opts.progress?.(`law ${law.name}: vacuous`)
   }
 
   // A law broken at an input where no result keeps every law is broken by the spec, not the code: asked on the proof side,
@@ -1044,7 +1127,12 @@ export const judge = async (
   if (trusted.some((t) => t.purity === "checked")) assumed.push(`A purity check takes on trust that ${PURITY_TRUSTS.join("; that ")}.`)
   return {
     contract: name,
-    laws: laws.map((l, k) => ({ ...l, asked: ledgers[k]!.asked, ...(notes[k]!.length === 0 ? {} : { unanswered: notes[k]! }) })),
+    laws: laws.map((l, k) => ({
+      ...l,
+      ...(l.status === "unsupported" ? {} : { by: l.by ?? "z3" }),
+      asked: ledgers[k]!.asked,
+      ...(notes[k]!.length === 0 ? {} : { unanswered: notes[k]! }),
+    })),
     cover: coverOut,
     notes: assumed,
     trusted,
@@ -1052,8 +1140,47 @@ export const judge = async (
     ...(undecided === undefined ? {} : { undecided }),
     asked: ledger.asked,
     ...(unanswered.length === 0 ? {} : { unanswered }),
+    ...(ran === undefined ? {} : { ran: ran.ran }),
   }
 }
+
+/**
+ * A law a run broke at `args`, checked against Z3: the proof side asked, the input pinned, whether the law can break
+ * there. Where it answers that it cannot, the real code and Z3's reading of it disagree: a declaration the reading leaned
+ * on is wrong about its function, or, where it leaned on none, tsverify is. The run is the real code, so the law stays
+ * broken. An input Z3 cannot pin (a generated function) is not asked.
+ */
+const crossChecked = async (
+  proof: Lowered,
+  runs: Bool,
+  law: Bool,
+  args: ReadonlyArray<unknown>,
+  trust: Trust,
+  opts: Options,
+  ask: Ask,
+): Promise<Omit<LawResult, "name" | "ms">> => {
+  const found = { status: "counterexample", by: "run", args } as const
+  let pins: Array<Bool>
+  try {
+    pins = proof.params.flatMap((p, i) => pin(proof.u, p, args[i]))
+  } catch {
+    return found
+  }
+  const z3 = proof.u.z3
+  const there = await solve(proof, [proof.pre, runs, z3.Not(law), ...pins], opts, undefined, ask)
+  if (there.status !== "unsat") return found
+  const leaned = [...trust.used].map((a) => a.name)
+  return leaned.length > 0
+    ? {
+        ...found,
+        reason: `the code breaks it on this input when run, where Z3, leaning on what is declared of ${leaned.map((n) => `\`${n}\``).join(", ")}, proves it holds: a declaration (\`assume\`) is wrong about its function. Run it on this input, and correct the declaration`,
+      }
+    : { status: "inconsistent", by: "run", args, reason: RUN_DISAGREES }
+}
+
+/** What it says when a run breaks a law Z3 proves at the same input, leaning on no declaration. */
+const RUN_DISAGREES =
+  "the code breaks it on this input when run, and the proof side proves it holds there: Z3's reading of the code is wrong, a bug of tsverify. Report it with the input"
 
 /** How a says-anything query ended, as `saysAnything` reads it; unset where it was not asked. */
 const endedAs = (o: Outcome | undefined): SidesEnd | undefined =>

@@ -65,17 +65,19 @@ it("over several files lists only the laws that need a look, and every law with 
   assert.match(r.out, /^examples\/charge\/charge\.ts\n {2}✓ charge {2}2 laws {2}\(\d+ ms\)\nexamples\/lodash\/labels\.contract\.ts\n/)
   assert.match(
     r.out,
-    /\n {2}✗ labels +1 counterexample, 2 proved · trusts uniq \(lodash-es\) {2}\(\d+ ms\)\n {4}✗ severalOnlyWithTwoDifferent {2}\(/,
+    // With the laws run first, whether some result keeps every law at the counterexample's input runs out at its tenth.
+    /\n {2}✗ labels +1 counterexample, 2 proved · 1 unanswered · trusts uniq \(lodash-es\) {2}\(\d+ ms\)\n {4}✗ severalOnlyWithTwoDifferent {2}\(/,
   )
   assert.ok(!r.out.includes("noneExactlyWhenEmpty"), r.out)
-  assert.match(r.out, /\n✗ 1 counterexample\n✓ 7 laws proved\n {2}3 contracts in 2 files · /)
+  assert.match(r.out, /\n✗ 1 counterexample\n✓ 7 laws proved · 1 question unanswered\n {2}3 contracts in 2 files · /)
   const verbose = cli("examples/charge", "examples/lodash", "--verbose")
   assert.match(verbose.out, /\n {4}✓ noneExactlyWhenEmpty {2}\(/)
   assert.match(verbose.out, /\n {4}assumed:\n/)
 })
 
 it("over several files lists a proved law whose check of saying something ended without an answer, with why, and counts it", () => {
-  // At this work the check, at a tenth of it, runs out for `zeroOnlyAtZero` (test/vacuous.test.ts, `PINNED_WORK`). The
+  // At this work Z3's check, at a tenth of it, runs out for `zeroOnlyAtZero` (test/vacuous.test.ts, `PINNED_WORK`), with
+  // nothing run first (`--no-run`: a run would show a result breaking it, and Z3 would not be asked). The
   // sign the code answers is left open, so whether the laws decide it is not asked: that would run out here too.
   const sign =
     `import { contract } from "@emyann/tsverify"\n\nexport function sign(n: bigint): "neg" | "zero" | "pos" {\n  return n < 0n ? "neg" : n === 0n ? "zero" : "pos"\n}\n\n` +
@@ -83,7 +85,7 @@ it("over several files lists a proved law whose check of saying something ended 
   const dir = project({ "src/clamp.ts": clamp("(n < 0n ? 0n : n)"), "src/sign.ts": sign })
   try {
     const run = (...args: Array<string>) =>
-      spawnSync(process.execPath, [path.join(root, "src/cli.ts"), "src", "--work", "800", ...args], {
+      spawnSync(process.execPath, [path.join(root, "src/cli.ts"), "src", "--work", "800", "--no-run", ...args], {
         cwd: dir,
         env: plain,
         encoding: "utf8",
@@ -119,7 +121,7 @@ it("over several files lists a proved law whose check of saying something ended 
   }
   // A contract's own question unsettled is said under the contract, after its laws: at this work, whether `refusesOnly`'s
   // laws decide every input runs out (test/undecided.test.ts, `UNDECIDED_RUNS_OUT`).
-  const own = cli("fixtures/undecided/start.contract.ts", "--work", "800")
+  const own = cli("fixtures/undecided/start.contract.ts", "--work", "800", "--no-run")
   assert.match(
     own.out,
     /\n {2}✓ refusesOnly +2 laws · 3 unanswered {2}\(\d+ ms\)\n(?: {6}.*\n| {4}✓.*\n)* {4}whether the laws decide every input was not settled/,
@@ -231,6 +233,7 @@ it("--help and -h print the usage and every option, read nothing, and exit 0", (
     "--cache-location",
     "--workers",
     "--config",
+    "--no-run",
     "--help",
   ])
     assert.ok(help.out.includes(option), `names ${option}`)
@@ -267,7 +270,14 @@ interface Report {
     readonly file: string
     readonly contract: string
     readonly passed: boolean
-    readonly laws: ReadonlyArray<{ readonly name: string; readonly status: string; readonly args?: unknown; readonly world?: unknown }>
+    readonly ran?: { readonly ran: boolean }
+    readonly laws: ReadonlyArray<{
+      readonly name: string
+      readonly status: string
+      readonly by?: string
+      readonly args?: unknown
+      readonly world?: unknown
+    }>
   }>
   readonly totals: { readonly contracts: number; readonly files: number; readonly laws: Readonly<Record<string, number>> }
 }
@@ -370,4 +380,28 @@ it("--watch --json: a line of JSON per run, the same report as --json", async ()
     watcher.kill("SIGTERM")
     rmSync(dir, { recursive: true, force: true })
   }
+})
+
+it("runs a pure function's laws first: a law broken comes back found by running, and --no-run asks Z3 alone", () => {
+  const r = cli("fixtures/runs/broken.contract.ts", "priced")
+  assert.equal(r.code, 1, r.err)
+  assert.match(r.out, /\n {4}e\.g\. \(\d+\) found by running\n/)
+  assert.match(r.out, /\n {2}ran 1,000 inputs \(\d[\d,]* discarded by requires\), loaded \d+ modules?\n/)
+  const json = JSON.parse(cli("fixtures/runs/broken.contract.ts", "priced", "--json").out) as Report
+  const [c] = json.contracts
+  assert.equal(c!.ran?.ran, true)
+  assert.deepEqual(
+    c!.laws.map((l) => [l.name, l.status, l.by]),
+    [
+      ["notNegative", "proved", "z3"],
+      ["tenEach", "counterexample", "run"],
+    ],
+  )
+  const alone = JSON.parse(cli("fixtures/runs/broken.contract.ts", "priced", "--json", "--no-run").out) as Report
+  assert.equal(alone.contracts[0]!.ran, undefined)
+  assert.deepEqual(
+    alone.contracts[0]!.laws.map((l) => l.by),
+    ["z3", "z3"],
+  )
+  assert.doesNotMatch(cli("fixtures/runs/broken.contract.ts", "priced", "--no-run").out, /found by running/)
 })

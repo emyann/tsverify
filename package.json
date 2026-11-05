@@ -71,6 +71,7 @@
     "coverage": "node --predictable-gc-schedule --conditions=tsverify-source bench/coverage.ts"
   },
   "dependencies": {
+    "fast-check": "4.10.2",
     "ink": "8.0.0",
     "react": "19.3.1",
     "typescript": "6.0.3",

@@ -64,11 +64,12 @@ it("two results that differ only in a free string are of one kind", async () => 
 /**
  * Works at which `refusesOnly`'s laws are proved and a question around them runs out, found by sweeping `work` with
  * z3-solver 5.3.2: whether the laws decide every input runs out up to 2000 and answers from 2500, and the laws are
- * proved from 120 up; the cross-check of the laws against the search side runs out from 120 to 175 and answers from 200.
+ * proved from 100 up; the cross-check of the laws against the search side runs out from 100 to 135 and answers from 140
+ * (swept again once whether a law says anything was asked of the spec alone, which left fewer queries before it).
  * Picked again the same way after a z3-solver upgrade.
  */
 const UNDECIDED_RUNS_OUT = 800
-const CROSS_CHECK_RUNS_OUT = 150
+const CROSS_CHECK_RUNS_OUT = 120
 
 it("whether the laws decide every input, unsettled, leaves the contract unflagged and says so", async () => {
   const v = await verify(z3, project, spec, "refusesOnly", { work: UNDECIDED_RUNS_OUT, cover: false })

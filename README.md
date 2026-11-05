@@ -261,9 +261,9 @@ Your `tsconfig.json` needs `strict` (or at least `strictNullChecks`), and a modu
 | Verdict | What it means |
 | --- | --- |
 | `proved` | No input the spec allows breaks the law. |
-| `counterexample` | One does, and `e.g.` gives it, with what each call returned on that run. |
+| `counterexample` | One does, and `e.g.` gives it, with what each call returned on that run. A pure function's laws are first run on generated inputs, in a child process (`--no-run` turns it off): a law broken there reads "found by running". |
 | `unmeetable` | One does, and no result keeps every law there at once: the spec, not the code, has to change. It names the laws that leave none. |
-| `vacuous` | Proved, but no result of the function could break it: the law says nothing of the function. This check is asked at a tenth of `--work`; one it cannot settle in that leaves the law `proved`, with a note under it that says so. |
+| `vacuous` | Proved, but no result of the function could break it: the law says nothing of the function. It is asked of the spec alone, by running first, then of Z3 at a tenth of `--work`; one it cannot settle in that leaves the law `proved`, with a note under it that says so. |
 | `undecided` | Of a contract: at an input `requires` allows, two results of different kinds both keep every law, so the laws do not say which the code answers. It names the part left open. |
 | `bounded` | Not proved, and no input with arrays of up to 4 elements breaks it. The reason says what stands in the way. |
 | `unsupported` | The law uses something tsverify does not read. The reason says what to write instead. |

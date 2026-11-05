@@ -1,6 +1,6 @@
 # tsverify: each question to the engine suited to it
 
-**Date:** 5 November 2026. **Status:** Phases 0 and 1 built and measured (below); the rest proposed. A plan in six phases: time each question, cap the
+**Date:** 5 November 2026. **Status:** Phases 0 and 1 built and measured; Phase 3(a) built and measured (below); the rest proposed. A plan in six phases: time each question, cap the
 slowest one, move to effect 4.1.2, find examples by running the code, ask the spec's own questions of the spec alone,
 and check actors over time with TLA+ beside tsverify. Every number below is measured unless it is marked as a
 prediction.
@@ -357,6 +357,66 @@ time. The same code gets the same inputs, and so the same verdicts, on every mac
   discard budget in the report shows it.
 - **Risk: running user code.** A module with effects at load time runs them, in a child process. The report names
   every module it loaded.
+
+### Card (a), built: a pure function's examples are found by running
+
+What was built: every law of a pure function's contract is run first, on 1,000 inputs meeting `requires`, generated from
+the parameters' types (`src/run/`, fast-check 4.10.2), in a child process per contract. A law a run breaks is its
+counterexample (`by: "run"`), not asked of Z3 but for one pinned proof-side query at a tenth of `--work`. Where that query
+says the law holds, the reason names the `assume` Z3 leaned on, or the law is `inconsistent` where it leaned on none.
+Says-anything is a question of the spec alone: a run answers it, else one proof-side query of the spec alone
+(`lowerSpecSide`) at a tenth; the search-side query is gone. The command runs by default, `--no-run` turns it off, and
+`verify()` as a library runs only with `run: true`. Left to cards (b) and (c): computations and Effect programs, Schema's
+`Arbitrary`, and `cover` and `undecided` by running.
+
+Three choices differ from the plan above. The seed is not `contractKey`, which hashes `process.cwd()` and absolute
+paths: it hashes the program's file texts, the contract's name and `--bound` (`runSeed`), so a laptop and CI draw the
+same inputs. A spec no module exports (Nemia's `const approvalRefusalSpec = spec<…>`) is reached by a load hook that
+appends an export to its source in memory. The child gets an environment of its own: PATH, a throwaway HOME and TMPDIR,
+USERPROFILE, and NODE_OPTIONS when set; never the parent's whole one, which on this machine names the live stores.
+
+### Measured: Nemia's 64 notes, and the five contracts' times
+
+**How.** This checkout's CLI, `--json`, no `--cache`, one file at a time, from Nemia's own checkout at 498a2cef3. Phase 1
+read a frozen ab395d4, and Nemia has moved since: `standing` has 18 laws now, not 14, and `holdsOpen` is new. Same
+machine, shared, as Phase 1. The child loaded Nemia's modules, `effect` and `xstate` among them (58 to 77 modules for an
+orchestrator contract, 12 for the runtime's), each named in the report.
+
+**Notes.** Of the 64 says-anything notes, 61 are answered, each by a run or by Z3's query of the spec alone:
+
+| Contract | Notes in Phase 1 | Left | Answered by run / by Z3 (of its laws) | Inputs meeting `requires` |
+|---|---|---|---|---|
+| `observe` | 24 | 0 | 19 / 12 | 289 of 10,000 draws |
+| `standing` | 13 | 0 | 11 / 7 | 1,000 of 1,812 |
+| `approvalRefusal` | 12 | 2 | 9 / 2 | 1,000 of 1,809 |
+| `wiringRefusal` | 11 | 0 | 0 / 11: not run, it calls `hireRefusal`, declared `pure: false` | — |
+| `rewired` | 4 | 1 | 6 / 1 | 1,000 of 2,153 |
+
+The three left, `approvalRefusal.takenAtItsGate` and `anEndingAlreadyLanded` and `rewired.hireNames`, are laws no generated free result broke at
+the first 100 inputs `requires` met, and whose spec-alone query runs out at a tenth: they keep the note, worded "of the
+spec alone". The spec-alone query alone, before any run was possible, answered 53 of the 64 (a first pass, where every
+contract was still refused a run, on its types or its purity): the code's facts were most of what the old query paid for.
+
+**Verdicts.** Every law of the five contracts is `proved`, as in Phase 1. No run broke a law, so no counterexample by run
+needed examining. A run of `observe` first stopped at the 60 s clock: drawing a free result for every law at every draw
+cost 27 ms a draw. The free results are now drawn at the first 100 inputs `requires` met, and its run takes 6 s. The
+says-anything questions are asked once every law's proof is decided: asked between proofs, their capped queries cost
+`fixtures/maps.ts`'s `leftOutNamesEachRun` its proof at a third of the work.
+
+**By contract** (seconds, less cover, which is what CI pays):
+
+| Contract | Phase 1, after | This card | Its run |
+|---|---|---|---|
+| `observe` | 52.3 | 34.5 | 5.9 |
+| `wiringRefusal` | 30.7 | 2.1 | not run |
+| `rewired` | 19.7 | 3.4 | 0.3 |
+| `approvalRefusal` | 32.9 | 31.6 | 1.3 |
+| `standing` | 43.6 | 18.9 (18 laws) | 1.9 |
+| `decide` | 8.5 | 7.7 | 4.1 |
+
+A run adds the child's start and its modules' loading, under 2 s for each orchestrator contract. `decide` meets `requires`
+at 170 of 10,000 draws, and `observe` at 289: the risk named above, measured. Their runs still answer most of their
+says-anything questions.
 
 ## Phase 4: the spec's questions of the spec alone
 

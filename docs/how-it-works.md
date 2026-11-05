@@ -2,7 +2,8 @@
 
 A contract is read twice from source, through the TypeScript compiler API, into terms for the Z3 solver: once to prove,
 once to search. Neither runs the code: the verifier never imports what it judges, so nothing in a module can change what
-it reads.
+it reads. Before them, a pure function's laws are run on generated inputs, in a child process of their own (*Running
+first*, below).
 
 ## In logic
 
@@ -67,6 +68,7 @@ A counterexample's `where names.get gave ""` is the part of w the model chose.
 | `src/universe.ts` | the Z3 context, its unknowns (one function per path through arrays), assumptions and quantifier scopes |
 | `src/concrete.ts` | model to JS values (replay), and JS values to constraints (the translator check) |
 | `src/verify.ts` | the queries: laws, vacuity, reachability, the cross-check of every proof, the loop invariants it guesses, and a first ask of each law with a loop's writes unknown, where a loop is read key by key; each contract in a Z3 context of its own, deleted after, so its verdicts are the same on every run, but where a query runs into the 5-minute clock |
+| `src/run/` | running first: the run's plan and the child it is handed to (`runs.ts`), the shapes of the inputs read from the checker (`shape.ts`), fast-check's generators of them (`arbitrary.ts`), and the child that loads the code and runs it (`child.ts`) |
 | `src/cache.ts` | the verdicts kept between runs (`--cache`), keyed by the text of every file of a contract's program |
 | `src/computation.ts` | outcomes, traces, operations, and the lowering of a computation's body step by step |
 | `src/adapter.ts`, `src/adapters/` | the adapter interface and the three adapters |
@@ -117,6 +119,39 @@ bitwise operator is integer arithmetic mod 2^32 on the 32-bit integers JavaScrip
 function on 300 random inputs, on both sides (`test/order.test.ts`). Every counterexample the benchmark and the tests find
 is run on the planted code: a refutation the code does not confirm stops the run as the verifier's bug. Two bugs in the
 verifier were caught that way while building it.
+
+## Running first
+
+Z3 answers a proof fast, since it can stop at the first contradiction, and an example slowly, since it must build the
+whole of it. So an example is looked for first by running the code. The checker's types give each parameter a shape:
+records, unions, literals, arrays and tuples, dictionaries, `Map`, `Set`, `bigint`, `number` at its edges, strings drawn
+from the program's own literals, and functions that give the same result for the same arguments. fast-check generates
+inputs of those shapes, collections no longer than `--bound`, and keeps 1,000 that meet `requires`, each drawn at most
+ten times. The seed is made of the text of every file of the program, the contract's name and `--bound`, never a path
+or a clock, so a run is the same on every machine.
+
+The run is a child process per contract, forked as `--workers` forks its workers, with a throwaway `HOME` and `TMPDIR`
+and an environment of its own (`PATH`, `HOME`, `TMPDIR`, `USERPROFILE`, and `NODE_OPTIONS` where the command has it).
+It loads the code and the spec through Node's type stripping, calls the real function on each input and each law on its
+result, and shrinks an input that breaks a law. The verifier's own process never imports the code nor fast-check.
+
+What is routed to it, for a pure function's contract alone:
+
+- **Counterexamples.** A law a run breaks is a `counterexample` by `run`, real by construction, and is not asked of Z3,
+  but for one pinned query of the proof side, at a tenth of `--work`, that checks Z3 reads the code as it runs.
+- **Says-anything**, of the spec alone: a generated input meeting `requires` and a generated free result that break a
+  law say it says something. It is asked at the first 100 inputs `requires` met, one free result each, its strings drawn
+  from those the input holds.
+
+Inputs come from the parameters' types: records, unions, literals, arrays, tuples, `Record<string, V>`, `Map`, `Set`,
+functions (each answering the same for the same arguments), `Date`, and `unknown` as any primitive. A record with keys
+of its own beside its fields is given its fields alone, and `object` an empty one: each a value of its type, if not
+every one. A type with no value a run can make (`any`, a class's instance, a library object such as `RegExp`) leaves
+the contract to Z3, and says why.
+
+What stays Z3's: every proof, the search for a counterexample no run found, `cover`, `undecided`, `unmeetable`, the
+obligations, computations and lemmas. A run that finds nothing proves nothing: "no counterexample in 1,000 inputs" is no
+verdict, and only sends the question on to Z3.
 
 ## Modes and trust, after Verus
 

@@ -36,7 +36,7 @@ const next = (): Promise<Job> => {
 
 await withZ3(async (z3) => {
   for (;;) {
-    const { file, tsconfig, bound, work, cover, cacheDir } = await next()
+    const { file, tsconfig, bound, work, cover, run, cacheDir } = await next()
     await verifyFile(
       z3,
       file,
@@ -46,6 +46,7 @@ await withZ3(async (z3) => {
         ...(work === undefined ? {} : { work }),
         ...(cacheDir === undefined ? {} : { cache: verdictsIn(cacheDir) }),
         cover,
+        run,
       },
       {
         file: (names) => say({ kind: "file", names }),

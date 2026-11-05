@@ -16,8 +16,11 @@ need before you guess.
 1. **Say what must hold**, one law per fact, in the words of the domain the function serves: "a refused withdrawal writes
    nothing", never the steps the code takes. A law that restates the code proves only that the code is the code.
 2. **Write the laws into the spec** before you change the code, and run the verifier: each new law should come back
-   `counterexample` on the code as it is. A new law the old code already proves says nothing your change adds; keep it only
-   if it says something the spec lacked.
+   `counterexample` on the code as it is. A pure function's laws are first run on 1,000 generated inputs, so a law the code
+   breaks there comes back in milliseconds, its `e.g.` line ending "found by running": the real function on that input.
+   The run loads the code's modules in a child process, so their top-level code runs: for code whose modules must not be
+   loaded, pass `--no-run`, and Z3 alone answers. A new law the old code already proves says nothing your change adds;
+   keep it only if it says something the spec lacked.
 3. **Change the code until every law is `proved`.** A counterexample is an input the real code fails on: run the function
    on it before you decide whether the code, the law or the `requires` is wrong.
 
@@ -116,12 +119,12 @@ The command exits 0 only when every law is proved and no contract is undecided.
 
 - **Find the law first, then its question.** The one-contract form and `--verbose` print each law's time. The time is
   Z3's, not the reading of the TypeScript, and a few laws hold most of it. `--json` says which question took it: each
-  law's `asked` sums its queries by question (`proof`, `says-anything`, `search`, `unmeetable`), by side and by how they
-  ended (`answered`, `out of work`, `out of time`, `gave up`), and each contract's `asked` its own (`cross-check`,
-  `cover`, `undecided`, `obligation`).
+  law's `asked` sums its queries by question (`proof`, `says-anything`, `search`, `unmeetable`), by side, by what answered
+  (`by`: `run` or `z3`) and by how they ended (`answered`, `out of work`, `out of time`, `gave up`), and each contract's
+  `asked` its own (`cross-check`, `cover`, `undecided`, `obligation`).
 - **A proved law asks more than its proof.** It also asks whether any result could break it (the `vacuous` check), a
-  question over every input and every result. It is asked at a tenth of `--work`: one it cannot settle in that leaves the
-  law `proved`, with a note under it.
+  question of the spec alone: a run of generated inputs and results answers it first, else Z3, at a tenth of `--work`.
+  One it cannot settle in that leaves the law `proved`, with a note under it.
 - **`--work N` is each query's budget**, in Z3's own steps, 15,000,000 by default. A query that runs out spends all of it,
   from seconds to minutes depending on what it asks, and says "out of work"; "out of time" is a query stopped at 5
   minutes, which never counted its work.

@@ -11,6 +11,7 @@ import { createElement as h, type ReactNode } from "react"
 import type { Trusted } from "./trust.ts"
 import { MODELS } from "./exec.ts"
 import type { Unanswered } from "./asked.ts"
+import type { Ran } from "./run/runs.ts"
 import type { LawResult, LawStatus, ObligationResult, Undecided, Verification } from "./verify.ts"
 
 /** Whether to colour: Node's own answer for stdout, which reads `NO_COLOR`, `FORCE_COLOR` and whether it is a terminal. */
@@ -79,35 +80,50 @@ const beside = (mark: ReactNode, ...lines: ReadonlyArray<ReactNode>): ReactNode 
 const marked = (s: Shown, ...lines: ReadonlyArray<ReactNode>): ReactNode => beside(styled(VERDICTS[s].style, VERDICTS[s].mark), ...lines)
 const indented = (...lines: ReadonlyArray<ReactNode>): ReactNode => h(Box, { flexDirection: "column", paddingLeft: 2 }, ...lines)
 
-/** A value as JavaScript writes it, so a counterexample can be pasted into a call: `0n`, `"a"`, `[1, NaN]`, `{ id: "a" }`. */
+/** The calls a generated function answered on a run, where a value is one: `[[args, result], …]`. */
+const callsOf = (x: unknown): ReadonlyArray<readonly [ReadonlyArray<unknown>, unknown]> | undefined =>
+  x !== null && typeof x === "object" && !Array.isArray(x) && "~calls" in x && Array.isArray(x["~calls"])
+    ? (x["~calls"] as ReadonlyArray<readonly [ReadonlyArray<unknown>, unknown]>)
+    : undefined
+
+/**
+ * A value as JavaScript writes it, so a counterexample can be pasted into a call: `0n`, `"a"`, `[1, NaN]`, `{ id: "a" }`.
+ * A function a run generated is shown as the calls it answered: `fn("t1") → "a", fn("t2") → "b"`, in angle brackets.
+ */
 const literal = (x: unknown): string =>
-  typeof x === "bigint"
-    ? `${x}n`
-    : typeof x === "number"
-      ? Object.is(x, -0)
-        ? "-0"
-        : String(x)
-      : typeof x === "string"
-        ? JSON.stringify(x)
-        : x === undefined
-          ? "undefined"
-          : Array.isArray(x)
-            ? `[${x.map(literal).join(", ")}]`
-            : x instanceof Date
-              ? `new Date(${literal(x.getTime())})`
-              : x instanceof Map
-                ? `new Map([${[...x].map(([k, v]) => `[${literal(k)}, ${literal(v)}]`).join(", ")}])`
-                : x instanceof Set
-                  ? `new Set([${[...x].map(literal).join(", ")}])`
-                  : x !== null && typeof x === "object"
-                    ? Object.keys(x).length === 0
-                      ? "{}"
-                      : `{ ${Object.entries(x)
-                          .map(([k, v]) => `${/^[A-Za-z_$][\w$]*$/.test(k) ? k : JSON.stringify(k)}: ${literal(v)}`)
-                          .join(", ")} }`
-                    : x === null || typeof x === "boolean"
-                      ? String(x)
-                      : `<${typeof x}>`
+  callsOf(x) !== undefined
+    ? `<${
+        callsOf(x)!
+          .map(([args, r]) => `fn(${args.map(literal).join(", ")}) → ${literal(r)}`)
+          .join(", ") || "fn never called"
+      }>`
+    : typeof x === "bigint"
+      ? `${x}n`
+      : typeof x === "number"
+        ? Object.is(x, -0)
+          ? "-0"
+          : String(x)
+        : typeof x === "string"
+          ? JSON.stringify(x)
+          : x === undefined
+            ? "undefined"
+            : Array.isArray(x)
+              ? `[${x.map(literal).join(", ")}]`
+              : x instanceof Date
+                ? `new Date(${literal(x.getTime())})`
+                : x instanceof Map
+                  ? `new Map([${[...x].map(([k, v]) => `[${literal(k)}, ${literal(v)}]`).join(", ")}])`
+                  : x instanceof Set
+                    ? `new Set([${[...x].map(literal).join(", ")}])`
+                    : x !== null && typeof x === "object"
+                      ? Object.keys(x).length === 0
+                        ? "{}"
+                        : `{ ${Object.entries(x)
+                            .map(([k, v]) => `${/^[A-Za-z_$][\w$]*$/.test(k) ? k : JSON.stringify(k)}: ${literal(v)}`)
+                            .join(", ")} }`
+                      : x === null || typeof x === "boolean"
+                        ? String(x)
+                        : `<${typeof x}>`
 
 /** What the world gave the code on a counterexample's run: each operation's outcome, each declared function's result. */
 const given = (world: Readonly<Record<string, unknown>>) =>
@@ -124,8 +140,20 @@ const given = (world: Readonly<Record<string, unknown>>) =>
     .join(", ")
 
 /** A counterexample: the arguments, as the call that takes them would write them, and what the world gave on that run. */
-const witness = (r: { readonly args?: ReadonlyArray<unknown>; readonly world?: Readonly<Record<string, unknown>> }): Array<ReactNode> => [
-  ...(r.args === undefined ? [] : [line([DIM, "e.g."], [{ color: "cyan" }, `(${r.args.map(literal).join(", ")})`])]),
+const witness = (r: {
+  readonly args?: ReadonlyArray<unknown>
+  readonly world?: Readonly<Record<string, unknown>>
+  readonly by?: LawResult["by"]
+}): Array<ReactNode> => [
+  ...(r.args === undefined
+    ? []
+    : [
+        line(
+          [DIM, "e.g."],
+          [{ color: "cyan" }, `(${r.args.map(literal).join(", ")})`],
+          ...(r.by === "run" ? [[DIM, "found by running"] as const] : []),
+        ),
+      ]),
   ...(r.world === undefined || Object.keys(r.world).length === 0 ? [] : [line([DIM, "where"], given(r.world))]),
 ]
 
@@ -160,6 +188,15 @@ const law =
       ...(l.reason === undefined ? [] : [line(l.reason)]),
       ...unanswered(l.unanswered),
     )
+
+/** What a contract's run did, or why there was none: a line under the contract. */
+const ranLine = (r: Ran): ReactNode =>
+  line([
+    DIM,
+    r.ran
+      ? `ran ${r.inputs.toLocaleString("en-US")} inputs (${[`${r.discarded.toLocaleString("en-US")} discarded by requires`, ...(r.threw === 0 ? [] : [`${r.threw.toLocaleString("en-US")} threw`])].join(", ")}), loaded ${plural(r.modules.length, "module")}`
+      : `not run: ${r.why}`,
+  ])
 
 /** A question that ended without an answer, a line each: what was not settled, and what the verdict took of it. */
 const unanswered = (ns: ReadonlyArray<Unanswered> | undefined): Array<ReactNode> => (ns ?? []).map((n) => line([DIM, n.reason]))
@@ -316,6 +353,7 @@ export const contract = ({ v, ms }: Verified, { every, full, width }: Shape): Re
       ...(v.undecided === undefined ? [] : ["undecided" as const]),
     ]),
     line(name, "", ...summary(v, !every), "", [DIM, `(${Math.round(ms)} ms)`]),
+    ...(full && v.ran !== undefined ? [ranLine(v.ran)] : []),
     ...v.laws.filter(listed).map(law(new Map(v.trusted.flatMap((t) => (t.spec === undefined ? [] : [[t.name, t.spec]]))))),
     ...(v.undecided === undefined ? [] : [undecided(v.undecided)]),
     ...unanswered(v.unanswered),

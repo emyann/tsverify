@@ -31,19 +31,23 @@ it("a ledger sums the queries of one question, side and end, in the order first 
   l.add("proof", "proof", "answered", 4)
   l.add("proof", "proof", "out of work", 1)
   l.add("cross-check", undefined, "answered", 2)
+  // A run's inputs are its queries, apart from Z3's.
+  l.add("says-anything", undefined, "answered", 6, 1000, "run")
   assert.deepEqual(l.asked, [
-    { question: "proof", side: "proof", end: "answered", queries: 2, ms: 7 },
-    { question: "says-anything", side: "search", end: "out of work", queries: 1, ms: 5 },
-    { question: "proof", side: "proof", end: "out of work", queries: 1, ms: 1 },
-    { question: "cross-check", end: "answered", queries: 1, ms: 2 },
+    { question: "proof", side: "proof", by: "z3", end: "answered", queries: 2, ms: 7 },
+    { question: "says-anything", side: "search", by: "z3", end: "out of work", queries: 1, ms: 5 },
+    { question: "proof", side: "proof", by: "z3", end: "out of work", queries: 1, ms: 1 },
+    { question: "cross-check", by: "z3", end: "answered", queries: 1, ms: 2 },
+    { question: "says-anything", by: "run", end: "answered", queries: 1000, ms: 6 },
   ])
   const folded = new Ledger()
   folded.addAll(l.asked, "obligation")
   assert.deepEqual(folded.asked, [
-    { question: "obligation", side: "proof", end: "answered", queries: 2, ms: 7 },
-    { question: "obligation", side: "search", end: "out of work", queries: 1, ms: 5 },
-    { question: "obligation", side: "proof", end: "out of work", queries: 1, ms: 1 },
-    { question: "obligation", end: "answered", queries: 1, ms: 2 },
+    { question: "obligation", side: "proof", by: "z3", end: "answered", queries: 2, ms: 7 },
+    { question: "obligation", side: "search", by: "z3", end: "out of work", queries: 1, ms: 5 },
+    { question: "obligation", side: "proof", by: "z3", end: "out of work", queries: 1, ms: 1 },
+    { question: "obligation", by: "z3", end: "answered", queries: 1, ms: 2 },
+    { question: "obligation", by: "run", end: "answered", queries: 1000, ms: 6 },
   ])
 })
 
@@ -53,18 +57,16 @@ it("the check that a law says something: a result that breaks it says so, none o
   const out = { status: "unknown", end: "out of work" } as const
   const late = { status: "unknown", end: "out of time" } as const
   const rows: ReadonlyArray<readonly [string, Parameters<typeof saysAnything>, boolean, ReadonlyArray<string | undefined> | undefined]> = [
-    // [name, (search, proof), vacuous, the unanswered entry's question, side and end]
-    ["a result breaks it on the search side", [sat, undefined], false, undefined],
-    ["none there, one on the proof side", [unsat, sat], false, undefined],
-    ["the search side without an answer, one on the proof side", [out, sat], false, undefined],
-    ["none on the proof side", [unsat, unsat], true, undefined],
-    ["none on the proof side, the search side without an answer", [out, unsat], true, undefined],
-    ["the proof side without an answer", [unsat, out], false, ["says-anything", "proof", "out of work"]],
-    ["both sides without an answer", [out, late], false, ["says-anything", undefined, "out of time"]],
-    ["the law not read on any result", [undefined, undefined], false, undefined],
+    // [name, (shown by a run, the proof side's query of the spec alone), vacuous, the unanswered entry's question, side and end]
+    ["a run shows a result that breaks it", [true, undefined], false, undefined],
+    ["none run, a result on the proof side", [false, sat], false, undefined],
+    ["none on the proof side", [false, unsat], true, undefined],
+    ["the proof side without an answer", [false, out], false, ["says-anything", "proof", "out of work"]],
+    ["the proof side out of time", [false, late], false, ["says-anything", "proof", "out of time"]],
+    ["the law not read on any result", [false, undefined], false, undefined],
   ]
-  for (const [name, [search, proof], vacuous, unanswered] of rows) {
-    const got = saysAnything(search, proof)
+  for (const [name, [byRun, proof], vacuous, unanswered] of rows) {
+    const got = saysAnything(byRun, proof)
     assert.equal(got.vacuous, vacuous, name)
     assert.deepEqual(
       got.unanswered === undefined ? undefined : [got.unanswered.question, got.unanswered.side, got.unanswered.end],

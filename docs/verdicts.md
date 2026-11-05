@@ -97,7 +97,7 @@ $ npx tsverify
 src/cap.ts
   ✗ cap  1 counterexample, 1 vacuous, 1 proved  (141 ms)
     ✗ neverNegative  (10 ms)
-      e.g. (-1n, 0n)
+      e.g. (-1n, 0n) found by running
     ○ limitNotNegative  (5 ms)
       no result breaks it, whatever the function returns: it says nothing of the function
 src/label.ts
@@ -150,7 +150,15 @@ builds*).
 
 An input the spec allows breaks the law, and `e.g.` gives it, as the arguments of a call: `cap(-1n, 0n)` is `-1n`. The
 counterexample is real: the verifier takes one only from a model of JavaScript that is exact, and running the code on it
-breaks the law. For a computation, a line `where …` says what each operation gave the code on that run. One that leans on
+breaks the law.
+
+Most are found by running, before Z3 is asked: a pure function's laws are run on generated inputs first (*Running
+first*, below), and a law a run breaks ends `found by running`. That one is real by construction: the real function on
+the input, the real law on its result. It is not asked of Z3, but for one query: the input pinned, on the proof side, at
+a tenth of `--work`. Where Z3 says the law holds there, its reading and the code disagree. A law that leaned on a
+declaration stays a counterexample, and the reason names the declarations, one of which is wrong about its function;
+one that leaned on none is `inconsistent`. A function given as an argument is generated too, and shown as the calls it
+answered on that run, `<fn("t1") → "a", fn("t2") → "b">`. For a computation, a line `where …` says what each operation gave the code on that run. One that leans on
 a declared function says so: it holds of the function as declared, and may not of the real one. One that leans on a
 function's spec says so too: the spec may allow what the function's body never gives, and a law added to the spec, or a
 `requires` here that meets the spec's, rules the run out.
@@ -191,10 +199,12 @@ only the inputs, which `requires` already settles. The verifier asks it of every
 value of the result's type in place of the function's. Rewrite the law to constrain the result, or drop it. A vacuous law
 fails the command, as a law that says nothing should.
 
-The check is asked at a tenth of a query's work (`--work`), as `unmeetable`'s is: it is asked of every law proved, over
-every input and every result, and it was most of a run's time where it ran out of work. One it cannot settle in that
-reads as saying something: the law stays `proved`, and a note under it says the check was not settled, and how each side
-ended (below).
+It is a question of the spec alone: its types, `requires`, the law, and a free result, never what the code does. A run
+answers it first: an input meeting `requires` and a generated result that break the law say it says something. Where
+none does, or nothing was run, Z3 is asked once, on the proof side, at a tenth of a query's work (`--work`), as
+`unmeetable` is. One it cannot settle in that reads as saying something: the law stays `proved`, and a note under it
+says the check was not settled (below). Since it counts every input `requires` allows, a law broken only where the code
+throws says something: `x !== 0n || output === 1n`, of `(x: bigint) => 10n / x`, is proved, not vacuous.
 
 ### ~ `bounded`
 
@@ -234,8 +244,9 @@ splitting a law into smaller ones, or a lemma, often helps more.
 
 ### ! `inconsistent`
 
-The proof side proved the law, and the search side, which is exact, found an input that breaks it. One of the two is
-wrong, which is a bug of tsverify, not a verdict on the code. The input is given; please report it.
+The proof side proved the law, and the search side, which is exact, found an input that breaks it; or a run of the code
+broke the law at an input where the proof side proves it holds, leaning on no declaration. One of the two is wrong,
+which is a bug of tsverify, not a verdict on the code. The input is given; please report it.
 
 ## Questions without an answer
 
@@ -247,7 +258,7 @@ note, under its law or its contract, which says what was not settled, how it end
 ```
   ✓ signed  1 law · 1 unanswered  (38 ms)
     ✓ zeroOnlyAtZero  (17 ms)
-      whether it says anything of the function was not settled (out of work on both sides, at a tenth of `--work`): read as saying something
+      whether it says anything of the function was not settled (out of work on the proof side, of the spec alone, at a tenth of `--work`): read as saying something
 ```
 
 A law with a note is listed in a folder's run even when proved, the contract's line counts the notes, and so does the
@@ -298,9 +309,10 @@ Given a file and a name, the command prints everything it knows of that contract
 ```text
 $ npx tsverify src/cap.ts cap
 ✗ cap  1 counterexample, 1 vacuous, 1 proved  (138 ms)
+  ran 1,000 inputs (917 discarded by requires), loaded 3 modules
   ✓ withinTheLimit  (90 ms)
   ✗ neverNegative  (10 ms)
-    e.g. (-1n, 0n)
+    e.g. (-1n, 0n) found by running
   ○ limitNotNegative  (5 ms)
     no result breaks it, whatever the function returns: it says nothing of the function
   assumed:
@@ -323,7 +335,7 @@ $ npx tsverify src/cap.ts cap
 
 ```text
 tsverify [<file or folder>...] [--project tsconfig.json] [--bound N] [--work N] [--verbose] [--json] [--watch]
-         [--cache] [--cache-location <folder>] [--workers N] [--config <file>]
+         [--cache] [--cache-location <folder>] [--workers N] [--config <file>] [--no-run]
 tsverify <file.ts> <export> [--json] [--watch] [--cache] [--cache-location <folder>]
 ```
 
@@ -339,6 +351,7 @@ tsverify <file.ts> <export> [--json] [--watch] [--cache] [--cache-location <fold
 | `--cache-location` | the folder `--cache` keeps the verdicts in, instead of `node_modules/.cache/tsverify` beside the nearest `package.json` |
 | `--workers` | how many processes verify the files, 1 by default: each takes the next file as it is free, with a Z3 and a memory of its own (below) |
 | `--config` | the config file to read, instead of `tsverify.config.json` in the current folder (below) |
+| `--no-run` | run nothing: every question is asked of Z3 alone (below) |
 | `--help`, `-h` | the usage and every option, and nothing read; any other option it does not take is a usage error (exit 2) |
 
 | Exit | |
@@ -347,6 +360,30 @@ tsverify <file.ts> <export> [--json] [--watch] [--cache] [--cache-location <fold
 | 1 | one is not: a counterexample, or a law unmeetable, bounded, vacuous, unsupported, unknown or inconsistent, or a contract undecided or not verified |
 | 2 | a usage error: a path that is not there, no file or no contract to verify, no `tsconfig.json`, a config file it cannot read |
 | 3 | the verifier itself failed, which says nothing of the code |
+
+### Running first
+
+By default the command runs a pure function's laws before it asks Z3: the function's contract, an implementation of a
+spec or a `contract(...)`, whose function the purity check reads as pure. It generates 1,000 inputs from the parameters'
+types that meet `requires`, runs the real function on each and every law on its result, and a law one breaks is a
+counterexample `found by running` (above), which Z3 is not asked to find. The same inputs answer whether each law says
+anything (*vacuous*). A computation, a lemma, a function that is not pure, one with a rest parameter, and a module Node
+cannot load (syntax its type stripping refuses, a path alias) are not run: Z3 answers alone, and the report says why. An
+input on which the function, `requires` or a law throws is skipped and counted. A law no run breaks goes to Z3, which
+proves it, or searches for its counterexample, as it does without a run.
+
+The run loads the code's modules, so their top-level code runs. It runs in a child process of its own, never in the
+verifier's, killed after a minute (a verdict so stopped is not kept by `--cache`). Its environment is not the command's:
+`PATH`, `HOME` and `TMPDIR`, both a fresh folder removed after, `USERPROFILE` the same folder, and `NODE_OPTIONS` if the
+command has it, nothing else. The one-contract form and `--verbose` say under each contract what its run did, and every
+module it loaded, the program's files and the packages, counted on the line and named in `--json`:
+
+```text
+  ran 1,000 inputs (917 discarded by requires), loaded 3 modules
+```
+
+or `not run: <why>`. `--no-run` runs nothing, for code whose modules must not be loaded: every question is then Z3's,
+as it was before running first.
 
 ### A config file
 
@@ -383,7 +420,7 @@ $ npx tsverify
 src/cap.ts
   ✗ cap  1 counterexample, 1 vacuous, 1 proved  (141 ms)
     ✗ neverNegative  (10 ms)
-      e.g. (-1n, 0n)
+      e.g. (-1n, 0n) found by running
     ○ limitNotNegative  (5 ms)
       no result breaks it, whatever the function returns: it says nothing of the function
 src/label.ts
@@ -410,7 +447,9 @@ seconds, and each contract is verified in a Z3 context of its own, which frees n
 verdicts are read: a term freed hands its number to the next one made, the numbers order the solver's search, and
 JavaScript frees a term when it collects it, which is not at the same moment on every run. A report names a stop at
 the 5 minutes "out of time", and a stop at the work limit "out of work", Z3's `canceled` before the 5 minutes among
-them. A program that calls `verify` itself (`@emyann/tsverify/api`, whose
+them. A run's inputs are the same on every machine too: a count, not a time, drawn from a seed made of the program's
+texts, the contract's name and `--bound`, never a path or a clock; only a run stopped at its minute hangs on the
+machine. A program that calls `verify` itself (`@emyann/tsverify/api`, whose
 `work` option is `--work`) gets the same.
 
 ### Verdicts kept between runs
@@ -476,19 +515,39 @@ The same verdicts as one document: `passed` (what the exit code says), `contract
         {
           "name": "withinTheLimit",
           "status": "proved",
+          "by": "z3",
           "ms": 90.1,
           "asked": [
-            { "question": "proof", "side": "proof", "end": "answered", "queries": 1, "ms": 31.5 },
-            { "question": "says-anything", "side": "search", "end": "answered", "queries": 1, "ms": 52.0 }
+            { "question": "proof", "side": "proof", "by": "z3", "end": "answered", "queries": 1, "ms": 80.9 },
+            { "question": "says-anything", "by": "run", "end": "answered", "queries": 1000, "ms": 0 }
           ]
         },
-        { "name": "neverNegative", "status": "counterexample", "args": ["-1n", "0n"], "ms": 11.2 }
+        {
+          "name": "neverNegative",
+          "status": "counterexample",
+          "by": "run",
+          "args": ["-1n", "0n"],
+          "ms": 11.2,
+          "asked": [
+            { "question": "cross-check", "side": "proof", "by": "z3", "end": "answered", "queries": 1, "ms": 5.8 },
+            { "question": "unmeetable", "side": "proof", "by": "z3", "end": "answered", "queries": 2, "ms": 11.2 }
+          ]
+        }
       ],
       "obligations": [],
       "trusted": [],
       "cover": [],
       "notes": ["…"],
-      "asked": [{ "question": "cross-check", "side": "search", "end": "answered", "queries": 1, "ms": 4.2 }],
+      "asked": [{ "question": "cross-check", "side": "search", "by": "z3", "end": "answered", "queries": 1, "ms": 5.6 }],
+      "ran": {
+        "ran": true,
+        "inputs": 1000,
+        "discarded": 917,
+        "threw": 0,
+        "modules": ["@emyann/tsverify", "src/cap.contract.ts", "src/cap.ts"],
+        "env": ["PATH", "HOME", "TMPDIR", "USERPROFILE"],
+        "ms": 100.9
+      },
       "ms": 160.3,
       "passed": false
     }
@@ -506,9 +565,14 @@ The same verdicts as one document: `passed` (what the exit code says), `contract
 ```
 
 Where the time went: each law's `asked`, and each contract's for its own questions, sums its queries by `question`
-(`proof`, `says-anything`, `search` for a counterexample, `unmeetable`; a contract's `cross-check`, `cover`,
-`undecided` and `obligation`, a lemma's queries and the rounds that guess a loop's invariants among them), by `side`,
-and by `end`: `answered`, `out of work`, `out of time` or `gave up`. A contract's `ms` is its whole time, the reading of
+(`proof`, `says-anything`, `search` for a counterexample, `unmeetable`, `cross-check` for a counterexample found by
+running; a contract's `cross-check`, `cover`, `undecided` and `obligation`, a lemma's queries and the rounds that guess a
+loop's invariants among them), by `side`, by `by` and by `end`: `answered`, `out of work`, `out of time` or `gave up`.
+`by` says what answered: `"run"`, the run of the code on generated inputs, whose `queries` are the inputs it ran and
+which has no `side`, or `"z3"`. A decided law's `by` says the same of its verdict: `"run"` for a counterexample found by
+running. A contract's `ran` says what its run did: `inputs` run that met `requires`, `discarded`, `threw`, `modules`
+loaded, the `env` variables given by name, and its `ms`; or `{ "ran": false, "why": … }`, with `"stuck": true` where it
+was stopped at its minute. It is there when the command runs, and not with `--no-run`. A contract's `ms` is its whole time, the reading of
 its code with it. A question that ended without an answer is in `unanswered`, the law's or the contract's, each with its
 `question`, `end`, the `side` where one side alone ended so, and the note's `reason`; `totals.unanswered` counts them.
 Only the times differ between two runs of the same code, each named `ms`.

@@ -86,6 +86,7 @@ export const rename: Rename = Effect.fn("rename")(function* (id, name) {
 ```text
 $ npx tsverify src/rename.ts rename
 ✓ rename  3 laws  (270 ms)
+  not run: a computation is not run
   ✓ readsTheUserFirst  (93 ms)
   ✓ failsAsNotFoundWhenMissing  (71 ms)
   ✓ writesTheUserItReadRenamed  (7 ms)
@@ -307,6 +308,7 @@ export const half: Half = Effect.fn("half")(function* (n) {
 ```text
 $ npx tsverify src/half.ts half
 ✓ half  1 law  (14 ms)
+  not run: a computation is not run
   ✓ doubledIsN  (9 ms)
   reaches: Success, Failure (unreachable), Die
   assumed:

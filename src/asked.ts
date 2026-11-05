@@ -22,6 +22,9 @@ export type Question =
 
 export type Side = "proof" | "search"
 
+/** What answered a question: a run of the code on generated inputs, or Z3. */
+export type Engine = "run" | "z3"
+
 /**
  * How a query ended: with an answer; at the work limit (`--work`), which stops a query at the same step on every run;
  * at `STUCK_MS`, a clock, the one stop that may not be the same on every run; or with the solver giving up for a reason
@@ -33,6 +36,8 @@ export type End = "answered" | "out of work" | "out of time" | "gave up"
 export interface Asked {
   readonly question: Question
   readonly side?: Side
+  /** What answered it. For a run, `queries` counts the inputs run. */
+  readonly by: Engine
   readonly end: End
   readonly queries: number
   readonly ms: number
@@ -84,43 +89,38 @@ export const endWords = (end: End, reason: string): string =>
 export type SidesEnd = { readonly status: "sat" } | { readonly status: "unsat" } | { readonly status: "unknown"; readonly end: End }
 
 /**
- * What the check that a law says something decides of a proved law, from its two queries: the search side's, then the
- * proof side's, either unset where it was not asked (the search side found a result, or the law cannot be read on any
- * result). A result that breaks the law on either side says it says something; none on the proof side, that it says
- * nothing. A check that ends without an answer reads as saying something, and says so.
+ * What the check that a law says something decides of a proved law. It is a question of the spec alone: its types,
+ * `requires`, the law, and a free result of the law's type, never what the code does. A run that found such a result
+ * breaking it (`byRun`) says it says something; else the proof side's one query of the spec alone (unset where it was
+ * not asked: the law cannot be read on any result) decides: a result that breaks it says something, none that it says
+ * nothing. A query that ends without an answer reads as saying something, and says so.
  */
 export const saysAnything = (
-  search: SidesEnd | undefined,
+  byRun: boolean,
   proof: SidesEnd | undefined,
 ): { readonly vacuous: boolean; readonly unanswered?: Unanswered } => {
-  if (search?.status === "sat" || proof?.status === "sat") return { vacuous: false }
+  if (byRun || proof?.status === "sat") return { vacuous: false }
   if (proof?.status === "unsat") return { vacuous: true }
   if (proof?.status !== "unknown") return { vacuous: false }
-  const both = search?.status === "unknown"
-  const how = both
-    ? search.end === proof.end
-      ? `${proof.end} on both sides`
-      : `${search.end} on the search side, ${proof.end} on the proof side`
-    : `${proof.end} on the proof side`
   return {
     vacuous: false,
     unanswered: {
       question: "says-anything",
-      ...(both ? {} : { side: "proof" as const }),
+      side: "proof",
       end: proof.end,
-      reason: `whether it says anything of the function was not settled (${how}, at a tenth of \`--work\`): read as saying something`,
+      reason: `whether it says anything of the function was not settled (${proof.end} on the proof side, of the spec alone, at a tenth of \`--work\`): read as saying something`,
     },
   }
 }
 
 /** The time of every query asked for one law, or for one contract's own questions, summed by question, side and end. */
 export class Ledger {
-  readonly #entries: Array<{ question: Question; side: Side | undefined; end: End; queries: number; ms: number }> = []
+  readonly #entries: Array<{ question: Question; side: Side | undefined; by: Engine; end: End; queries: number; ms: number }> = []
 
-  /** `queries` asked for `question` on `side` that ended `end`, in `ms`. */
-  add(question: Question, side: Side | undefined, end: End, ms: number, queries = 1): void {
-    const e = this.#entries.find((x) => x.question === question && x.side === side && x.end === end)
-    if (e === undefined) this.#entries.push({ question, side, end, queries, ms })
+  /** `queries` asked for `question` on `side` that ended `end`, in `ms`, answered by `by` (Z3 unless said). */
+  add(question: Question, side: Side | undefined, end: End, ms: number, queries = 1, by: Engine = "z3"): void {
+    const e = this.#entries.find((x) => x.question === question && x.side === side && x.by === by && x.end === end)
+    if (e === undefined) this.#entries.push({ question, side, by, end, queries, ms })
     else {
       e.queries += queries
       e.ms += ms
@@ -129,14 +129,15 @@ export class Ledger {
 
   /** Each entry of `asked` added under its own question, or under `as`. */
   addAll(asked: ReadonlyArray<Asked>, as?: Question): void {
-    for (const a of asked) this.add(as ?? a.question, a.side, a.end, a.ms, a.queries)
+    for (const a of asked) this.add(as ?? a.question, a.side, a.end, a.ms, a.queries, a.by)
   }
 
-  /** Each question, side and end asked, in the order first asked. */
+  /** Each question, side, engine and end asked, in the order first asked. */
   get asked(): ReadonlyArray<Asked> {
-    return this.#entries.map(({ question, side, end, queries, ms }) => ({
+    return this.#entries.map(({ question, side, by, end, queries, ms }) => ({
       question,
       ...(side === undefined ? {} : { side }),
+      by,
       end,
       queries,
       ms,
