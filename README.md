@@ -297,7 +297,7 @@ verdict, what to do about it, the notes, and `--json` for tools.
 
 ## Status
 
-A prototype: version 0.7.0, and its API may change before 1.0. Every example in these pages is run by its tests, the
+A prototype: version 0.8.0, and its API may change before 1.0. Every example in these pages is run by its tests, the
 output shown included. What matters most before you rely on it:
 
 - **Arguments are taken to have their types**, and code to throw only where it says so. At the edge of a program, check
