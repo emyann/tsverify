@@ -1,15 +1,16 @@
 // The release tool (`tools/release.ts`) and the workflows that run it. The pure rules are called directly: which tags are releases,
 // the bump a set of labels gives, the next version, and the version written into the three files a release moves. Each verb is run
 // as `node tools/release.ts <verb>` in a scratch repository whose `origin` is a local bare repository, so git is real and stubbed only
-// at its remote, with a stub `gh` and a stub `npm` first on PATH: each logs its calls and answers from a state file, and the stub
-// `npm publish` only prints what it would send. What is asserted is the exit code, the calls made, and the refs and files git holds,
-// never a sentence.
+// at its remote, with a stub `gh` and a stub `npm` first on PATH: each logs its calls and answers from a state file. The stub
+// `npm stage publish` keeps the staged versions in its state and answers as npm 11.21.2 does: `+ <name>@<v> (staged with id <id>)`,
+// and E409 `Cannot stage previously published version` for a version staged already. What is asserted is the exit code, the calls
+// made, the refs and files git holds, and facts (ids, commands, URLs) by `includes`, never a sentence.
 import assert from "node:assert/strict"
 import { spawnSync } from "node:child_process"
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import path from "node:path"
 import { after, describe, it } from "node:test"
-import { bump, LABELS, nextVersion, releaseTag, withVersion } from "../tools/release.ts"
+import { bump, LABELS, nextVersion, NPM_PIN, releaseTag, withVersion } from "../tools/release.ts"
 
 const root = path.resolve(import.meta.dirname, "..")
 const TOOL = path.join(root, "tools", "release.ts")
@@ -166,7 +167,11 @@ if (args[0] === "workflow" && args[1] === "run") {
 fail("stub gh: no answer for " + args.join(" "), 9)
 `
 
+/** The stage id the stub npm answers, in the shape npm's API gives one. */
+const STAGE_ID = "f8e7a45b-7a5f-4f31-8e6d-9dd1c6ef38c0"
+
 const STUB_NPM = `
+const STAGE_ID = "${STAGE_ID}"
 const fs = require("node:fs")
 const args = process.argv.slice(2)
 fs.appendFileSync(process.env.STUB_LOG, JSON.stringify({ bin: "npm", args }) + "\\n")
@@ -177,10 +182,16 @@ if (args[0] === "view") {
   if (!(state.npm || []).includes(version)) fail("npm error code E404\\nnpm error 404 No match found for version " + version + "\\n")
   process.stdout.write(version + "\\n"); process.exit(0)
 }
-if (args[0] === "publish") {
-  if (state.publishFails) fail(state.publishFails)
+if (args[0] === "--version") { process.stdout.write((state.npmVersion || process.env.STUB_NPM_PIN) + "\\n"); process.exit(0) }
+if (args[0] === "stage" && args[1] === "publish") {
+  if (state.stageFails) fail(state.stageFails)
   const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"))
-  process.stdout.write("stub npm publish: would send " + pkg.name + "@" + pkg.version + " from " + process.cwd() + "\\n")
+  state.staged = state.staged || []
+  if (state.staged.includes(pkg.version) || (state.npm || []).includes(pkg.version))
+    fail("npm error code E409\\nnpm error 409 Conflict - POST https://registry.npmjs.org/-/stage/package/@emyann%2ftsverify - Cannot stage previously published version \\"" + pkg.version + "\\"\\n")
+  state.staged.push(pkg.version)
+  fs.writeFileSync(process.env.STUB_STATE, JSON.stringify(state))
+  process.stdout.write("+ " + pkg.name + "@" + pkg.version + " (staged with id " + STAGE_ID + ")\\n")
   process.exit(0)
 }
 fail("stub npm: no answer for " + args.join(" "), 9)
@@ -205,7 +216,9 @@ type State = {
   releases?: string[]
   createRefused?: boolean
   npm?: string[]
-  publishFails?: string
+  staged?: string[]
+  npmVersion?: string
+  stageFails?: string
 }
 type Call = { bin: "gh" | "npm"; args: string[]; stdin?: string }
 
@@ -242,6 +255,7 @@ const world = () => {
     GIT_COMMITTER_EMAIL: "t@t",
     STUB_LOG: path.join(dir, "calls.log"),
     STUB_STATE: path.join(dir, "state.json"),
+    STUB_NPM_PIN: NPM_PIN,
   }
   const git = (cwd: string, ...args: string[]): string => {
     const ran = spawnSync("git", args, { cwd, env, encoding: "utf8", timeout: 30_000 })
@@ -540,36 +554,81 @@ describe("release.ts pr, tag and publish, one release from its first labelled me
     return at
   }
 
-  it("publish: the tag's commit is sent to npm once, and a version npm has already is not sent again", () => {
+  /** The npm calls a run made whose args start with `words`. */
+  const npm = (calls: Call[], ...words: string[]) =>
+    calls.filter((c) => c.bin === "npm" && words.every((word, i) => c.args[i] === word)).map((c) => c.args)
+  /** A run of publish on `at`, with a scratch step summary: what it printed, and the summary GitHub would show. */
+  let summaries = 0
+  const publish = (at: string, ref = "refs/tags/v0.8.0") => {
+    const file = path.join(w.dir, `summary-${(summaries += 1)}.md`)
+    const ran = w.run("publish", { GITHUB_REF: ref, GITHUB_STEP_SUMMARY: file }, at)
+    const summary = readFileSync(file, { encoding: "utf8", flag: "a+" })
+    assert.deepEqual([...npm(ran.calls, "stage", "approve"), ...npm(ran.calls, "stage", "reject")], [], "approval is a maintainer's")
+    return { ...ran, summary }
+  }
+
+  it("publish: a tag stages its version, and prints the stage id and the approve line, in the log and the run's summary", () => {
     const at = publishIn("v0.8.0")
-    const s = w.now()
-    s.npm = ["0.7.0"]
-    w.state(s)
-    const ran = w.run("publish", { GITHUB_REF: "refs/tags/v0.8.0" }, at)
+    w.state({ ...w.now(), npm: ["0.7.0"], staged: [] })
+    const ran = publish(at)
     assert.equal(ran.status, 0, ran.out)
-    const publishes = ran.calls.filter((c) => c.bin === "npm" && c.args[0] === "publish")
-    assert.equal(publishes.length, 1)
-    assert.ok(ran.out.includes("would send @emyann/tsverify@0.8.0"), "the stub's account of what it would send reaches the log")
+    assert.equal(npm(ran.calls, "stage", "publish").length, 1)
+    assert.deepEqual(npm(ran.calls, "publish"), [], "never a direct publish")
+    assert.deepEqual(w.now().staged, ["0.8.0"])
+    for (const text of [ran.out, ran.summary]) {
+      assert.ok(text.includes(STAGE_ID), "names the stage id")
+      assert.ok(text.includes(`npm stage approve ${STAGE_ID}`), "names the approve command")
+      assert.ok(text.includes("https://www.npmjs.com/package/@emyann/tsverify"), "names the package's page on npmjs.com")
+    }
+  })
+
+  it("publish: a version staged already stages nothing again, and says how to find and approve it", () => {
+    const at = path.join(w.dir, "publish-v0.8.0")
+    const ran = publish(at)
+    assert.equal(ran.status, 0, ran.out)
+    assert.deepEqual(w.now().staged, ["0.8.0"], "staged once")
+    for (const text of [ran.out, ran.summary]) {
+      assert.ok(text.includes("npm stage list @emyann/tsverify"), "says how to find the id")
+      assert.ok(text.includes("npm stage approve"), "says how to approve it")
+      assert.ok(!text.includes(STAGE_ID), "invents no id")
+    }
+  })
+
+  it("publish: a version on npm already stages nothing, and the summary says nothing is left", () => {
+    const at = path.join(w.dir, "publish-v0.8.0")
     w.state({ ...w.now(), npm: ["0.7.0", "0.8.0"] })
-    const again = w.run("publish", { GITHUB_REF: "refs/tags/v0.8.0" }, at)
-    assert.equal(again.status, 0, again.out)
-    assert.equal(again.calls.filter((c) => c.bin === "npm" && c.args[0] === "publish").length, 0)
+    const ran = publish(at)
+    assert.equal(ran.status, 0, ran.out)
+    assert.deepEqual(npm(ran.calls, "stage"), [])
+    assert.ok(ran.summary.includes("0.8.0"), "the summary names the version")
+    assert.ok(!ran.summary.includes("npm stage approve"), "nothing to approve")
+  })
+
+  it("REFUSED: an npm that is not the pin, before anything is read or staged", () => {
+    const at = path.join(w.dir, "publish-v0.8.0")
+    w.state({ ...w.now(), npm: ["0.7.0"], staged: [], npmVersion: "11.13.0" })
+    const ran = publish(at)
+    assert.equal(ran.status, 1)
+    assert.deepEqual(npm(ran.calls, "stage"), [])
+    assert.deepEqual(npm(ran.calls, "view"), [])
+    assert.ok(ran.out.includes("11.13.0") && ran.out.includes(NPM_PIN), "names both versions")
+    w.state({ ...w.now(), npmVersion: undefined })
   })
 
   it("REFUSED: publish of a ref that is no release tag, or a tag that disagrees with package.json", () => {
-    w.state({ ...w.now(), npm: [] })
+    w.state({ ...w.now(), npm: [], staged: [] })
     const at = publishIn("main")
     for (const ref of ["refs/heads/main", "refs/tags/v0.9.0"]) {
-      const ran = w.run("publish", { GITHUB_REF: ref }, at)
+      const ran = publish(at, ref)
       assert.equal(ran.status, 1, ref)
-      assert.equal(ran.calls.filter((c) => c.bin === "npm" && c.args[0] === "publish").length, 0)
+      assert.deepEqual(npm(ran.calls, "stage"), [])
     }
     w.git(w.seed, "tag", "-a", "v0.9.0", "-m", "tsverify 0.9.0")
     w.git(w.seed, "push", "--quiet", "origin", "v0.9.0")
     const wrong = publishIn("v0.9.0")
-    const ran = w.run("publish", { GITHUB_REF: "refs/tags/v0.9.0" }, wrong)
+    const ran = publish(wrong, "refs/tags/v0.9.0")
     assert.equal(ran.status, 1)
-    assert.equal(ran.calls.filter((c) => c.bin === "npm" && c.args[0] === "publish").length, 0)
+    assert.deepEqual(npm(ran.calls, "stage"), [])
   })
 
   it("REFUSED: publish of a tag whose commit is not on main", () => {
@@ -583,19 +642,19 @@ describe("release.ts pr, tag and publish, one release from its first labelled me
     w.git(off, "tag", "-a", "v0.8.1", "-m", "tsverify 0.8.1")
     w.git(off, "push", "--quiet", "origin", "v0.8.1")
     const at = publishIn("v0.8.1")
-    const ran = w.run("publish", { GITHUB_REF: "refs/tags/v0.8.1" }, at)
+    const ran = publish(at, "refs/tags/v0.8.1")
     assert.equal(ran.status, 1)
-    assert.equal(ran.calls.filter((c) => c.bin === "npm" && c.args[0] === "publish").length, 0)
+    assert.deepEqual(npm(ran.calls, "stage"), [])
   })
 
-  it("REFUSED: a publish npm will not authenticate, naming where the trusted publisher is configured", () => {
+  it("REFUSED: a stage npm will not authenticate, naming where the trusted publisher is configured", () => {
     const at = path.join(w.dir, "publish-v0.8.0")
     for (const failure of [
       "npm error code ENEEDAUTH\nnpm error need auth\n",
-      "npm error code E404\nnpm error 404 Not Found - PUT https://registry.npmjs.org/@emyann%2ftsverify\n",
+      "npm error code E404\nnpm error 404 Not Found - POST https://registry.npmjs.org/-/stage/package/@emyann%2ftsverify\n",
     ]) {
-      w.state({ ...w.now(), npm: [], publishFails: failure })
-      const ran = w.run("publish", { GITHUB_REF: "refs/tags/v0.8.0" }, at)
+      w.state({ ...w.now(), npm: [], staged: [], stageFails: failure })
+      const ran = publish(at)
       assert.equal(ran.status, 1)
       for (const fact of ["https://www.npmjs.com/package/@emyann/tsverify/access", "publish.yml", "emyann", "tsverify", "v0.8.0"])
         assert.ok(ran.out.includes(fact), `names ${fact}`)
@@ -603,12 +662,23 @@ describe("release.ts pr, tag and publish, one release from its first labelled me
     }
   })
 
-  it("REFUSED: a publish that fails for another reason is not read as the trusted publisher missing", () => {
+  it("REFUSED: a stage the trusted publisher may not make, naming where to remake it and the box to leave unticked", () => {
     const at = path.join(w.dir, "publish-v0.8.0")
-    w.state({ ...w.now(), npm: [], publishFails: "npm error code E500\nnpm error 500 Internal Server Error\n" })
-    const ran = w.run("publish", { GITHUB_REF: "refs/tags/v0.8.0" }, at)
+    w.state({ ...w.now(), npm: [], staged: [], stageFails: "npm error code E403\nnpm error 403 Forbidden - POST https://registry.npmjs.org/-/stage/package/@emyann%2ftsverify\n" })
+    const ran = publish(at)
     assert.equal(ran.status, 1)
-    assert.ok(!ran.out.includes("/access"))
+    assert.ok(ran.out.includes("https://www.npmjs.com/package/@emyann/tsverify/access"), "names where it is configured")
+    assert.ok(ran.out.includes("Allow npm publish"), "names the box")
+  })
+
+  it("REFUSED: a stage that fails for another reason, another 409 too, is read neither as staged nor as the trusted publisher", () => {
+    const at = path.join(w.dir, "publish-v0.8.0")
+    for (const failure of ["npm error code E500\nnpm error 500 Internal Server Error\n", "npm error code E409\nnpm error 409 Conflict - something else\n"]) {
+      w.state({ ...w.now(), npm: [], staged: [], stageFails: failure })
+      const ran = publish(at)
+      assert.equal(ran.status, 1, failure)
+      assert.ok(!ran.out.includes("/access"))
+    }
   })
 })
 
@@ -646,19 +716,20 @@ describe("release.ts pr refusals", () => {
 describe("the release workflows", () => {
   const yml = (file: string) => read(path.join(".github", file))
 
-  it("publish.yml: OIDC, the pinned Node and npm, and no token", () => {
+  it("publish.yml: OIDC, the pinned Node and npm, and no token and no approval", () => {
     const publish = yml("workflows/publish.yml")
     assert.match(publish, /id-token: write/)
     assert.match(publish, /node-version: '24\.16\.0'/)
-    assert.match(publish, /11\.13\.0/)
+    assert.ok(publish.includes(`npm install --global npm@${NPM_PIN}\n`), "installs the npm the tool pins")
     assert.match(publish, /https:\/\/docs\.npmjs\.com\/trusted-publishers/)
+    assert.match(publish, /https:\/\/docs\.npmjs\.com\/staged-publishing/)
     assert.match(publish, /node tools\/release\.ts publish/)
     const code = publish
       .split("\n")
       .filter((line) => !/^\s*#/.test(line))
       .join("\n")
     assert.match(code, /id-token: write/, "the permission is in the YAML, not only in the header")
-    assert.doesNotMatch(code, /NPM_TOKEN|NODE_AUTH_TOKEN:|--provenance|secrets\./)
+    assert.doesNotMatch(code, /NPM_TOKEN|NODE_AUTH_TOKEN:|--provenance|secrets\.|stage approve|11\.13\.0/)
   })
 
   it("release.yml: labels, tag, pr, one group never cancelled", () => {
