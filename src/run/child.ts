@@ -30,6 +30,8 @@ const SPEC_EXPORT = "__tsverifySpec"
 
 /** The most draws a run makes for each input it runs: past that, `requires` refuses too much and the run stops. */
 const DRAWS_PER_INPUT = 10
+/** The inputs `requires` met at which each law is asked whether a free result breaks it. */
+const SAYS_INPUTS = 100
 
 type Predicate = (run: unknown) => unknown
 type Fn = (...args: Array<unknown>) => unknown
@@ -194,30 +196,13 @@ export const runPlan = async (plan: RunPlan): Promise<Answer> => {
     preds.push(p)
   }
 
-  /** One input: refused by `requires`, thrown on, or the laws it breaks (by index) and the free results that break one. */
-  const runOn = (
-    d: Drawn,
-  ):
-    | "refused"
-    | "threw"
-    | { readonly threw: true; readonly says: ReadonlyArray<number> }
-    | { readonly broken: ReadonlyArray<number>; readonly says: ReadonlyArray<number> } => {
+  /** One input: refused by `requires`, met by it and thrown on, or the laws it breaks (by index). */
+  const runOn = (d: Drawn): "refused" | "threw" | "met, threw" | { readonly broken: ReadonlyArray<number> } => {
     try {
       if (requires !== undefined && !requires({ input: d.args })) return "refused"
     } catch {
       return "threw"
     }
-    // Whether a law says something is a question of the spec alone: asked before the code runs, so an input on which the
-    // code throws still counts.
-    const says: Array<number> = []
-    preds.forEach((p, i) => {
-      if (plan.laws[i]!.output === undefined) return
-      try {
-        if (!p({ input: d.args, output: d.free[i] })) says.push(i)
-      } catch {
-        // A law that throws on a free result says nothing there.
-      }
-    })
     const broken: Array<number> = []
     try {
       const output = fn(...d.args)
@@ -225,17 +210,15 @@ export const runPlan = async (plan: RunPlan): Promise<Answer> => {
         if (!p({ input: d.args, output })) broken.push(i)
       })
     } catch {
-      return { threw: true, says }
+      return "met, threw"
     }
-    return { broken, says }
+    return { broken }
   }
 
-  const draws = drawsOf(
-    plan.params,
-    plan.laws.map((l) => l.output),
-    plan.pool,
-    plan.bound,
-  )
+  // The arguments alone: a free result for every law at every draw would cost most of a run where results are large.
+  const draws = drawsOf(plan.params, [], plan.pool, plan.bound)
+  /** The first inputs `requires` met, the code thrown on or not: those whether a law says something is asked at. */
+  const met: Array<Array<unknown>> = []
   let inputs = 0
   let discarded = 0
   let threw = 0
@@ -252,13 +235,13 @@ export const runPlan = async (plan: RunPlan): Promise<Answer> => {
         const r = runOn(d)
         if (r === "refused") discarded++
         else if (r === "threw") threw++
-        else if ("threw" in r) {
-          threw++
-          for (const i of r.says) says.add(i)
-        } else {
-          inputs++
-          for (const i of r.broken) if (!firstBroken.has(i)) firstBroken.set(i, at)
-          for (const i of r.says) says.add(i)
+        else {
+          if (met.length < SAYS_INPUTS) met.push(d.args)
+          if (r === "met, threw") threw++
+          else {
+            inputs++
+            for (const i of r.broken) if (!firstBroken.has(i)) firstBroken.set(i, at)
+          }
         }
         return true
       }),
@@ -267,6 +250,24 @@ export const runPlan = async (plan: RunPlan): Promise<Answer> => {
   } catch (e) {
     return notRun(`the run failed: ${firstLine(e)}`)
   }
+
+  // Whether a law says something is a question of the spec alone: at each input `requires` met, the code thrown on
+  // or not, a free result of the law's type drawn from the seed, until one breaks it.
+  plan.laws.forEach((l, i) => {
+    if (l.output === undefined || met.length === 0) return
+    const results = fc.sample(drawsOf([], [l.output], plan.pool, plan.bound), { seed: plan.seed + i + 1, numRuns: met.length })
+    if (
+      met.some((args, k) => {
+        try {
+          return !preds[i]!({ input: args, output: results[k]!.free[0] })
+        } catch {
+          // A law that throws on a free result says nothing there.
+          return false
+        }
+      })
+    )
+      says.add(i)
+  })
 
   // Each law broken: its first counterexample shrunk, replayed from where it was drawn. Where `requires` refuses or
   // anything throws, the law is not broken: only a real counterexample is kept.
