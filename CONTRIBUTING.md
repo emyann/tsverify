@@ -89,7 +89,7 @@ opens a pull request titled `Release x.y.z`, from the branch `release` into `mai
   prototype: version x.y.z".
 - Its body is the notes GitHub will generate for the release, by the categories of `.github/release.yml`.
 - It is rebuilt from `main` whenever `main` moves, and `release` is force-pushed: push nothing to it by hand.
-- It is closed when nothing left to release remains.
+- It is closed once nothing is left to release.
 
 A pull request opened with the workflow's token starts no workflow. So `release.yml` dispatches `ci.yml` and
 `release-label.yml` on the release head, and each posts its verdict there as the commit status `main` requires. Merge the
