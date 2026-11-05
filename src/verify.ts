@@ -966,14 +966,14 @@ export const judge = async (
   // Every law proved is checked against the search side, all in one query. One proved through an obligation the sides
   // disagree on is no proof: it is broken on the search side, or bounded.
   const provedLaws = laws.flatMap((l, k) => (l.status === "proved" || l.status === "vacuous" ? [k] : []))
-  const { found: failing, unsettled: unchecked0 } = await contradicted(
+  const { found: failing, unsettled: crossUnchecked } = await contradicted(
     search,
     provedLaws.map((k) => ({ key: String(k), broken: z3.And(searchRuns, z3.Not(searchable.get(laws[k]!.name)!)) })),
     opts,
     undefined,
     ledger,
   )
-  for (const [key, end] of unchecked0) notes[Number(key)]!.push(unansweredOf("cross-check", end, "search"))
+  for (const [key, end] of crossUnchecked) notes[Number(key)]!.push(unansweredOf("cross-check", end, "search"))
   const shaken = obligations.some((o) => o.status === "inconsistent")
   for (const k of provedLaws) {
     const l = laws[k]!
