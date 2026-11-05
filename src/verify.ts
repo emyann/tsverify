@@ -931,6 +931,8 @@ export const judge = async (
   let specSide: Lowered | undefined | null = null
   const spec = (): Lowered | undefined => (specSide === null ? (specSide = lowerSpecSide(z3, project, source, trust)) : specSide)
   const inputs = ran?.ran.ran === true ? ran.ran.inputs : 0
+  /** The laws proved, each asked whether it says anything once every proof is decided. */
+  const saysLater: Array<{ readonly k: number; readonly law: Law; readonly own: Ledger; readonly unsettled: Array<Unanswered> }> = []
   for (const r0 of read) {
     const { law } = r0
     if (opts.only !== undefined && !opts.only.includes(law.name)) continue
@@ -976,23 +978,9 @@ export const judge = async (
         : `proved only of the inputs that run no loop longer: ${truncated}; no counterexample with arrays of at most ${bound} elements`)
     let r: Omit<LawResult, "name" | "ms">
     if (proved.status === "unsat" && untrusted === undefined) {
-      // A proof of a law no result could break is a proof of nothing about the function. It is a question of the spec
-      // alone: a run that found a free result breaking it settles it; else the proof side is asked, of the spec alone.
-      const byRun = source.kind !== "lemma" && ran?.saysSomething.includes(law.name) === true
-      if (byRun) own.add("says-anything", undefined, "answered", 0, inputs, "run")
-      const side = source.kind === "lemma" || byRun ? undefined : spec()
-      const onAny = side === undefined ? undefined : lawOnAnyResult(side, law)
-      const breakable =
-        side === undefined || onAny === undefined
-          ? undefined
-          : await solve(side, [side.pre, z3.Not(onAny)], tenth, undefined, ask("says-anything", "proof"))
-      const says = saysAnything(byRun, endedAs(breakable))
-      if (says.unanswered !== undefined) unsettled.push(says.unanswered)
-      r = says.vacuous
-        ? { status: "vacuous", reason: "no result breaks it, whatever the function returns: it says nothing of the function" }
-        : byOpaque
-          ? { status: "proved", reason: OPAQUE }
-          : { status: "proved" }
+      // Whether it says anything is asked once every law's proof is decided (`saysLater`).
+      saysLater.push({ k: laws.length, law, own, unsettled })
+      r = byOpaque ? { status: "proved", reason: OPAQUE } : { status: "proved" }
     } else if (proved.status === "sat" && !proof.u.abstracted) r = { status: "counterexample", ...proved.witness }
     else {
       const found = await solve(search, [search.pre, searchRuns, z3.Not(onSearch)], opts, undefined, ask("search", "search"))
@@ -1014,6 +1002,32 @@ export const judge = async (
     notes.push(unsettled)
     searchable.set(law.name, onSearch)
     opts.progress?.(`law ${law.name}: ${r.status} (${Math.round(performance.now() - started)} ms)`)
+  }
+
+  // A proof of a law no result could break is a proof of nothing about the function. It is a question of the spec alone:
+  // a run that found a free result breaking it settles it; else the proof side is asked, of the spec alone. Asked after
+  // every proof, as its capped queries, asked between them, would change what Z3 does with the next law's proof.
+  for (const { k, law, own, unsettled } of saysLater) {
+    const started = performance.now()
+    const byRun = source.kind !== "lemma" && ran?.saysSomething.includes(law.name) === true
+    if (byRun) own.add("says-anything", undefined, "answered", 0, inputs, "run")
+    const side = source.kind === "lemma" || byRun ? undefined : spec()
+    const onAny = side === undefined ? undefined : lawOnAnyResult(side, law)
+    const breakable =
+      side === undefined || onAny === undefined
+        ? undefined
+        : await solve(side, [side.pre, z3.Not(onAny)], tenth, undefined, { ledger: own, question: "says-anything", side: "proof" })
+    const says = saysAnything(byRun, endedAs(breakable))
+    if (says.unanswered !== undefined) unsettled.push(says.unanswered)
+    const l = laws[k]!
+    laws[k] = {
+      ...l,
+      ...(says.vacuous
+        ? { status: "vacuous", reason: "no result breaks it, whatever the function returns: it says nothing of the function" }
+        : {}),
+      ms: l.ms + performance.now() - started,
+    }
+    if (says.vacuous) opts.progress?.(`law ${law.name}: vacuous`)
   }
 
   // A law broken at an input where no result keeps every law is broken by the spec, not the code: asked on the proof side,
