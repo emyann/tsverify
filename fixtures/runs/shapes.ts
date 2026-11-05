@@ -9,6 +9,7 @@ export type Order = { readonly id: Id; readonly lines: ReadonlyArray<{ qty: numb
 export type When = Date
 export type Anything = unknown
 export type Loose = any
+export type Some = object
 export type Schema = { readonly type: "object"; readonly required: ReadonlyArray<string>; readonly [key: string]: unknown }
 export class Account {
   readonly balance = 0

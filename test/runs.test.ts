@@ -211,6 +211,8 @@ it("each type's shape: brands as their primitive, a library's mapped type as the
     of: [{ kind: "undefined" }, { kind: "null" }, { kind: "boolean" }, { kind: "number" }, { kind: "string" }],
   }
   assert.deepEqual(shape("Anything"), primitives)
+  // `object`: an empty one is a value of it.
+  assert.deepEqual(shape("Some"), { kind: "record", fields: {}, optional: [] })
   // Fields beside keys of its own: the fields alone, a value of the type with no other key.
   assert.deepEqual(shape("Schema"), {
     kind: "record",

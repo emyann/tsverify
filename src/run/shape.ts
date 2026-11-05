@@ -87,6 +87,8 @@ export const shapeOf = (checker: ts.TypeChecker, type: ts.Type, depth = 0): Shap
     const primitive = type.types.find((t) => t.flags & (F.StringLike | F.NumberLike | F.BigIntLike | F.BooleanLike))
     if (primitive !== undefined) return shapeOf(checker, primitive, depth)
   }
+  // `object`: an empty one is a value of it.
+  if (f & F.NonPrimitive) return { kind: "record", fields: {}, optional: [] }
   if (!(f & F.Object) && !type.isIntersection()) return refuse("no value a run makes")
   if (depth >= MAX_DEPTH) throw new TooDeep(`\`${text()}\` is not generated: it nests itself too deep`)
   const inner = (t: ts.Type) => shapeOf(checker, t, depth + 1)
