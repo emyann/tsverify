@@ -1,0 +1,110 @@
+# tsverify's releases: a pull request this workflow keeps open, and the tag and GitHub release its merge makes, which then dispatches
+# publish.yml (CONTRIBUTING.md, "Releasing"). Each job runs one verb of tools/release.ts, which decides from the tags, main, the release
+# branch, the merged pull requests and the release pull request as they are, so a rerun with nothing new does nothing.
+# test/release.test.ts holds this file.
+name: release
+
+# Every landing on main, and by hand (gh workflow run release.yml) after a pull request's label is changed. The trigger that would run a
+# fork's code against a writable token is named nowhere here.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# The token reads the code and no more; each job grants itself the writes it makes.
+permissions:
+  contents: read
+
+# Every job and every step that reaches the network (an action, or the tool's git, gh and npm, each call bounded at 2 minutes) carries a
+# timeout-minutes of its own, under its job's. labels, tag and pr share the concurrency group release and are never cancelled: two runs
+# never write the labels, the tag or the release branch at once, and a run waiting behind another is the newer one. tag runs before pr,
+# so a release's merge is tagged before pr looks for what merged since the last release.
+#
+# A tag, a release or a pull request made with this job's token starts no workflow. So tag dispatches publish.yml on the tag it made,
+# and pr dispatches ci.yml and release-label.yml on the release head; each dispatched run posts its verdict as the commit status of its
+# name, which is what main's required checks read on that head.
+jobs:
+  labels:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    concurrency:
+      group: release
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v7
+        timeout-minutes: 3
+      - uses: actions/setup-node@v7
+        timeout-minutes: 3
+        with:
+          node-version: '24.16.0'
+      - name: Make the release labels
+        timeout-minutes: 3
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: node tools/release.ts labels
+
+  tag:
+    needs: [labels]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      # contents: write pushes the tag and makes the release; actions: write dispatches publish.yml.
+      contents: write
+      actions: write
+    concurrency:
+      group: release
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v7
+        timeout-minutes: 5
+        with:
+          # The whole history and its tags: the commit that set the version is found on main's first parents, and the previous release
+          # among the tags.
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        timeout-minutes: 3
+        with:
+          node-version: '24.16.0'
+      - name: Tag and release the version main names, and dispatch its publish
+        timeout-minutes: 5
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: node tools/release.ts tag
+
+  pr:
+    needs: [tag]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      # actions: write dispatches ci.yml and release-label.yml on the release head, and statuses: write marks both pending there.
+      actions: write
+      contents: write
+      pull-requests: write
+      statuses: write
+    concurrency:
+      group: release
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v7
+        timeout-minutes: 5
+        with:
+          # The whole history and its tags: the range since the last release, and the release branch rebuilt on main and force-pushed,
+          # the one branch this workflow pushes, with the token checkout keeps for git.
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        timeout-minutes: 3
+        with:
+          node-version: '24.16.0'
+      - name: Keep the release pull request as main is
+        # Opening the pull request with this token needs the repository's "Allow GitHub Actions to create and approve pull requests";
+        # without it the step fails naming that setting.
+        timeout-minutes: 10
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: node tools/release.ts pr
