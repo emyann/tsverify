@@ -102,11 +102,16 @@ export const contractKey = (project: Project, file: string, name: string, opts: 
   return h.digest("hex")
 }
 
-/** Whether the solver ran out of work anywhere in `v`: such a verdict is not kept. */
+/**
+ * Whether the solver left a verdict of `v` unknown, or a question of it stopped on the clock (`STUCK_MS`), which is not
+ * the same on every run: such a verdict is not kept. A question stopped at the work limit is, as it stops at the same
+ * step on every run.
+ */
 const unfinished = (v: Verification): boolean =>
   v.laws.some((l) => l.status === "unknown") ||
   v.cover.some((c) => c.status === "unknown") ||
-  v.obligations.some((o) => o.status === "unknown")
+  v.obligations.some((o) => o.status === "unknown") ||
+  [...(v.asked ?? []), ...v.laws.flatMap((l) => l.asked ?? [])].some((a) => a.end === "out of time")
 
 /**
  * Verdicts kept in `dir`, a file each, under the hash of the verifier's identity and the contract's key. Writing a file

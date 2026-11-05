@@ -143,3 +143,19 @@ export class Ledger {
     }))
   }
 }
+
+/** What each question's verdict takes of it when it ends without an answer, in a report's words. */
+const TAKEN: Readonly<Record<Exclude<Question, "says-anything" | "proof" | "search" | "cover" | "obligation">, string>> = {
+  unmeetable:
+    "whether some result keeps every law at this input was not settled (END, at a tenth of `--work`): read as the code's counterexample",
+  "cross-check": "not checked against the search side (END): proved on the proof side alone",
+  undecided: "whether the laws decide every input was not settled (END): read as deciding it",
+}
+
+/** A question that ended `end` without an answer, as a note on its law or contract; `what` names what it was asked of. */
+export const unansweredOf = (question: keyof typeof TAKEN, end: End, side?: Side, what?: string): Unanswered => ({
+  question,
+  ...(side === undefined ? {} : { side }),
+  end,
+  reason: `${what === undefined ? "" : `${what}: `}${TAKEN[question].replace("END", end)}`,
+})

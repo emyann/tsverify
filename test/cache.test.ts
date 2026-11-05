@@ -228,4 +228,26 @@ describe("a folder of answers", () => {
       rmSync(answers, { recursive: true, force: true })
     }
   })
+
+  it("keeps a verdict a question of which stopped at the work limit, and none one stopped on the clock", () => {
+    const answers = mkdtempSync(path.join(tmpdir(), "tsverify-verdicts-"))
+    try {
+      const cache = verdictsIn(answers)
+      const law = (end: "out of work" | "out of time") => ({
+        name: "l",
+        status: "proved" as const,
+        ms: 1,
+        asked: [{ question: "says-anything" as const, side: "proof" as const, end, queries: 1, ms: 1 }],
+      })
+      // The work limit stops a query at the same step on every run: kept.
+      cache.set("work", verdict({ laws: [law("out of work")] }))
+      assert.deepEqual(cache.get("work"), verdict({ laws: [law("out of work")] }))
+      // The clock stops it where the machine is: asked again. On a contract's own question too.
+      cache.set("time", verdict({ laws: [law("out of time")] }))
+      cache.set("contract", verdict({ asked: [{ question: "undecided", side: "search", end: "out of time", queries: 1, ms: 1 }] }))
+      for (const key of ["time", "contract"]) assert.equal(cache.get(key), undefined, key)
+    } finally {
+      rmSync(answers, { recursive: true, force: true })
+    }
+  })
 })

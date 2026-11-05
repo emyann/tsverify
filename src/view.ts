@@ -1,6 +1,7 @@
 // The command's report, drawn with Ink: each file, then each of its contracts, a line for one whose laws all hold, and
 // under one with something to look at, those laws and that proof code, each with why. A run of one file, `--verbose` and
-// one contract named list every law. In a terminal it is drawn live, what is done fixed above a line for what is being
+// one contract named list every law. A law a question of which ended without an answer is listed too, with a note
+// that says which: a lower `--work` hides nothing. In a terminal it is drawn live, what is done fixed above a line for what is being
 // verified, each line wrapped to the window between its words, under its own first word. Piped, it is the same text,
 // wrapped nowhere, in colour only when `FORCE_COLOR` asks. The command loads this file only for text: `--json` never
 // loads Ink.
@@ -9,6 +10,7 @@ import { Box, render, renderToString, Static, type StaticProps, Text, useAnimati
 import { createElement as h, type ReactNode } from "react"
 import type { Trusted } from "./trust.ts"
 import { MODELS } from "./exec.ts"
+import type { Unanswered } from "./asked.ts"
 import type { LawResult, LawStatus, ObligationResult, Undecided, Verification } from "./verify.ts"
 
 /** Whether to colour: Node's own answer for stdout, which reads `NO_COLOR`, `FORCE_COLOR` and whether it is a terminal. */
@@ -156,7 +158,14 @@ const law =
       ...witness(l),
       ...(l.abstract === undefined ? [] : leaning(l.abstract, specs)),
       ...(l.reason === undefined ? [] : [line(l.reason)]),
+      ...unanswered(l.unanswered),
     )
+
+/** A question that ended without an answer, a line each: what was not settled, and what the verdict took of it. */
+const unanswered = (ns: ReadonlyArray<Unanswered> | undefined): Array<ReactNode> => (ns ?? []).map((n) => line([DIM, n.reason]))
+
+/** How many questions of a contract ended without an answer: its laws' and its own. */
+const unansweredIn = (v: Verification): number => v.laws.reduce((n, l) => n + (l.unanswered?.length ?? 0), 0) + (v.unanswered?.length ?? 0)
 
 /** Where the laws leave a result open: the part, the two results both kept by every law, the input, and what to do. */
 const undecided = (u: Undecided): ReactNode =>
@@ -257,7 +266,10 @@ export interface Shape {
   readonly width: number
 }
 
-/** A contract's summary: its laws, or how many of each verdict; then its obligations'; then, kept short, what it trusts. */
+/**
+ * A contract's summary: its laws, or how many of each verdict; then its obligations'; then how many of its questions ended
+ * without an answer; then, kept short, what it trusts.
+ */
 const summary = (v: Verification, trusts: boolean): Array<Piece> => {
   const counts = (xs: ReadonlyArray<LawStatus>): Array<Piece> =>
     tally(xs).map(([s, n], i, all) => [VERDICTS[s].style, `${n} ${s}${i < all.length - 1 ? "," : ""}`] as const)
@@ -268,6 +280,7 @@ const summary = (v: Verification, trusts: boolean): Array<Piece> => {
     ...(obligations.length === 0
       ? []
       : [obligations.every((s) => s === "proved") ? [plural(obligations.length, "obligation")] : ["obligations", ...counts(obligations)]]),
+    ...(unansweredIn(v) === 0 ? [] : [[`${unansweredIn(v)} unanswered`]]),
     ...(trusts && v.trusted.some((t) => t.spec === undefined)
       ? [
           [
@@ -294,6 +307,8 @@ export const contract = ({ v, ms }: Verified, { every, full, width }: Shape): Re
   if (v.unsupported !== undefined)
     return marked("unsupported", line(name, "", [VERDICTS.unsupported.style, "not verified"]), line(v.unsupported))
   const shown = (s: LawStatus) => every || s !== "proved"
+  // A law whose question ended without an answer is listed, proved or not: a lower `--work` hides nothing.
+  const listed = (l: LawResult) => shown(l.status) || l.unanswered !== undefined
   return marked(
     worst([
       ...v.laws.map((l) => l.status),
@@ -301,8 +316,9 @@ export const contract = ({ v, ms }: Verified, { every, full, width }: Shape): Re
       ...(v.undecided === undefined ? [] : ["undecided" as const]),
     ]),
     line(name, "", ...summary(v, !every), "", [DIM, `(${Math.round(ms)} ms)`]),
-    ...v.laws.filter((l) => shown(l.status)).map(law(new Map(v.trusted.flatMap((t) => (t.spec === undefined ? [] : [[t.name, t.spec]]))))),
+    ...v.laws.filter(listed).map(law(new Map(v.trusted.flatMap((t) => (t.spec === undefined ? [] : [[t.name, t.spec]]))))),
     ...(v.undecided === undefined ? [] : [undecided(v.undecided)]),
+    ...unanswered(v.unanswered),
     ...proofCode(v.obligations.filter((o) => shown(o.status))),
     ...(every ? trusted(v.trusted, full) : []),
     ...(full && v.cover.length > 0
@@ -312,7 +328,10 @@ export const contract = ({ v, ms }: Verified, { every, full, width }: Shape): Re
   )
 }
 
-/** The last lines: what needs a look, by verdict, then what was proved, then how much was verified and how long it took. */
+/**
+ * The last lines: what needs a look, by verdict; then what was proved, and how many questions ended without an answer;
+ * then how much was verified and how long it took.
+ */
 const totals = (all: ReadonlyArray<Verification>, files: number, seconds: number): ReactNode => {
   const laws = all.flatMap((v) => v.laws.map((l) => l.status))
   const obligations = all.flatMap((v) => v.obligations.map((o) => o.status))
@@ -337,11 +356,14 @@ const totals = (all: ReadonlyArray<Verification>, files: number, seconds: number
     [obligations.filter((s) => s === "proved").length, "obligation"],
   ] as const
   const held = proved.filter(([n]) => n > 0).map(([n, word]) => plural(n, word))
+  const unsettled = all.reduce((n, v) => n + unansweredIn(v), 0)
+  const notes: Array<Piece> = unsettled === 0 ? [] : [[DIM, `${held.length === 0 ? "" : "· "}${plural(unsettled, "question")} unanswered`]]
   return h(
     Box,
     { flexDirection: "column", marginTop: 1 },
     ...(look.length === 0 ? [] : [line(...look.flatMap((pieces, i) => (i === 0 ? pieces : [[DIM, "·"] as const, ...pieces])))]),
-    ...(held.length === 0 ? [] : [marked("proved", line(`${held.join(", ")} proved`))]),
+    ...(held.length === 0 ? [] : [marked("proved", line(`${held.join(", ")} proved`, ...notes))]),
+    ...(held.length === 0 && notes.length > 0 ? [h(Box, { paddingLeft: 2 }, line(...notes))] : []),
     h(Box, { paddingLeft: 2 }, line([DIM, `${plural(all.length, "contract")} in ${plural(files, "file")} · ${seconds.toFixed(1)} s`])),
   )
 }

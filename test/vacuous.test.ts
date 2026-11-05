@@ -51,3 +51,28 @@ it("each law says the time of each question asked of it, by side and by how it e
   const parts = [...v.laws.flatMap((l) => l.asked ?? []), ...(v.asked ?? [])].reduce((n, a) => n + a.ms, 0)
   assert.ok(v.ms !== undefined && v.ms >= parts, `${v.ms} < ${parts}`)
 })
+
+/**
+ * A work at which `zeroOnlyAtZero` is proved and its check of saying something, asked at a tenth of it, runs out on both
+ * sides. Found by sweeping `--work` with z3-solver 5.3.2: the check runs out at 150 and answers at 175, and the proof
+ * answers at 20. So at 800 the check, at 80, runs out; asked at the whole 800, it would answer. A z3-solver upgrade may
+ * move both, and this is picked again the same way.
+ */
+const PINNED_WORK = 800
+
+it("the check that a law says something is asked at a tenth of the work: one it cannot settle leaves the law proved, and says so", async () => {
+  const v = await verify(z3, project, spec, "signed", { work: PINNED_WORK })
+  const law = v.laws.find((l) => l.name === "zeroOnlyAtZero")!
+  assert.equal(law.status, "proved")
+  assert.deepEqual(
+    law.unanswered?.map(({ question, side, end }) => ({ question, side, end })),
+    [{ question: "says-anything", side: undefined, end: "out of work" }],
+  )
+  // The laws that say nothing are settled at that tenth too, and stay vacuous.
+  assert.deepEqual(
+    v.laws.map((l) => l.status),
+    ["proved", "vacuous", "vacuous"],
+  )
+  // At the default work every check answers: no note.
+  assert.equal((await verify(z3, project, spec, "signed")).laws.find((l) => l.name === "zeroOnlyAtZero")!.unanswered, undefined)
+})
