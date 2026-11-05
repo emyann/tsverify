@@ -55,3 +55,70 @@ installed one.
 and asks the installed command what the source answers on the same files: the same verdicts. It also checks that the
 tarball holds nothing but the build and the packs, and that a planted bug's counterexample breaks the installed code when
 it runs. It needs `npm` and, when the npm cache lacks a dependency, the network.
+
+## Releasing
+
+Nobody cuts a release by hand. Three workflows do it, each running one verb of `tools/release.ts`, the repository's own
+tool (never shipped, tested by `test/release.test.ts`):
+
+- `release.yml` runs on every push to `main`. It makes the release labels, tags a release that has just merged, and keeps
+  the release pull request open.
+- `release-label.yml` checks every pull request into `main`.
+- `publish.yml` publishes a release tag to npm.
+
+### The labels
+
+Every pull request into `main` carries exactly one release label, and `release-label` fails until it does. The labels are
+made by `release.yml`, never by hand.
+
+| Label      | Releases                                      |
+| ---------- | --------------------------------------------- |
+| `breaking` | a major version, but a minor while 0.x        |
+| `feature`  | a minor version                               |
+| `fix`      | a patch                                       |
+| `docs`     | a patch                                       |
+| `internal` | nothing, and it is left out of the notes      |
+
+### The release pull request
+
+Once a pull request labelled `breaking`, `feature`, `fix` or `docs` has merged since the newest `v*` tag, `release.yml`
+opens a pull request titled `Release x.y.z`, from the branch `release` into `main`.
+
+- Its version is the highest bump among the labels merged since that tag.
+- It moves the version where a release always has: `package.json`, `package-lock.json` (twice), and the README's line "A
+  prototype: version x.y.z".
+- Its body is the notes GitHub will generate for the release, by the categories of `.github/release.yml`.
+- It is rebuilt from `main` whenever `main` moves, and `release` is force-pushed: push nothing to it by hand.
+- It is closed when nothing left to release remains.
+
+A pull request opened with the workflow's token starts no workflow. So `release.yml` dispatches `ci.yml` and
+`release-label.yml` on the release head, and each posts its verdict there as the commit status `main` requires. Merge the
+pull request once `ci` and `release-label` are green. If one is missing or failed, run `gh workflow run release.yml`.
+
+### What the merge does
+
+The merge's push to `main` runs `release.yml` again. Its `tag` job:
+
+1. tags the merge commit `vX.Y.Z`, annotated, with the message `tsverify X.Y.Z`;
+2. makes the GitHub release with generated notes;
+3. dispatches `publish.yml` on the tag.
+
+`publish.yml` checks that the tag names the version `package.json` names and is a commit of `main`. It then runs `npm
+publish`, which builds `dist/` through `prepack`. It authenticates as npm's trusted publisher, by GitHub's OIDC token, with
+no npm token stored anywhere. A version already on npm is not sent again, so re-running the workflow on a tag is always
+safe: `gh workflow run publish.yml --ref vX.Y.Z`. A `v*` tag a person pushes starts it too.
+
+Every step decides from the repository as it is: a rerun with nothing new does nothing. The three jobs of `release.yml`
+share one concurrency group, so two runs never write the labels, the tag or the release branch at once.
+
+### One-time steps for the owner
+
+- **npm's trusted publisher.** At <https://www.npmjs.com/package/@emyann/tsverify/access>, under Trusted Publisher, choose
+  GitHub Actions and enter: user `emyann`, repository `tsverify`, workflow filename `publish.yml`, environment left empty.
+  Until then, `publish.yml` fails saying so, and nothing else in the release fails with it: the tag and the GitHub release
+  stand. Once it is set, re-run `publish.yml` on the tag. Afterwards, npm's package settings can require trusted
+  publishing and disallow tokens.
+- **GitHub: "Allow GitHub Actions to create and approve pull requests"**, under Settings → Actions → General → Workflow
+  permissions. Without it, `release.yml`'s `pr` job fails naming that setting.
+- **Optional: require `release-label` on `main`**, beside `ci`, in the branch protection. Unrequired, an unlabelled pull
+  request shows a red check but can still merge, and counts for no release.
