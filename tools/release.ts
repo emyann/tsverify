@@ -1,6 +1,6 @@
 /**
- * tsverify's releases: a pull request a workflow keeps open, the tag and GitHub release its merge makes, and the publish to npm as a
- * trusted publisher (CONTRIBUTING.md, "Releasing"). The repository's own tool, never shipped (package.json `files`); it imports only
+ * tsverify's releases: a pull request a workflow keeps open, the tag and GitHub release its merge makes, and the version staged on npm
+ * as a trusted publisher, for a maintainer to approve with 2FA (CONTRIBUTING.md, "Releasing"). The repository's own tool, never shipped (package.json `files`); it imports only
  * `node:` builtins and reaches git, GitHub and npm only through `git`, `gh` and `npm` on PATH, each call bounded.
  *
  * - `check`: the `release-label` check. Exactly one of `LABELS` on the pull request numbered `PR_NUMBER`, read live. Given a `HEAD_SHA`
@@ -11,13 +11,15 @@
  * - `pr`: keeps the release pull request (`release` into `main`) open while a pull request merged since the last release carries a label
  *   that releases, rebuilt on main when main moves, and dispatches `ci.yml` and `release-label.yml` on its head. Closes it when nothing is
  *   to release.
- * - `publish`: on a checkout of `GITHUB_REF` = `refs/tags/vX.Y.Z`, publishes that commit to npm unless npm has the version already.
+ * - `publish`: on a checkout of `GITHUB_REF` = `refs/tags/vX.Y.Z`, with npm at `NPM_PIN`, stages that commit on npm (`npm stage
+ *   publish`) unless npm has the version already or has it staged, and says, in the log and in `GITHUB_STEP_SUMMARY` when set, what a
+ *   maintainer has left to do: approve the stage with 2FA. It never approves.
  *
  * Every verb decides from the repository as it is, so a rerun with nothing new writes nothing.
  * Exit codes: 0 done or nothing to do, 1 refused or failed (the line says what to do), 2 a verb it does not have.
  */
 import { spawnSync } from "node:child_process"
-import { readFileSync, writeFileSync } from "node:fs"
+import { appendFileSync, readFileSync, writeFileSync } from "node:fs"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 
@@ -45,6 +47,12 @@ export const TRUSTED_PUBLISHER = {
   repository: "tsverify",
   workflow: "publish.yml",
 }
+
+/**
+ * The npm `publish` stages with, exactly: `npm stage publish` needs 11.15.0 or later (docs.npmjs.com/staged-publishing), and Node
+ * 24.16.0 ships 11.13.0, so publish.yml installs this one and test/release.test.ts holds the two together.
+ */
+export const NPM_PIN = "11.21.2"
 
 /** The setting GitHub refuses the token's pull request without. */
 export const CREATE_SETTING = "Allow GitHub Actions to create and approve pull requests"
@@ -401,8 +409,9 @@ const rebuilt = (out: Out, r: Reach, main: string, version: string): string => {
 const TO_RELEASE = [
   "**To release:** merge this pull request once `ci` and `release-label` are green on its head. The release workflow dispatched both",
   "here, since a pull request its own token opens starts no workflow. Its merge tags `vX.Y.Z`, makes the GitHub release, and",
-  "dispatches `publish.yml`, which publishes the tag's commit to npm. The `release` branch is rebuilt from main whenever main moves:",
-  "push nothing to it by hand. A check missing or failed on the head: `gh workflow run release.yml`.",
+  "dispatches `publish.yml`, which stages the tag's commit on npm; a maintainer then approves it with 2FA (the run's summary says",
+  "how). The `release` branch is rebuilt from main whenever main moves: push nothing to it by hand. A check missing or failed on the",
+  "head: `gh workflow run release.yml`.",
 ].join("\n")
 
 const bodyOf = (generated: string, unlabelled: Pull[]): string => {
@@ -487,10 +496,42 @@ const pr = (out: Out, r: Reach): number => {
   return 0
 }
 
-/** Whether npm's answer to a publish says the trusted publisher is missing or wrong: no credential, or npm's 404 on the PUT. */
+/** Whether npm's answer to a stage says the trusted publisher is missing or wrong: no credential, or npm's 404 on the POST. */
 const unauthenticated = (text: string): boolean => /ENEEDAUTH|Unable to authenticate|\bE401\b|\bE404\b/.test(text)
 
-/** `publish`: the tag `GITHUB_REF` names, checked out here, published to npm once. */
+/** Whether npm's answer to a stage says the version is staged or published already: the registry's 409 on the stage, and only that one. */
+const stagedAlready = (text: string): boolean => /\bE409\b/.test(text) && /previously (published|staged) version/i.test(text)
+
+/** Whether npm's answer to a stage says this trusted publisher may not stage: a 403 on the POST. */
+const mayNotStage = (text: string): boolean => /\bE403\b/.test(text)
+
+/** The stage id npm prints on a stage, `+ <name>@<version> (staged with id <id>)`, or `undefined` where it printed none. */
+const stageId = (text: string): string | undefined => /\(staged with id ([^\s)]+)\)/.exec(text)?.[1]
+
+/** Writes `markdown` to the GitHub run's summary, where the job has one. */
+const summary = (env: Env, markdown: string): void => {
+  if (env.GITHUB_STEP_SUMMARY) appendFileSync(env.GITHUB_STEP_SUMMARY, `${markdown}\n`)
+}
+
+/** The page on npmjs.com where a maintainer approves a staged version: its Staged Packages tab. */
+const PACKAGE_PAGE = `https://www.npmjs.com/package/${PACKAGE}`
+
+/** What a maintainer does with a staged version: approve it with 2FA, by the stage's id or on npmjs.com. */
+const toApprove = (id: string | undefined): string[] => [
+  id === undefined
+    ? `- Find its stage id with \`npm stage list ${PACKAGE}\`, then approve it with \`npm stage approve <id>\` (asks for 2FA), or`
+    : `- \`npm stage approve ${id}\` (asks for 2FA), or`,
+  `- on npmjs.com: ${PACKAGE_PAGE} → Staged Packages → Approve.`,
+  "A rejected stage is staged again by re-running publish.yml on the tag.",
+]
+
+/** Prints `lines` to the log and writes them to the run's summary. */
+const tell = (env: Env, out: Out, lines: string[]): void => {
+  for (const line of lines) out(`publish: ${line}`)
+  summary(env, lines.join("\n"))
+}
+
+/** `publish`: the tag `GITHUB_REF` names, checked out here, staged on npm once, for a maintainer to approve with 2FA. */
 const publish = (env: Env, out: Out, r: Reach): number => {
   const ref = env.GITHUB_REF ?? ""
   const name = ref.startsWith("refs/tags/") ? ref.slice("refs/tags/".length) : ""
@@ -501,6 +542,13 @@ const publish = (env: Env, out: Out, r: Reach): number => {
   if (pkg.name !== PACKAGE) throw new Refusal(`publish: package.json names ${String(pkg.name)}, and this publishes ${PACKAGE} alone`)
   if (pkg.version !== version)
     throw new Refusal(`publish: ${name} is not the version package.json names (${String(pkg.version)}): tag the commit that names it`)
+  const npm = spawn("npm", ["--version"], env, top)
+  const npmVersion = npm.stdout.trim()
+  if (npm.status !== 0 || npmVersion !== NPM_PIN)
+    throw new Refusal(
+      `publish: npm is ${npmVersion || `unreadable (exit ${String(npm.status)})`}, not ${NPM_PIN}, the one this stages with: ` +
+        `publish.yml installs npm@${NPM_PIN}; pin it again there and as NPM_PIN in tools/release.ts, at 11.15.0 or later`,
+    )
   const sha = r.git("rev-parse", "HEAD")
   if (r.gitMaybe("rev-parse", `refs/tags/${name}^{commit}`) !== sha)
     throw new Refusal(`publish: the checkout is not ${name}'s commit: run publish.yml with --ref ${name}`)
@@ -509,26 +557,49 @@ const publish = (env: Env, out: Out, r: Reach): number => {
     throw new Refusal(`publish: ${name} (${sha}) is not on ${BASE}: a release is a commit of ${BASE}`)
   const view = spawn("npm", ["view", `${PACKAGE}@${version}`, "version"], env, top)
   if (view.status === 0 && view.stdout.trim() === version) {
-    out(`publish: ${PACKAGE}@${version} is on npm already: nothing to do`)
+    tell(env, out, [`${PACKAGE}@${version} is on npm already: nothing staged, nothing left to do.`])
     return 0
   }
   if (view.status !== 0 && !/\bE404\b/.test(view.stderr))
     throw new Refusal(`publish: npm view ${PACKAGE}@${version} failed: ${view.stderr.trim()}; re-run publish.yml once npm answers`)
-  const ran = spawn("npm", ["publish"], env, top)
+  const ran = spawn("npm", ["stage", "publish"], env, top)
   if (ran.stdout) out(ran.stdout.trimEnd())
   if (ran.stderr) out(ran.stderr.trimEnd())
+  const said = `${ran.stdout}\n${ran.stderr}`
   if (ran.status === 0) {
-    out(`publish: published ${PACKAGE}@${version} from ${name}`)
+    const id = stageId(said)
+    tell(env, out, [
+      `Staged ${PACKAGE}@${version} from ${name}${id === undefined ? "" : `, stage id ${id}`}. It is not published until a maintainer approves it with 2FA:`,
+      ...toApprove(id),
+    ])
     return 0
   }
-  if (unauthenticated(`${ran.stdout}\n${ran.stderr}`))
+  if (stagedAlready(said)) {
+    tell(env, out, [
+      `${PACKAGE}@${version} is staged already and waits for a maintainer's approval with 2FA: nothing staged again. ` +
+        `If \`npm view ${PACKAGE}@${version}\` names it, it was approved since, and nothing is left.`,
+      ...toApprove(undefined),
+    ])
+    return 0
+  }
+  const configure =
+    `${TRUSTED_PUBLISHER.url} → Trusted Publisher → GitHub Actions: organization or user ${TRUSTED_PUBLISHER.owner}, repository ` +
+    `${TRUSTED_PUBLISHER.repository}, workflow filename ${TRUSTED_PUBLISHER.workflow}, environment left empty, "Allow npm publish" ` +
+    `left unticked`
+  const rerun = `re-run ${TRUSTED_PUBLISHER.workflow} on tag ${name}: gh workflow run ${TRUSTED_PUBLISHER.workflow} --ref ${name}`
+  if (mayNotStage(said))
+    throw new Refusal(
+      `publish: npm refused ${PACKAGE}'s trusted publisher a stage: one made before 2026-09-03 may not stage, and cannot be edited. ` +
+        `Delete it, and create it again at ${configure}. Then ${rerun}`,
+    )
+  if (unauthenticated(said))
     throw new Refusal(
       `publish: npm's trusted publisher for ${PACKAGE} is not configured yet, or does not match this workflow. Configure it at ` +
-        `${TRUSTED_PUBLISHER.url} → Trusted Publisher → GitHub Actions: organization or user ${TRUSTED_PUBLISHER.owner}, repository ` +
-        `${TRUSTED_PUBLISHER.repository}, workflow filename ${TRUSTED_PUBLISHER.workflow}, environment left empty. Then re-run ` +
-        `${TRUSTED_PUBLISHER.workflow} on tag ${name}: gh workflow run ${TRUSTED_PUBLISHER.workflow} --ref ${name}`,
+        `${configure}. Then ${rerun}`,
     )
-  throw new Refusal(`publish: npm publish failed (exit ${String(ran.status)}): read its output above, then re-run publish.yml on ${name}`)
+  throw new Refusal(
+    `publish: npm stage publish failed (exit ${String(ran.status)}): read its output above, then re-run publish.yml on ${name}`,
+  )
 }
 
 const USAGE = "usage: node tools/release.ts check | labels | tag | pr | publish"
