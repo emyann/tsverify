@@ -14,6 +14,7 @@ import type { Adapter } from "./adapter.ts"
 import {
   type Asked,
   type End,
+  type Engine,
   Ledger,
   type Question,
   type SidesEnd,
@@ -47,6 +48,7 @@ import {
   trustOf,
 } from "./lower.ts"
 import { slice } from "./lower/arrays.ts"
+import type { Ran } from "./run/runs.ts"
 import { runOf, strictEq, truthy } from "./ops.ts"
 import { type ContractSource, type Project, readContract } from "./project.ts"
 import { unwrap } from "./resolve.ts"
@@ -88,6 +90,11 @@ export interface LawResult {
   /** What the law means, in words, where it is written `{ description, condition }`. */
   readonly description?: string
   readonly status: LawStatus
+  /**
+   * Which engine decided it: `run`, a counterexample found by running the function and the law on a generated input, real
+   * by construction; `z3`, every other verdict. Set on every law decided.
+   */
+  readonly by?: Engine
   /** On a counterexample: the arguments, as JavaScript values. */
   readonly args?: ReadonlyArray<unknown>
   /** On a counterexample of a computation: how each operation call it made ended, by call. */
@@ -160,6 +167,8 @@ export interface Verification {
   readonly unanswered?: ReadonlyArray<Unanswered>
   /** How long its verification took, every question and the reading of its code; that of the run that decided it, when kept. */
   readonly ms?: number
+  /** Where the laws were run on generated inputs (`Options.run`): what the run did, or why there was none. */
+  readonly ran?: Ran
 }
 
 /**
@@ -205,6 +214,11 @@ export interface Options {
    * reads the same text under the same settings is answered from it, and not verified again. None by default.
    */
   readonly cache?: Cache
+  /**
+   * Whether to run the laws of a pure function's contract on generated inputs first, in a child process, before any is
+   * asked of Z3: a law a run breaks comes back as that run's counterexample. False by default; the command sets it.
+   */
+  readonly run?: boolean
 }
 
 /** One side's lowering: the universe, the arguments and result, the precondition. */

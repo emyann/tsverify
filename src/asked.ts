@@ -22,6 +22,9 @@ export type Question =
 
 export type Side = "proof" | "search"
 
+/** What answered a question: a run of the code on generated inputs, or Z3. */
+export type Engine = "run" | "z3"
+
 /**
  * How a query ended: with an answer; at the work limit (`--work`), which stops a query at the same step on every run;
  * at `STUCK_MS`, a clock, the one stop that may not be the same on every run; or with the solver giving up for a reason
@@ -33,6 +36,8 @@ export type End = "answered" | "out of work" | "out of time" | "gave up"
 export interface Asked {
   readonly question: Question
   readonly side?: Side
+  /** What answered it. For a run, `queries` counts the inputs run. */
+  readonly by: Engine
   readonly end: End
   readonly queries: number
   readonly ms: number
@@ -115,12 +120,12 @@ export const saysAnything = (
 
 /** The time of every query asked for one law, or for one contract's own questions, summed by question, side and end. */
 export class Ledger {
-  readonly #entries: Array<{ question: Question; side: Side | undefined; end: End; queries: number; ms: number }> = []
+  readonly #entries: Array<{ question: Question; side: Side | undefined; by: Engine; end: End; queries: number; ms: number }> = []
 
-  /** `queries` asked for `question` on `side` that ended `end`, in `ms`. */
-  add(question: Question, side: Side | undefined, end: End, ms: number, queries = 1): void {
-    const e = this.#entries.find((x) => x.question === question && x.side === side && x.end === end)
-    if (e === undefined) this.#entries.push({ question, side, end, queries, ms })
+  /** `queries` asked for `question` on `side` that ended `end`, in `ms`, answered by `by` (Z3 unless said). */
+  add(question: Question, side: Side | undefined, end: End, ms: number, queries = 1, by: Engine = "z3"): void {
+    const e = this.#entries.find((x) => x.question === question && x.side === side && x.by === by && x.end === end)
+    if (e === undefined) this.#entries.push({ question, side, by, end, queries, ms })
     else {
       e.queries += queries
       e.ms += ms
@@ -129,14 +134,15 @@ export class Ledger {
 
   /** Each entry of `asked` added under its own question, or under `as`. */
   addAll(asked: ReadonlyArray<Asked>, as?: Question): void {
-    for (const a of asked) this.add(as ?? a.question, a.side, a.end, a.ms, a.queries)
+    for (const a of asked) this.add(as ?? a.question, a.side, a.end, a.ms, a.queries, a.by)
   }
 
-  /** Each question, side and end asked, in the order first asked. */
+  /** Each question, side, engine and end asked, in the order first asked. */
   get asked(): ReadonlyArray<Asked> {
-    return this.#entries.map(({ question, side, end, queries, ms }) => ({
+    return this.#entries.map(({ question, side, by, end, queries, ms }) => ({
       question,
       ...(side === undefined ? {} : { side }),
+      by,
       end,
       queries,
       ms,

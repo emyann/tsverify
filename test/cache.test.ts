@@ -266,14 +266,14 @@ describe("a folder of answers", () => {
         name: "l",
         status: "proved" as const,
         ms: 1,
-        asked: [{ question: "says-anything" as const, side: "proof" as const, end, queries: 1, ms: 1 }],
+        asked: [{ question: "says-anything" as const, side: "proof" as const, by: "z3" as const, end, queries: 1, ms: 1 }],
       })
       // The work limit stops a query at the same step on every run: kept.
       cache.set("work", verdict({ laws: [law("out of work")] }))
       assert.deepEqual(cache.get("work"), verdict({ laws: [law("out of work")] }))
       // The clock stops it where the machine is: asked again. On a contract's own question too.
       cache.set("time", verdict({ laws: [law("out of time")] }))
-      cache.set("contract", verdict({ asked: [{ question: "undecided", side: "search", end: "out of time", queries: 1, ms: 1 }] }))
+      cache.set("contract", verdict({ asked: [{ question: "undecided", side: "search", by: "z3", end: "out of time", queries: 1, ms: 1 }] }))
       for (const key of ["time", "contract"]) assert.equal(cache.get(key), undefined, key)
     } finally {
       rmSync(answers, { recursive: true, force: true })
