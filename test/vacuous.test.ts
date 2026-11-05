@@ -27,3 +27,24 @@ it("a law over the input alone, or whose condition is never met, is vacuous; one
 it("a law whose condition `requires` rules out is vacuous", async () => {
   assert.deepEqual(await statuses("positive"), { pos: "proved", negativeIsNeg: "vacuous" })
 })
+
+it("each law says the time of each question asked of it, by side and by how it ended", async () => {
+  const v = await verify(z3, project, spec, "signed")
+  for (const l of v.laws) {
+    assert.ok(
+      l.asked?.some((a) => a.question === "proof" && a.side === "proof" && a.queries >= 1),
+      `${l.name}: ${JSON.stringify(l.asked)}`,
+    )
+    // Every proved law is asked whether it says something: on the search side first.
+    assert.ok(
+      l.asked?.some((a) => a.question === "says-anything" && a.side === "search"),
+      `${l.name}: ${JSON.stringify(l.asked)}`,
+    )
+    for (const a of l.asked ?? []) assert.ok(a.ms >= 0 && a.queries >= 1)
+  }
+  // The contract's own questions: every proved law checked against the search side.
+  assert.ok(
+    v.asked?.some((a) => a.question === "cross-check"),
+    JSON.stringify(v.asked),
+  )
+})

@@ -11,6 +11,7 @@ import { init, killThreads } from "z3-solver"
 import type { Arith, Bool, Model } from "z3-solver"
 import ts from "typescript"
 import type { Adapter } from "./adapter.ts"
+import { type Asked, type End, Ledger, type Question, STUCK_MS, type Side, type Unanswered, endOf } from "./asked.ts"
 import { type Cache, contractKey } from "./cache.ts"
 import { asyncAdapter } from "./adapters/async.ts"
 import { effectAdapter } from "./adapters/effect/index.ts"
@@ -87,6 +88,10 @@ export interface LawResult {
   readonly abstract?: ReadonlyArray<string>
   readonly reason?: string
   readonly ms: number
+  /** The time of each question asked of the law, by side and by how its queries ended. */
+  readonly asked?: ReadonlyArray<Asked>
+  /** The questions of the law that ended without an answer, and what its verdict took of each instead. */
+  readonly unanswered?: ReadonlyArray<Unanswered>
 }
 
 export interface CoverResult {
@@ -133,6 +138,13 @@ export interface Verification {
   readonly undecided?: Undecided
   /** Set when the function or `requires` could not be lowered: no law is checked then. */
   readonly unsupported?: string
+  /**
+   * The time of the contract's own questions, by side and by how its queries ended: the cross-check, what the result
+   * reaches, whether the laws decide every input, and the obligations, the rounds that guess a loop's invariants among them.
+   */
+  readonly asked?: ReadonlyArray<Asked>
+  /** The contract's own questions that ended without an answer. */
+  readonly unanswered?: ReadonlyArray<Unanswered>
 }
 
 /**
@@ -426,6 +438,7 @@ const conflictsAt = async (
   laws: ReadonlyArray<Law>,
   args: ReadonlyArray<unknown>,
   opts: Options,
+  ask?: Ask,
 ): Promise<ReadonlyArray<string>> => {
   const { u } = side
   const z3 = u.z3
@@ -444,18 +457,18 @@ const conflictsAt = async (
   for (const a of [...u.assumptions, ...side.L.hints, side.pre, ...pins]) solver.add(a)
   try {
     // The input itself must be one the model keeps, or every set of laws would read as conflicting.
-    if ((await solver.check()) !== "sat") return []
+    if ((await checked(solver, ask)).status !== "sat") return []
     const marks = each.map(({ name, holds }, k) => {
       const mark = z3.Bool.const(`meets#${k}`)
       solver.add(z3.Implies(mark, holds))
       return { name, mark }
     })
-    if ((await solver.check(...marks.map((m) => m.mark))) !== "unsat") return []
+    if ((await checked(solver, ask, ...marks.map((m) => m.mark))).status !== "unsat") return []
     const core = new Set([...solver.unsatCore().values()].map((b) => b.id()))
     let kept = marks.filter((m) => core.has(m.mark.id()))
     for (const m of kept) {
       const without = kept.filter((k) => k !== m)
-      if (without.length > 0 && (await solver.check(...without.map((k) => k.mark))) === "unsat") kept = without
+      if (without.length > 0 && (await checked(solver, ask, ...without.map((k) => k.mark))).status === "unsat") kept = without
     }
     return kept.map((m) => m.name)
   } finally {
@@ -520,6 +533,7 @@ const undecidedOf = async (
   laws: ReadonlyArray<Law>,
   open: ReadonlyArray<string>,
   opts: Options,
+  ask?: Ask,
 ): Promise<Undecided | undefined> => {
   const { u, L } = side
   const z3 = u.z3
@@ -550,7 +564,7 @@ const undecidedOf = async (
     vectorsBy(u, solver)
     for (const f of [...u.assumptions, ...L.hints, side.pre, ...keeps, z3.Or(...differs)]) solver.add(f)
     try {
-      if ((await solver.check()) !== "sat") return undefined
+      if ((await checked(solver, ask)).status !== "sat") return undefined
       const model = solver.model()
       const at = differs.findIndex((d) => z3.isTrue(model.eval(d, true)))
       const differ = a.parts[at]?.path ?? "output"
@@ -611,6 +625,8 @@ const verified = async (z3: Ctx, project: Project, file: string, name: string, o
     return { contract: name, laws: [], cover: [], notes: ALWAYS, trusted: [], obligations: [], unsupported: e.message }
   }
   const bound = opts.bound ?? 4
+  // The contract's own questions, over every round: the guessing, and each judge.
+  const ledger = new Ledger()
   let trust: Trust
   // A loop with no invariant written gets the laws, restated for what it has gone through, as candidates. Round after
   // round, the candidates not proved on entry and kept by each iteration (all of them assumed at its start) are
@@ -625,7 +641,7 @@ const verified = async (z3: Ctx, project: Project, file: string, name: string, o
       if (guessing === undefined || !proof.L.obligations.some((o) => o.guessed !== undefined)) break
       const within = { ...opts, within: [...(opts.within ?? []), `${file}#${name}`] }
       const failed = new Set([...proof.unguessable, ...search.unguessable])
-      for (const o of await obligationsOf(z3, project, proof, search, bound, within))
+      for (const o of await obligationsOf(z3, project, proof, search, bound, within, ledger))
         if (o.guessed !== undefined && o.status !== "proved") failed.add(o.guessed)
       if (failed.size === 0) break
       dropped.push(...failed)
@@ -662,7 +678,7 @@ const verified = async (z3: Ctx, project: Project, file: string, name: string, o
       obligations: [],
       unsupported: `the lemma \`${name}\` leans on itself`,
     }
-  const first = await judge(z3, project, file, sides.proof, sides.search, trust, opts, sides.opaque)
+  const first = await judge(z3, project, file, sides.proof, sides.search, trust, opts, sides.opaque, ledger)
   // Only where it can help: a law left bounded while what is written all holds. A broken invariant keeps its law bounded
   // whatever else is guessed.
   if (
@@ -672,17 +688,28 @@ const verified = async (z3: Ctx, project: Project, file: string, name: string, o
     !first.obligations.every((o) => o.status === "proved")
   )
     return first
+  // Asked again beside what is written: whichever judge's verdicts are kept, every query of both is counted.
+  const keptOf = (v: Verification, other: Verification): Verification => ({
+    ...v,
+    laws: v.laws.map((l) => {
+      const before = other.laws.find((o) => o.name === l.name)?.asked ?? []
+      const all = new Ledger()
+      all.addAll([...before, ...(l.asked ?? [])])
+      return { ...l, asked: all.asked }
+    }),
+    asked: ledger.asked,
+  })
   let beside: { readonly proof: Lowered; readonly search: Lowered; readonly opaque: (() => Lowered) | undefined }
   try {
     beside = await guessed(true)
   } catch (e) {
     if (!(e instanceof Unsupported)) throw e
-    return first
+    return { ...first, asked: ledger.asked }
   }
   // Kept only where it proves more: a guess beside an invariant that fails proves nothing the report should carry.
-  const second = await judge(z3, project, file, beside.proof, beside.search, trust, opts, beside.opaque)
+  const second = await judge(z3, project, file, beside.proof, beside.search, trust, opts, beside.opaque, ledger)
   const proved = (v: Verification) => v.laws.filter((l) => l.status === "proved").length
-  return proved(second) > proved(first) ? second : first
+  return proved(second) > proved(first) ? keptOf(second, first) : keptOf(first, second)
 }
 
 /**
@@ -694,14 +721,16 @@ const contradicted = async (
   items: ReadonlyArray<{ readonly key: string; readonly broken: Bool }>,
   opts: Options,
   hints?: ReadonlyArray<Bool>,
+  ledger?: Ledger,
 ): Promise<Map<string, ReadonlyArray<unknown> | undefined>> => {
   const z3 = search.u.z3
   const out = new Map<string, ReadonlyArray<unknown> | undefined>()
   if (items.length === 0) return out
-  const any = await solve(search, [search.pre, z3.Or(...items.map((i) => i.broken))], opts, hints)
+  const ask = ledger === undefined ? undefined : ({ ledger, question: "cross-check", side: "search" } as const)
+  const any = await solve(search, [search.pre, z3.Or(...items.map((i) => i.broken))], opts, hints, ask)
   if (any.status !== "sat") return out
   for (const i of items) {
-    const one = await solve(search, [search.pre, i.broken], opts, hints)
+    const one = await solve(search, [search.pre, i.broken], opts, hints, ask)
     if (one.status === "sat") out.set(i.key, one.witness.args)
   }
   return out
@@ -750,7 +779,10 @@ const opaqueLaw = (opaque: () => Lowered, law: Law): { readonly side: Lowered; r
 const DISAGREE =
   "the proof side proved it, and the search side found this input breaking it: one side is wrong, a bug of tsverify. Run the code on the input: if it breaks the law, the proof is wrong; if not, the search side is. Report it with the input"
 
-/** Decides a contract both sides have lowered: its obligations, its laws, what its result reaches. */
+/**
+ * Decides a contract both sides have lowered: its obligations, its laws, what its result reaches. The time of the
+ * contract's own questions goes to `ledger`, and is the contract's `asked`.
+ */
 export const judge = async (
   z3: Ctx,
   project: Project,
@@ -760,6 +792,7 @@ export const judge = async (
   trust: Trust,
   opts: Options = {},
   opaque?: () => Lowered,
+  ledger: Ledger = new Ledger(),
 ): Promise<Verification> => {
   const source = proof.source
   const name = source.name
@@ -778,10 +811,15 @@ export const judge = async (
   const proofRuns = returning(proof)
   const searchRuns = returning(search)
   // The obligations next: a law the proof side proves leans on them, and stands only if they do.
-  const obligations = await obligationsOf(z3, project, proof, search, bound, {
-    ...opts,
-    within: [...(opts.within ?? []), `${file}#${name}`],
-  })
+  const obligations = await obligationsOf(
+    z3,
+    project,
+    proof,
+    search,
+    bound,
+    { ...opts, within: [...(opts.within ?? []), `${file}#${name}`] },
+    ledger,
+  )
   // A law leans on what the proof code proved; a division only says which runs return, and is reported on its own.
   const open = obligations.filter((o) => o.status !== "proved" && o.kind !== "division")
   const leaning =
@@ -790,13 +828,18 @@ export const judge = async (
       : `proved only if its obligations hold, and ${open.length} of them ${open.length === 1 ? "is" : "are"} not proved (${open[0]!.kind} ${open[0]!.text} at ${open[0]!.at}: ${open[0]!.status}); no counterexample with arrays of at most ${bound} elements`
 
   const laws: Array<LawResult> = []
+  /** Each law's ledger, by its place in `laws`. */
+  const ledgers: Array<Ledger> = []
   const searchable = new Map<string, Bool>()
   for (const r0 of read) {
     const { law } = r0
     if (opts.only !== undefined && !opts.only.includes(law.name)) continue
     const started = performance.now()
+    const own = new Ledger()
+    const ask = (question: Question, side: Side): Ask => ({ ledger: own, question, side })
     if (r0.unsupported !== undefined) {
       laws.push({ name: law.name, ...described(law), status: "unsupported", reason: r0.unsupported, ms: 0 })
+      ledgers.push(own)
       opts.progress?.(`law ${law.name}: unsupported`)
       continue
     }
@@ -805,9 +848,11 @@ export const judge = async (
     // that does not hold there is asked of the loop as it is.
     const alone = opaque === undefined ? undefined : opaqueLaw(opaque, law)
     const first =
-      alone === undefined ? undefined : await solve(alone.side, [alone.side.pre, returning(alone.side), z3.Not(alone.law)], opts)
+      alone === undefined
+        ? undefined
+        : await solve(alone.side, [alone.side.pre, returning(alone.side), z3.Not(alone.law)], opts, undefined, ask("proof", "proof"))
     const byOpaque = first?.status === "unsat"
-    const proved = byOpaque ? first : await solve(proof, [proof.pre, proofRuns, z3.Not(onProof)], opts)
+    const proved = byOpaque ? first : await solve(proof, [proof.pre, proofRuns, z3.Not(onProof)], opts, undefined, ask("proof", "proof"))
     // A proof that holds only of the inputs a truncated loop keeps to is no proof; read after the law, which may run it.
     const truncated = byOpaque ? alone!.side.u.truncated : proof.u.truncated
     const untrusted =
@@ -820,9 +865,15 @@ export const judge = async (
       // A proof of a law no result could break is a proof of nothing about the function. A result that breaks it on the
       // search side, which is exact, settles that it says something; only where none does is the proof side asked.
       const onSome = source.kind === "lemma" ? undefined : lawOnAnyResult(search, law)
-      const somewhere = onSome === undefined ? undefined : await solve(search, [search.pre, searchRuns, z3.Not(onSome)], opts)
+      const somewhere =
+        onSome === undefined
+          ? undefined
+          : await solve(search, [search.pre, searchRuns, z3.Not(onSome)], opts, undefined, ask("says-anything", "search"))
       const onAny = source.kind === "lemma" || somewhere?.status === "sat" ? undefined : lawOnAnyResult(proof, law)
-      const breakable = onAny === undefined ? undefined : await solve(proof, [proof.pre, proofRuns, z3.Not(onAny)], opts)
+      const breakable =
+        onAny === undefined
+          ? undefined
+          : await solve(proof, [proof.pre, proofRuns, z3.Not(onAny)], opts, undefined, ask("says-anything", "proof"))
       r =
         breakable?.status === "unsat"
           ? { status: "vacuous", reason: "no result breaks it, whatever the function returns: it says nothing of the function" }
@@ -831,7 +882,7 @@ export const judge = async (
             : { status: "proved" }
     } else if (proved.status === "sat" && !proof.u.abstracted) r = { status: "counterexample", ...proved.witness }
     else {
-      const found = await solve(search, [search.pre, searchRuns, z3.Not(onSearch)], opts)
+      const found = await solve(search, [search.pre, searchRuns, z3.Not(onSearch)], opts, undefined, ask("search", "search"))
       r =
         found.status === "sat"
           ? { status: "counterexample", ...found.witness }
@@ -846,6 +897,7 @@ export const judge = async (
             : { status: "unknown", reason: `proof: ${why(proved, proof.u)}; search: ${found.reason}` }
     }
     laws.push({ name: law.name, ...described(law), ...r, ms: performance.now() - started })
+    ledgers.push(own)
     searchable.set(law.name, onSearch)
     opts.progress?.(`law ${law.name}: ${r.status} (${Math.round(performance.now() - started)} ms)`)
   }
@@ -856,7 +908,7 @@ export const judge = async (
     const readable = read.flatMap((r) => (r.unsupported === undefined ? [r.law] : []))
     for (const [k, l] of laws.entries()) {
       if (l.status !== "counterexample" || l.args === undefined) continue
-      const conflicts = await conflictsAt(proof, readable, l.args, opts)
+      const conflicts = await conflictsAt(proof, readable, l.args, opts, { ledger: ledgers[k]!, question: "unmeetable", side: "proof" })
       if (conflicts.length === 0) continue
       laws[k] = {
         ...l,
@@ -878,6 +930,8 @@ export const judge = async (
     search,
     provedLaws.map((k) => ({ key: String(k), broken: z3.And(searchRuns, z3.Not(searchable.get(laws[k]!.name)!)) })),
     opts,
+    undefined,
+    ledger,
   )
   const shaken = obligations.some((o) => o.status === "inconsistent")
   for (const k of provedLaws) {
@@ -904,11 +958,11 @@ export const judge = async (
   const [proofEnds, searchEnds] = [returning(proof, "kept"), returning(search, "kept")]
   const cover: Array<CoverResult> = []
   for (const { value, onProof, onSearch } of opts.only === undefined && opts.cover !== false ? ends : []) {
-    const found = await solve(search, [search.pre, searchEnds, onSearch], opts)
+    const found = await solve(search, [search.pre, searchEnds, onSearch], opts, undefined, { ledger, question: "cover", side: "search" })
     let c: CoverResult
     if (found.status === "sat") c = { value, status: "reachable", ...found.witness }
     else {
-      const any = await solve(proof, [proof.pre, proofEnds, onProof], opts)
+      const any = await solve(proof, [proof.pre, proofEnds, onProof], opts, undefined, { ledger, question: "cover", side: "proof" })
       c =
         any.status === "unsat"
           ? { value, status: "unreachable" }
@@ -930,12 +984,21 @@ export const judge = async (
     // would be undecided wherever its laws pin no trace, which is most of them.
     source.kind !== "function" || source.open === true || opts.only !== undefined || read.some((r) => r.unsupported !== undefined)
       ? undefined
-      : await undecidedOf(search, source.ensures, source.open ?? [], opts)
+      : await undecidedOf(search, source.ensures, source.open ?? [], opts, { ledger, question: "undecided", side: "search" })
   if (undecided !== undefined) opts.progress?.(`undecided: ${undecided.differ}`)
   const trusted = trustedOf(trust)
   const notes = [...ALWAYS, ...new Set([...proof.u.notes, ...search.u.notes])]
   if (trusted.some((t) => t.purity === "checked")) notes.push(`A purity check takes on trust that ${PURITY_TRUSTS.join("; that ")}.`)
-  return { contract: name, laws, cover: coverOut, notes, trusted, obligations, ...(undecided === undefined ? {} : { undecided }) }
+  return {
+    contract: name,
+    laws: laws.map((l, k) => ({ ...l, asked: ledgers[k]!.asked })),
+    cover: coverOut,
+    notes,
+    trusted,
+    obligations,
+    ...(undecided === undefined ? {} : { undecided }),
+    asked: ledger.asked,
+  }
 }
 
 /**
@@ -988,7 +1051,9 @@ const obligationsOf = async (
   search: Lowered,
   bound: number,
   opts: Options,
+  ledger?: Ledger,
 ): Promise<Array<ObligationResult>> => {
+  const on = (side: Side): Ask | undefined => (ledger === undefined ? undefined : { ledger, question: "obligation", side })
   const keys = [...new Set([...proof.L.obligations, ...search.L.obligations].map((o) => o.key))]
   const broken = (side: Lowered, key: string): Bool | undefined => {
     const os = side.L.obligations.filter((o) => o.key === key)
@@ -1011,7 +1076,7 @@ const obligationsOf = async (
     const o = [...proof.L.obligations, ...search.L.obligations].find((x) => x.key === key)!
     const head = { kind: o.kind, text: o.text, at: o.at, phase: o.phase, ...(o.guessed === undefined ? {} : { guessed: o.guessed }) }
     const onProof = broken(proof, key)
-    const proved = onProof === undefined ? undefined : await solve(proof, [proof.pre, onProof], opts, [])
+    const proved = onProof === undefined ? undefined : await solve(proof, [proof.pre, onProof], opts, [], on("proof"))
     if (proved?.status === "unsat" && proof.u.truncated === undefined) {
       out.push({ ...head, status: "proved" })
       continue
@@ -1021,7 +1086,7 @@ const obligationsOf = async (
       continue
     }
     const onSearch = broken(search, key)
-    const found = onSearch === undefined ? undefined : await solve(search, [search.pre, onSearch], opts, [])
+    const found = onSearch === undefined ? undefined : await solve(search, [search.pre, onSearch], opts, [], on("search"))
     if (found?.status === "sat") out.push({ ...head, status: "counterexample", ...shown(found.witness) })
     else if (found?.status === "unsat")
       out.push({
@@ -1045,6 +1110,7 @@ const obligationsOf = async (
     }),
     opts,
     [],
+    ledger,
   )
   for (const [key, args] of disagreements) {
     const k = keys.indexOf(key)
@@ -1053,6 +1119,8 @@ const obligationsOf = async (
   const lemmas = new Map([...proof.L.lemmas, ...search.L.lemmas])
   for (const [key, lem] of lemmas) {
     const v = await verify(z3, project, lem.file, lem.name, opts)
+    // A lemma's own queries are this contract's, as an obligation.
+    ledger?.addAll([...(v.asked ?? []), ...v.laws.flatMap((l) => l.asked ?? [])], "obligation")
     const status: ObligationResult["status"] =
       v.unsupported !== undefined
         ? "unknown"
@@ -1141,7 +1209,32 @@ type Witness = {
 type Outcome =
   | { readonly status: "sat"; readonly witness: Witness }
   | { readonly status: "unsat" }
-  | { readonly status: "unknown"; readonly reason: string }
+  | { readonly status: "unknown"; readonly reason: string; readonly end: End }
+
+/** Where a query's time is recorded: the ledger of the law or contract it serves, the question and the side. */
+export interface Ask {
+  readonly ledger: Ledger
+  readonly question: Question
+  readonly side: Side
+}
+
+/**
+ * `solver.check`, timed, and recorded in `ask`'s ledger by how it ended. The time is only recorded: no verdict reads it,
+ * but for an end told apart by it (`endOf`).
+ */
+const checked = async (
+  solver: { check(...assumptions: Array<Bool>): Promise<"sat" | "unsat" | "unknown">; reasonUnknown(): string },
+  ask: Ask | undefined,
+  ...assumptions: Array<Bool>
+): Promise<{ readonly status: "sat" | "unsat" | "unknown"; readonly end: End; readonly reason: string }> => {
+  const started = performance.now()
+  const status = await solver.check(...assumptions)
+  const ms = performance.now() - started
+  const reason = status === "unknown" ? solver.reasonUnknown() : ""
+  const end = endOf(status, reason, ms)
+  ask?.ledger.add(ask.question, ask.side, end, ms)
+  return { status, end, reason }
+}
 
 /**
  * The work a query may do by default: above the most any query of the suite and of the case study needs to end, 9.7
@@ -1149,11 +1242,6 @@ type Outcome =
  * step on every run.
  */
 export const WORK = 15_000_000
-/**
- * A guard against a query that never counts its work: far past what `WORK` takes, and named "out of time" when it is
- * reached. A clock, so where it stops a query hangs on the machine: the one stop that may not be the same on every run.
- */
-const STUCK_MS = 300_000
 
 const limited = (solver: { set(key: string, value: number): void }, work: number): void => {
   solver.set("rlimit", work)
@@ -1168,12 +1256,16 @@ const unknownWhy = (reason: string): string =>
       ? `out of time: the query ran ${STUCK_MS / 60_000} minutes without counting its work`
       : reason
 
-/** Checks a side's assumptions with `goals`; on `sat`, reads the arguments back, preferring short arrays. */
+/**
+ * Checks a side's assumptions with `goals`; on `sat`, reads the arguments back, preferring short arrays. Each query's
+ * time goes to `ask`'s ledger.
+ */
 export const solve = async (
   side: Lowered,
   goals: ReadonlyArray<Bool>,
   opts: Options = {},
   hints: ReadonlyArray<Bool> = side.L.hints,
+  ask?: Ask,
 ): Promise<Outcome> => {
   const { u } = side
   const z3 = u.z3
@@ -1182,8 +1274,8 @@ export const solve = async (
     limited(solver, opts.work ?? WORK)
     vectorsBy(u, solver)
     for (const a of [...u.assumptions, ...hints, ...goals, ...extra]) solver.add(a)
-    const status = await solver.check()
-    return { status, solver }
+    const { status, end, reason } = await checked(solver, ask)
+    return { status, end, reason, solver }
   }
   // Each solver is let go once read: one that ran out of work holds much of the memory Z3 may use, until collected.
   const first = await run([])
@@ -1192,9 +1284,9 @@ export const solve = async (
     return { status: "unsat" }
   }
   if (first.status === "unknown") {
-    const reason = unknownWhy(first.solver.reasonUnknown())
+    const reason = unknownWhy(first.reason)
     first.solver.release()
-    return { status: "unknown", reason }
+    return { status: "unknown", reason, end: first.end }
   }
   // A model may pick a huge array or dictionary; ask again with short ones, which narrows the same formula. A `Map`'s
   // or a `Set`'s count is left as it is: bounding it can cost the query its time, and its model is read back whole.

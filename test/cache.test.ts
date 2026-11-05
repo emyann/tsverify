@@ -33,8 +33,8 @@ const verdict = (parts: Partial<Verification>): Verification => ({
   ...parts,
 })
 
-/** The laws as a report gives them, without their times. */
-const verdicts = (v: Verification) => v.laws.map(({ ms: _, ...l }) => l)
+/** The laws' verdicts, without their times: how long a law took, and each of its questions. */
+const verdicts = (v: Verification) => v.laws.map(({ ms: _, asked: __, ...l }) => l)
 
 /** A cache in `dir` that counts what it is asked. */
 const counting = (dir: string) => {
