@@ -47,6 +47,9 @@ const packageOf = (specifier: string): string => {
   return specifier.startsWith("@") ? parts.slice(0, 2).join("/") : parts[0]!
 }
 
+/** The condition under which tsverify resolves to its own source. */
+const SOURCE = "tsverify-source"
+
 const isBare = (specifier: string): boolean =>
   !specifier.startsWith(".") && !specifier.startsWith("/") && !specifier.startsWith("#") && !/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(specifier)
 
@@ -105,10 +108,25 @@ export const runPlan = async (plan: RunPlan): Promise<Answer> => {
       return pathToFileURL(file).href
     }
   }
+  // The verifier may run from its source (a checkout, `--conditions=tsverify-source`) and the project import an installed
+  // tsverify, which ships no source, or the other way round: a bare import not found under the conditions the child was
+  // given is resolved once more with that condition turned the other way.
+  const resolveEither: Parameters<typeof module.registerHooks>[0]["resolve"] & {} = (specifier, context, next) => {
+    try {
+      return next(specifier, context)
+    } catch (e) {
+      if (!isBare(specifier) || (e as { code?: unknown }).code !== "ERR_MODULE_NOT_FOUND") throw e
+      const has = context.conditions.includes(SOURCE)
+      return next(specifier, {
+        ...context,
+        conditions: has ? context.conditions.filter((c) => c !== SOURCE) : [...context.conditions, SOURCE],
+      })
+    }
+  }
   const specUrl = plan.spec === undefined ? undefined : real(plan.spec.module)
   module.registerHooks({
     resolve(specifier, context, next) {
-      const r = next(specifier, context)
+      const r = resolveEither(specifier, context, next)
       if (isBare(specifier) && !specifier.startsWith("node:")) packages.set(r.url, packageOf(specifier))
       return r
     },
