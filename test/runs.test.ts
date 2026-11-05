@@ -155,6 +155,8 @@ it("an input on which the function throws is skipped and counted, never a counte
   const ran = ranTrue(r)
   assert.ok(ran.threw > 0, JSON.stringify(ran))
   assert.deepEqual(r.broken, {})
+  // Whether it says something is of the spec alone: at 0n, where the code throws, a free result breaks it.
+  assert.deepEqual(r.saysSomething, ["atZero"])
 })
 
 it("a child that never ends is stopped", async () => {

@@ -177,21 +177,16 @@ export const runPlan = async (plan: RunPlan): Promise<Answer> => {
   }
 
   /** One input: refused by `requires`, thrown on, or the laws it breaks (by index) and the free results that break one. */
-  const runOn = (d: Drawn): "refused" | "threw" | { readonly broken: ReadonlyArray<number>; readonly says: ReadonlyArray<number> } => {
+  const runOn = (
+    d: Drawn,
+  ): "refused" | "threw" | { readonly threw: true; readonly says: ReadonlyArray<number> } | { readonly broken: ReadonlyArray<number>; readonly says: ReadonlyArray<number> } => {
     try {
       if (requires !== undefined && !requires({ input: d.args })) return "refused"
     } catch {
       return "threw"
     }
-    const broken: Array<number> = []
-    try {
-      const output = fn(...d.args)
-      preds.forEach((p, i) => {
-        if (!p({ input: d.args, output })) broken.push(i)
-      })
-    } catch {
-      return "threw"
-    }
+    // Whether a law says something is a question of the spec alone: asked before the code runs, so an input on which the
+    // code throws still counts.
     const says: Array<number> = []
     preds.forEach((p, i) => {
       if (plan.laws[i]!.output === undefined) return
@@ -201,6 +196,15 @@ export const runPlan = async (plan: RunPlan): Promise<Answer> => {
         // A law that throws on a free result says nothing there.
       }
     })
+    const broken: Array<number> = []
+    try {
+      const output = fn(...d.args)
+      preds.forEach((p, i) => {
+        if (!p({ input: d.args, output })) broken.push(i)
+      })
+    } catch {
+      return { threw: true, says }
+    }
     return { broken, says }
   }
 
@@ -226,7 +230,10 @@ export const runPlan = async (plan: RunPlan): Promise<Answer> => {
         const r = runOn(d)
         if (r === "refused") discarded++
         else if (r === "threw") threw++
-        else {
+        else if ("threw" in r) {
+          threw++
+          for (const i of r.says) says.add(i)
+        } else {
           inputs++
           for (const i of r.broken) if (!firstBroken.has(i)) firstBroken.set(i, at)
           for (const i of r.says) says.add(i)
