@@ -64,7 +64,7 @@ tool (never shipped, tested by `test/release.test.ts`):
 - `release.yml` runs on every push to `main`. It makes the release labels, tags a release that has just merged, and keeps
   the release pull request open.
 - `release-label.yml` checks every pull request into `main`.
-- `publish.yml` publishes a release tag to npm.
+- `publish.yml` stages a release tag's version on npm, and a maintainer approves it with 2FA.
 
 ### The labels
 
@@ -104,9 +104,18 @@ The merge's push to `main` runs `release.yml` again. Its `tag` job:
 3. dispatches `publish.yml` on the tag.
 
 `publish.yml` checks that the tag names the version `package.json` names and is a commit of `main`. It then runs `npm
-publish`, which builds `dist/` through `prepack`. It authenticates as npm's trusted publisher, by GitHub's OIDC token, with
-no npm token stored anywhere. A version already on npm is not sent again, so re-running the workflow on a tag is always
-safe: `gh workflow run publish.yml --ref vX.Y.Z`. A `v*` tag a person pushes starts it too.
+stage publish` on npm 11.21.2, which builds `dist/` through `prepack` and stages the version: it is not published yet. It
+authenticates as npm's trusted publisher, by GitHub's OIDC token, with no npm token stored anywhere and no 2FA.
+
+The version is published once a maintainer approves it, with 2FA, in either of two ways:
+
+- `npm stage approve <id>`, with the stage id the run prints at its end and on its summary;
+- on npmjs.com, at <https://www.npmjs.com/package/@emyann/tsverify>, under Staged Packages, Approve.
+
+Nothing in CI approves, by design. A version already on npm, or staged already and waiting, is not staged again, and the run
+says which, so re-running the workflow on a tag is always safe: `gh workflow run publish.yml --ref vX.Y.Z`. A re-run cannot
+print the id of an earlier stage, since npm lets CI read nothing staged: find it with `npm stage list @emyann/tsverify`, or
+on the Staged Packages tab. A `v*` tag a person pushes starts the workflow too.
 
 Every step decides from the repository as it is: a rerun with nothing new does nothing. The three jobs of `release.yml`
 share one concurrency group, so two runs never write the labels, the tag or the release branch at once.
@@ -114,10 +123,14 @@ share one concurrency group, so two runs never write the labels, the tag or the 
 ### One-time steps for the owner
 
 - **npm's trusted publisher.** At <https://www.npmjs.com/package/@emyann/tsverify/access>, under Trusted Publisher, choose
-  GitHub Actions and enter: user `emyann`, repository `tsverify`, workflow filename `publish.yml`, environment left empty.
-  Until then, `publish.yml` fails saying so, and nothing else in the release fails with it: the tag and the GitHub release
-  stand. Once it is set, re-run `publish.yml` on the tag. Afterwards, npm's package settings can require trusted
-  publishing and disallow tokens.
+  GitHub Actions and enter: user `emyann`, repository `tsverify`, workflow filename `publish.yml`, environment left empty,
+  and **"Allow npm publish" left unticked**: the workflow only stages, and staging is always allowed. Until then,
+  `publish.yml` fails saying so, and nothing else in the release fails with it: the tag and the GitHub release stand. Once
+  it is set, re-run `publish.yml` on the tag. A trusted publisher cannot be edited, only deleted and created again; one made
+  before 2026-09-03 may not stage, and `publish.yml` fails saying to remake it. Afterwards, npm's package settings can
+  require trusted publishing and disallow tokens.
+- **Approve each release, with 2FA.** After `publish.yml` stages a version, a maintainer approves it, as *What the merge
+  does* says. Until then the release is tagged and on GitHub, but not on npm.
 - **GitHub: "Allow GitHub Actions to create and approve pull requests"**, under Settings → Actions → General → Workflow
   permissions. Without it, `release.yml`'s `pr` job fails naming that setting.
 - **Optional: require `release-label` on `main`**, beside `ci`, in the branch protection. Unrequired, an unlabelled pull

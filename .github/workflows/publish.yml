@@ -1,12 +1,26 @@
-# Publishes @emyann/tsverify to npm from a release tag vX.Y.Z, as a trusted publisher: npm trusts this workflow's OIDC token, so no
-# NPM_TOKEN secret exists. release.yml dispatches it on the tag its merge makes (a tag pushed with the workflow's token starts nothing);
-# a tag a person pushes starts it too. tools/release.ts publish checks the tag against package.json and main, and publishes nothing npm
-# has already, so a rerun is safe. test/release.test.ts holds this file.
+# Stages @emyann/tsverify on npm from a release tag vX.Y.Z, as a trusted publisher, for a maintainer to approve with 2FA: npm trusts this
+# workflow's OIDC token, so no NPM_TOKEN secret exists, and nothing here approves. release.yml dispatches it on the tag its merge makes
+# (a tag pushed with the workflow's token starts nothing); a tag a person pushes starts it too. tools/release.ts publish checks the tag
+# against package.json and main, and stages nothing npm has already or has staged, so a rerun is safe. It ends by saying, in the log
+# and on the run's summary, the stage id and how to approve it. test/release.test.ts holds this file.
+#
+# npm's staged publishing, as https://docs.npmjs.com/staged-publishing says it (read 2026-11-05):
+# - `npm stage publish` submits a version to a staging area; it "does not require 2FA", so this job runs it.
+# - A maintainer then approves it, which publishes it and prompts for 2FA: `npm stage approve <stage-id>`, or on npmjs.com, "review the
+#   staged package in the Staged Packages tab, then click Approve". With trusted publishing, "A maintainer must still review and
+#   approve the staged package with 2FA."
+# - It "requires npm CLI version 11.15.0 or later": Node 24.16.0 ships npm 11.13.0, so the npm tools/release.ts pins as NPM_PIN
+#   (11.21.2) is installed below, and the tool refuses any other before it stages anything.
+# - The owner's trusted publisher leaves "Allow npm publish" unticked, so a direct `npm publish` from here is refused (E_STAGE_REQUIRED).
 #
 # npm's trusted publishing, as https://docs.npmjs.com/trusted-publishers says it (read 2026-11-05):
 # - The job needs `permissions: id-token: write`, "which allows GitHub Actions to generate OIDC tokens".
 # - It "requires npm CLI version 11.5.1 or later and Node version 22.14.0 or higher": pinned below to Node 24.16.0, the floor
-#   engines.node claims, whose bundled npm is 11.13.0, asserted before anything is published.
+#   engines.node claims.
+# - "`npm stage publish` is always allowed"; configurations "created after Sep 03, 2026 are automatically set to allow `npm stage
+#   publish`", and "Existing trusted publisher connections cannot be changed... delete the connection and create a new one."
+# - `npm stage list`, `view`, `approve` and `reject` "require interactive authentication and cannot use OIDC tokens": the tool reads a
+#   version staged already from npm's 409 on the stage, and cannot print that stage's id.
 # - "npm automatically generates and publishes provenance attestations" when publishing through trusted publishing from a public
 #   repository for a public package, as this one is (publishConfig.access public): no --provenance flag.
 # - The GitHub environment is optional on npm's side, named only "if using GitHub environments for deployment protection": none here,
@@ -14,9 +28,10 @@
 # - npm matches the workflow by its filename alone, "publish.yml", which "must exist in .github/workflows/"; package.json's
 #   repository.url must match this repository. Renaming this file breaks the trust.
 # - npm does not check the configuration when it is saved: a missing or wrong one shows only when this runs, as ENEEDAUTH ("Unable to
-#   authenticate") or a 404 on the publish. tools/release.ts then fails naming where to configure it:
-#   https://www.npmjs.com/package/@emyann/tsverify/access → Trusted Publisher → GitHub Actions: user emyann, repository tsverify,
-#   workflow publish.yml. Only this workflow fails with it; the tag and the release stand, and a re-run publishes.
+#   authenticate") or a 404 on the stage, and one that may not stage as a 403. tools/release.ts then fails naming where to configure
+#   it: https://www.npmjs.com/package/@emyann/tsverify/access → Trusted Publisher → GitHub Actions: user emyann, repository tsverify,
+#   workflow publish.yml, "Allow npm publish" unticked. Only this workflow fails with it; the tag and the release stand, and a re-run
+#   stages.
 name: publish
 
 on:
@@ -52,16 +67,14 @@ jobs:
           registry-url: 'https://registry.npmjs.org'
           # npm's own example: never a cache in a release build.
           package-manager-cache: false
-      - name: npm is 11.13.0, the one Node 24.16.0 ships (trusted publishing needs 11.5.1 or later)
-        run: |
-          version=$(npm --version)
-          if [ "$version" != 11.13.0 ]; then
-            echo "publish: npm is $version, not 11.13.0: pin it again here and in this file's header, at 11.5.1 or later" >&2
-            exit 1
-          fi
+      # Staging needs npm 11.15.0 or later; Node 24.16.0 ships 11.13.0. The version is NPM_PIN in tools/release.ts, which refuses any
+      # other, and test/release.test.ts holds the two together.
+      - name: npm 11.21.2, which stages
+        timeout-minutes: 5
+        run: npm install --global npm@11.21.2
       - run: npm ci
         timeout-minutes: 10
-      # npm publish runs prepack, which builds dist/.
-      - name: Publish the tag's commit to npm
+      # npm stage publish runs prepack, which builds dist/.
+      - name: Stage the tag's commit on npm, for a maintainer to approve with 2FA
         timeout-minutes: 10
         run: node tools/release.ts publish
