@@ -301,6 +301,7 @@ export const paddingFits = contract(padding, { ensures: { atMostSeven: ({ output
 ```text
 $ npx tsverify src/digits.contract.ts paddingFits
 ✓ paddingFits  1 law  (143 ms)
+  ran 1,000 inputs (0 discarded by requires), loaded 3 modules
   ✓ atMostSeven  (110 ms)
   trusted (declared, not proved):
     - digits: pure, checked from source (read digits); laws atLeastOne — src/digits.contract.ts:4:28
@@ -370,6 +371,7 @@ export const freeExactlyFrom50 = contract(shipsFree, {
 ```text
 $ npx tsverify src/checkout.contract.ts freeExactlyFrom50
 ✗ freeExactlyFrom50  1 counterexample  (315 ms)
+  ran 1,000 inputs (0 discarded by requires), loaded 4 modules
   ✗ exactlyFrom50  (218 ms)
     e.g. (NaN)
     where shipping gave -0
@@ -400,6 +402,7 @@ export const freeExactlyFrom50 = contract(shipsFree, {
 ```text
 $ npx tsverify src/checkout.contract.ts freeExactlyFrom50
 ✓ freeExactlyFrom50  1 law  (581 ms)
+  ran 1,000 inputs (852 discarded by requires), loaded 4 modules
   ✓ exactlyFrom50  (439 ms)
   taken by their specs, each verified on its own:
     - shipping: shippingSpec, pure, checked from source (read shipping); laws freeFrom50, smallOrdersPay — src/shipping.contract.ts:3:22
