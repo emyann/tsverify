@@ -21,6 +21,7 @@ export type Shape =
   | { readonly kind: "map"; readonly key: Shape; readonly value: Shape }
   | { readonly kind: "set"; readonly of: Shape }
   | { readonly kind: "function"; readonly returns: Shape }
+  | { readonly kind: "date" }
 
 /** A type no generated value stands for: the run of a contract over it is left to the proof. */
 export class NotRunnable extends Error {}
@@ -124,7 +125,8 @@ export const shapeOf = (checker: ts.TypeChecker, type: ts.Type, depth = 0): Shap
     if (name === "Map" || name === "ReadonlyMap") return { kind: "map", key: inner(args[0]!), value: inner(args[1]!) }
     return { kind: "set", of: inner(args[0]!) }
   }
-  // A named interface or class of the library (`Date`, `RegExp`, `Promise`): no value a run makes. A type the library
+  if (fromLib(type) && type.getSymbol()?.name === "Date") return { kind: "date" }
+  // Any other named interface or class of the library (`RegExp`, `Promise`): no value a run makes. A type the library
   // maps (`Record<string, V>`, `Readonly<T>`) is the object it stands for.
   if (fromLib(type) && (type.getSymbol()!.flags & (ts.SymbolFlags.Interface | ts.SymbolFlags.Class)) !== 0)
     return refuse("an object of the library a run makes none of")

@@ -65,6 +65,8 @@ export const arbitraryOf = (shape: Shape, strings: fc.Arbitrary<string>, bound: 
       return numbers
     case "bigint":
       return bigints
+    case "date":
+      return fc.date({ noInvalidDate: true })
     case "string":
       return strings
     case "null":

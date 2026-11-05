@@ -7,6 +7,7 @@ export type Lookup = (k: string) => "a" | "b"
 export type Tree = { readonly value: number; readonly children?: Tree }
 export type Order = { readonly id: Id; readonly lines: ReadonlyArray<{ qty: number }>; readonly tags: ReadonlySet<string>; readonly by: ReadonlyMap<string, null | undefined> }
 export type When = Date
+export type Pattern = RegExp
 export type Anything = unknown
 export type Loose = any
 export type Some = object

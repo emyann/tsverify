@@ -219,9 +219,11 @@ it("each type's shape: brands as their primitive, a library's mapped type as the
     fields: { type: { kind: "literal", value: "object" }, required: { kind: "array", of: { kind: "string" } } },
     optional: [],
   })
+  // A `Date`, made by the run as the library makes one.
+  assert.deepEqual(shape("When"), { kind: "date" })
   for (const [name, text] of [
-    ["When", "Date"],
     ["Loose", "any"],
+    ["Pattern", "RegExp"],
     ["Held", "Account"],
   ] as const)
     assert.throws(
