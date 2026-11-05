@@ -73,6 +73,11 @@ it("the check that a law says something is asked at a tenth of the work: one it 
     v.laws.map((l) => l.status),
     ["proved", "vacuous", "vacuous"],
   )
+  // A work whose tenth is not a whole number is taken all the same: Z3 takes only whole numbers as a limit.
+  assert.deepEqual(
+    (await verify(z3, project, spec, "signed", { work: PINNED_WORK + 5 })).laws.map((l) => l.status),
+    ["proved", "vacuous", "vacuous"],
+  )
   // At the default work every check answers: no note.
   assert.equal((await verify(z3, project, spec, "signed")).laws.find((l) => l.name === "zeroOnlyAtZero")!.unanswered, undefined)
 })

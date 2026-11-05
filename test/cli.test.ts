@@ -117,6 +117,13 @@ it("over several files lists a proved law whose check of saying something ended 
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
+  // A contract's own question unsettled is said under the contract, after its laws: at this work, whether `refusesOnly`'s
+  // laws decide every input runs out (test/undecided.test.ts, `UNDECIDED_RUNS_OUT`).
+  const own = cli("fixtures/undecided/start.contract.ts", "--work", "800")
+  assert.match(
+    own.out,
+    /\n {2}✓ refusesOnly +2 laws · 3 unanswered {2}\(\d+ ms\)\n(?: {6}.*\n| {4}✓.*\n)* {4}whether the laws decide every input was not settled/,
+  )
 })
 
 it("finds a spec's implementation in a folder, the spec file holding none", () => {

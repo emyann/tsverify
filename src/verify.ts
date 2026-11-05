@@ -468,7 +468,7 @@ const conflictsAt = async (
   }
   const solver = new z3.Solver()
   // A tenth of a query's work: the question is asked of every counterexample, and one it cannot settle leaves it one.
-  limited(solver, (opts.work ?? WORK) / 10)
+  limited(solver, tenthOf(opts.work ?? WORK))
   vectorsBy(u, solver)
   for (const a of [...u.assumptions, ...side.L.hints, side.pre, ...pins]) solver.add(a)
   try {
@@ -870,7 +870,7 @@ export const judge = async (
   const notes: Array<Array<Unanswered>> = []
   // Whether a law says something is asked at a tenth of a query's work, as whether a counterexample's input leaves any
   // result is (`conflictsAt`): it is asked of every proved law. One it cannot settle in that keeps the law proved, said.
-  const tenth = { ...opts, work: (opts.work ?? WORK) / 10 }
+  const tenth = { ...opts, work: tenthOf(opts.work ?? WORK) }
   const searchable = new Map<string, Bool>()
   for (const r0 of read) {
     const { law } = r0
@@ -1308,6 +1308,9 @@ const checked = async (
  * step on every run.
  */
 export const WORK = 15_000_000
+
+/** A tenth of `work`, a whole number of steps and at least one: Z3 takes no other as a limit. */
+const tenthOf = (work: number): number => Math.max(1, Math.floor(work / 10))
 
 const limited = (solver: { set(key: string, value: number): void }, work: number): void => {
   solver.set("rlimit", work)
