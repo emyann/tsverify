@@ -179,7 +179,11 @@ export const runPlan = async (plan: RunPlan): Promise<Answer> => {
   /** One input: refused by `requires`, thrown on, or the laws it breaks (by index) and the free results that break one. */
   const runOn = (
     d: Drawn,
-  ): "refused" | "threw" | { readonly threw: true; readonly says: ReadonlyArray<number> } | { readonly broken: ReadonlyArray<number>; readonly says: ReadonlyArray<number> } => {
+  ):
+    | "refused"
+    | "threw"
+    | { readonly threw: true; readonly says: ReadonlyArray<number> }
+    | { readonly broken: ReadonlyArray<number>; readonly says: ReadonlyArray<number> } => {
     try {
       if (requires !== undefined && !requires({ input: d.args })) return "refused"
     } catch {

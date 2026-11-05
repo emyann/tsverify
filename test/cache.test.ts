@@ -4,11 +4,11 @@
 // gives the counterexample the change brings; that counterexample comes back as it was; a counterexample's values,
 // whatever their kind, are kept as they were; and a verdict the solver ran out of work on is not kept.
 import assert from "node:assert/strict"
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import { after, before, describe, it } from "node:test"
-import { verdictsIn, type Cache } from "../src/cache.ts"
+import { contractKey, runSeed, verdictsIn, type Cache } from "../src/cache.ts"
 import { loadProject } from "../src/project.ts"
 import type { Ctx } from "../src/value.ts"
 import { openZ3, type Verification, verify } from "../src/verify.ts"
@@ -273,10 +273,34 @@ describe("a folder of answers", () => {
       assert.deepEqual(cache.get("work"), verdict({ laws: [law("out of work")] }))
       // The clock stops it where the machine is: asked again. On a contract's own question too.
       cache.set("time", verdict({ laws: [law("out of time")] }))
-      cache.set("contract", verdict({ asked: [{ question: "undecided", side: "search", by: "z3", end: "out of time", queries: 1, ms: 1 }] }))
+      cache.set(
+        "contract",
+        verdict({ asked: [{ question: "undecided", side: "search", by: "z3", end: "out of time", queries: 1, ms: 1 }] }),
+      )
       for (const key of ["time", "contract"]) assert.equal(cache.get(key), undefined, key)
     } finally {
       rmSync(answers, { recursive: true, force: true })
+    }
+  })
+})
+
+describe("a run's key and seed", () => {
+  it("the key holds whether the code is run; the seed holds the texts and the name, never a path", () => {
+    const file = path.join(root, "fixtures/runs/broken.contract.ts")
+    const here = loadProject([file], path.join(root, "tsconfig.json"))
+    assert.notEqual(contractKey(here, file, "priced", { run: true }), contractKey(here, file, "priced", { run: false }))
+    // The same fixture read from another folder: the same texts, so the same seed.
+    mkdirSync(path.join(root, ".docs"), { recursive: true })
+    const dir = mkdtempSync(path.join(root, ".docs", "seed-"))
+    try {
+      cpSync(file, path.join(dir, "broken.contract.ts"))
+      writeFileSync(path.join(dir, "tsconfig.json"), JSON.stringify({ extends: path.join(root, "tsconfig.json"), include: ["*.ts"] }))
+      const there = loadProject([path.join(dir, "broken.contract.ts")], path.join(dir, "tsconfig.json"))
+      assert.equal(runSeed(there, "priced", {}), runSeed(here, "priced", {}))
+      assert.notEqual(runSeed(here, "other", {}), runSeed(here, "priced", {}))
+      assert.notEqual(runSeed(here, "priced", { bound: 2 }), runSeed(here, "priced", {}))
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
     }
   })
 })

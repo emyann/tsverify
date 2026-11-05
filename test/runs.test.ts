@@ -7,7 +7,7 @@ import assert from "node:assert/strict"
 import { existsSync, readdirSync, rmSync } from "node:fs"
 import os from "node:os"
 import path from "node:path"
-import { it } from "node:test"
+import { after, before, it } from "node:test"
 import * as fc from "fast-check"
 import { trustOf } from "../src/lower.ts"
 import { loadProject, readContract } from "../src/project.ts"
@@ -16,7 +16,8 @@ import { type RunPlan, planOf, runContract } from "../src/run/runs.ts"
 import { NotRunnable, type Shape, shapeOf } from "../src/run/shape.ts"
 import ts from "typescript"
 import { readAssumptions } from "../src/trust.ts"
-import type { Options } from "../src/verify.ts"
+import type { Ctx } from "../src/value.ts"
+import { type Options, openZ3, verify } from "../src/verify.ts"
 import { price } from "../fixtures/runs/broken.contract.ts"
 import { label } from "../fixtures/runs/lookup.contract.ts"
 import { half } from "../fixtures/runs/implemented.contract.ts"
@@ -213,4 +214,73 @@ it("each type's shape: brands as their primitive, a library's mapped type as the
       () => shape(name),
       (e: unknown) => e instanceof NotRunnable && e.message.includes(text),
     )
+})
+
+// Through `verify`: a run is asked before any proof, and what it settles Z3 is not asked.
+let z3: Ctx
+let close: () => Promise<void>
+before(async () => {
+  ;({ z3, close } = await openZ3())
+})
+after(() => close())
+
+const verified = (name: string, contract: string, opts: Options = {}) => verify(z3, project, fixture(name), contract, opts)
+
+it("a law a run breaks is a counterexample by running, never asked of Z3; the law it keeps is proved by Z3", async () => {
+  const v = await verified("broken", "priced", { run: true })
+  const broken = v.laws.find((l) => l.name === "tenEach")!
+  assert.deepEqual([broken.status, broken.by], ["counterexample", "run"])
+  const [qty] = broken.args as [number]
+  assert.notEqual(price(qty), qty * 10)
+  assert.ok(!broken.asked?.some((a) => a.question === "proof" || a.question === "search"), JSON.stringify(broken.asked))
+  const kept = v.laws.find((l) => l.name === "notNegative")!
+  assert.deepEqual([kept.status, kept.by], ["proved", "z3"])
+  // Shown to say something by a run: no says-anything query for Z3.
+  assert.ok(
+    kept.asked?.some((a) => a.question === "says-anything" && a.by === "run"),
+    JSON.stringify(kept.asked),
+  )
+  assert.ok(!kept.asked?.some((a) => a.question === "says-anything" && a.by === "z3"), JSON.stringify(kept.asked))
+  assert.equal(v.ran?.ran, true)
+  // Without `run`, nothing runs: the same verdicts, each by Z3.
+  const alone = await verified("broken", "priced")
+  assert.equal(alone.ran, undefined)
+  assert.deepEqual(
+    alone.laws.map((l) => [l.status, l.by]),
+    [
+      ["proved", "z3"],
+      ["counterexample", "z3"],
+    ],
+  )
+})
+
+it("a contract whose module cannot load is not run, says why, and keeps the verdicts Z3 alone gives", async () => {
+  const v = await verified("enum", "leveled", { run: true })
+  assert.ok(v.ran?.ran === false && v.ran.why.includes("ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX"), JSON.stringify(v.ran))
+  const alone = await verified("enum", "leveled")
+  assert.ok(alone.laws.length > 0 && alone.unsupported === undefined, JSON.stringify(alone))
+  assert.deepEqual(
+    v.laws.map((l) => [l.status, l.by]),
+    alone.laws.map((l) => [l.status, l.by]),
+  )
+})
+
+it("a counterexample longer than the bound is Z3's to find", async () => {
+  const v = await verified("bounded", "short", { run: true, bound: 2 })
+  const l = v.laws[0]!
+  assert.deepEqual([l.status, l.by], ["counterexample", "z3"])
+  assert.equal((l.args![0] as ReadonlyArray<number>).length, 3)
+})
+
+it("a law a run breaks and Z3 proves at that input names the declaration it leaned on", async () => {
+  const v = await verified("wrong-assume", "scored", { run: true })
+  const l = v.laws[0]!
+  assert.deepEqual([l.status, l.by], ["counterexample", "run"])
+  assert.ok(l.reason?.includes("scoreIsPure") === true || l.reason?.includes("score") === true, l.reason)
+  assert.ok(
+    l.asked?.some((a) => a.question === "cross-check" && a.by === "z3"),
+    JSON.stringify(l.asked),
+  )
+  // Z3 alone proves it, leaning on the declaration.
+  assert.equal((await verified("wrong-assume", "scored")).laws[0]!.status, "proved")
 })
