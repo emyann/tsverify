@@ -7,7 +7,7 @@ import { realpathSync } from "node:fs"
 import path from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import * as fc from "fast-check"
-import { CALLS, type Drawn, drawsOf, isRecorded } from "./arbitrary.ts"
+import { CALLS, type Drawn, arbitraryOf, drawsOf, isRecorded, stringsOf } from "./arbitrary.ts"
 import type { RunPlan, RunResult } from "./runs.ts"
 
 /** What the child answers: a run's result, but for what the parent knows better (the environment it gave, the time). */
@@ -30,6 +30,28 @@ const SPEC_EXPORT = "__tsverifySpec"
 
 /** The most draws a run makes for each input it runs: past that, `requires` refuses too much and the run stops. */
 const DRAWS_PER_INPUT = 10
+/** The strings a value holds, its keys among them, in the order met, each once; at most 16. */
+const stringsIn = (x: unknown): Array<string> => {
+  const found = new Set<string>()
+  const walk = (v: unknown, depth: number): void => {
+    if (found.size >= 16 || depth > 6) return
+    if (typeof v === "string") found.add(v)
+    else if (v instanceof Map)
+      for (const [k, w] of v) {
+        walk(k, depth + 1)
+        walk(w, depth + 1)
+      }
+    else if (v instanceof Set || Array.isArray(v)) for (const w of v) walk(w, depth + 1)
+    else if (v !== null && typeof v === "object")
+      for (const [k, w] of Object.entries(v)) {
+        if (found.size < 16) found.add(k)
+        walk(w, depth + 1)
+      }
+  }
+  walk(x, 0)
+  return [...found]
+}
+
 /** The inputs `requires` met at which each law is asked whether a free result breaks it. */
 const SAYS_INPUTS = 100
 
@@ -252,14 +274,20 @@ export const runPlan = async (plan: RunPlan): Promise<Answer> => {
   }
 
   // Whether a law says something is a question of the spec alone: at each input `requires` met, the code thrown on
-  // or not, a free result of the law's type drawn from the seed, until one breaks it.
+  // or not, a free result of the law's type drawn from the seed, until one breaks it. Its strings are drawn from those
+  // the input holds, as an input's are from its few: a law that compares a result's names with the input's reads them.
+  const results = met.map((args) => {
+    const held = stringsIn(args)
+    return stringsOf(held.length === 0 ? (plan.pool.length === 0 ? [""] : plan.pool) : held)
+  })
   plan.laws.forEach((l, i) => {
-    if (l.output === undefined || met.length === 0) return
-    const results = fc.sample(drawsOf([], [l.output], plan.pool, plan.bound), { seed: plan.seed + i + 1, numRuns: met.length })
+    const shape = l.output
+    if (shape === undefined) return
     if (
       met.some((args, k) => {
+        const [free] = fc.sample(arbitraryOf(shape, results[k]!, plan.bound), { seed: plan.seed + i * SAYS_INPUTS + k + 1, numRuns: 1 })
         try {
-          return !preds[i]!({ input: args, output: results[k]!.free[0] })
+          return !preds[i]!({ input: args, output: free })
         } catch {
           // A law that throws on a free result says nothing there.
           return false
