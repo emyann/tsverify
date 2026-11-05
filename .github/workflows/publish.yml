@@ -1,0 +1,67 @@
+# Publishes @emyann/tsverify to npm from a release tag vX.Y.Z, as a trusted publisher: npm trusts this workflow's OIDC token, so no
+# NPM_TOKEN secret exists. release.yml dispatches it on the tag its merge makes (a tag pushed with the workflow's token starts nothing);
+# a tag a person pushes starts it too. tools/release.ts publish checks the tag against package.json and main, and publishes nothing npm
+# has already, so a rerun is safe. test/release.test.ts holds this file.
+#
+# npm's trusted publishing, as https://docs.npmjs.com/trusted-publishers says it (read 2026-11-05):
+# - The job needs `permissions: id-token: write`, "which allows GitHub Actions to generate OIDC tokens".
+# - It "requires npm CLI version 11.5.1 or later and Node version 22.14.0 or higher": pinned below to Node 24.16.0, the floor
+#   engines.node claims, whose bundled npm is 11.13.0, asserted before anything is published.
+# - "npm automatically generates and publishes provenance attestations" when publishing through trusted publishing from a public
+#   repository for a public package, as this one is (publishConfig.access public): no --provenance flag.
+# - The GitHub environment is optional on npm's side, named only "if using GitHub environments for deployment protection": none here,
+#   so the environment field is left empty there.
+# - npm matches the workflow by its filename alone, "publish.yml", which "must exist in .github/workflows/"; package.json's
+#   repository.url must match this repository. Renaming this file breaks the trust.
+# - npm does not check the configuration when it is saved: a missing or wrong one shows only when this runs, as ENEEDAUTH ("Unable to
+#   authenticate") or a 404 on the publish. tools/release.ts then fails naming where to configure it:
+#   https://www.npmjs.com/package/@emyann/tsverify/access → Trusted Publisher → GitHub Actions: user emyann, repository tsverify,
+#   workflow publish.yml. Only this workflow fails with it; the tag and the release stand, and a re-run publishes.
+name: publish
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+
+# id-token: write is the OIDC token npm trusts; contents: read checks out the tag. Nothing else is granted.
+permissions:
+  id-token: write
+  contents: read
+
+# One publish at a time, never cancelled: a dispatch and a person's tag push of the same version run one after the other, and the second
+# finds the version on npm.
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        timeout-minutes: 5
+        with:
+          # The whole history: the tag's commit is checked to be on main.
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        timeout-minutes: 5
+        with:
+          node-version: '24.16.0'
+          registry-url: 'https://registry.npmjs.org'
+          # npm's own example: never a cache in a release build.
+          package-manager-cache: false
+      - name: npm is 11.13.0, the one Node 24.16.0 ships (trusted publishing needs 11.5.1 or later)
+        run: |
+          version=$(npm --version)
+          if [ "$version" != 11.13.0 ]; then
+            echo "publish: npm is $version, not 11.13.0: pin it again here and in this file's header, at 11.5.1 or later" >&2
+            exit 1
+          fi
+      - run: npm ci
+        timeout-minutes: 10
+      # npm publish runs prepack, which builds dist/.
+      - name: Publish the tag's commit to npm
+        timeout-minutes: 10
+        run: node tools/release.ts publish

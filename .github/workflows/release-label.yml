@@ -1,0 +1,72 @@
+# The release-label check: a pull request into main carries exactly one release label (breaking, feature, fix, docs or internal;
+# tools/release.ts, LABELS), and the refusal names them and the command that adds one. A workflow of its own, not a job of ci.yml, so
+# that a label added or taken off reruns this check and not the whole suite. The labels are made by release.yml's labels job, never here
+# and never by hand. test/release.test.ts holds this file.
+name: release-label
+
+# The check runs on every event that can change the labels, and reads them live by the pull request's number, so a run reads the labels
+# the pull request has then, not its event's payload. The release workflow dispatches it on the release pull request's head, which its
+# own token opened and so started nothing, giving the number as pr; a dispatched run checks only a pull request whose head is the commit
+# it runs on. The trigger that would run a fork's code against a writable token is named nowhere here.
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, labeled, unlabeled]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: The number of the pull request whose head this run checks
+        required: true
+        type: string
+
+# The check reads the code and the pull request's labels.
+permissions:
+  contents: read
+  pull-requests: read
+
+# No concurrency group, on purpose: a group cancels a run of the check, and a pull request opened with its labels fires opened and labeled
+# together. Every run reads the labels live and writes nothing on a pull_request event, so each goes to its verdict.
+jobs:
+  release-label:
+    name: release-label
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # A dispatched run posts its result as the commit status release-label on the head it checks: a check run a dispatch makes is linked
+    # to no pull request, and a status belongs to the commit. Job permissions replace the top-level ones, so the reads are repeated.
+    permissions:
+      contents: read
+      pull-requests: read
+      statuses: write
+    steps:
+      # The check's code is main's, never the pull request's: a pull request cannot edit the check it is held to. A dispatched run
+      # (the release head, which only release.yml writes) reads main too.
+      - uses: actions/checkout@v7
+        timeout-minutes: 3
+        with:
+          ref: ${{ github.event.pull_request.base.sha || 'main' }}
+      - uses: actions/setup-node@v7
+        timeout-minutes: 3
+        with:
+          node-version: '24.16.0'
+      - name: Check the pull request's release label
+        id: check
+        timeout-minutes: 3
+        # The number comes through env, never into the command's text. HEAD_SHA is the commit a dispatched run reports on, and empty on
+        # a pull_request event.
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr }}
+          HEAD_SHA: ${{ github.event_name == 'workflow_dispatch' && github.sha || '' }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: node tools/release.ts check
+      - name: Post the release-label status
+        if: always() && github.event_name == 'workflow_dispatch'
+        timeout-minutes: 2
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+          CONTEXT: release-label
+          STATE: ${{ steps.check.outcome == 'success' && 'success' || 'failure' }}
+          TARGET_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: gh api --method POST "repos/$GH_REPO/statuses/$SHA" -f state="$STATE" -f context="$CONTEXT" -f target_url="$TARGET_URL"

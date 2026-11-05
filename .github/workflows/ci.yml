@@ -146,8 +146,14 @@ jobs:
     timeout-minutes: 5
     if: always()
     needs: [test, maps, lint, typecheck, verify]
+    # statuses: write posts the verdict as a commit status on a dispatched run (the last step). Job permissions replace the top-level
+    # ones, so the read is repeated.
+    permissions:
+      contents: read
+      statuses: write
     steps:
       - name: Every job succeeded
+        id: verdict
         # toJSON(needs) goes through env, never into the shell's text: on a pull request from a fork, what the branch controls must not
         # reach a command line.
         env:
@@ -168,3 +174,17 @@ jobs:
             fi
           done
           echo "ci: every job above succeeded."
+      # A dispatched run (release.yml dispatches this workflow on the release pull request's head, which its own token pushed and so
+      # started nothing) makes a check run linked to no pull request, so the pull request would never see its required ci. Its verdict is
+      # posted as the commit status ci on the commit it tested, which the pull request reads. On every other event it posts nothing.
+      - name: Post the ci status
+        if: always() && github.event_name == 'workflow_dispatch'
+        timeout-minutes: 2
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+          CONTEXT: ci
+          STATE: ${{ steps.verdict.outcome == 'success' && 'success' || 'failure' }}
+          TARGET_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: gh api --method POST "repos/$GH_REPO/statuses/$SHA" -f state="$STATE" -f context="$CONTEXT" -f target_url="$TARGET_URL"
