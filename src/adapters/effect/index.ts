@@ -26,7 +26,7 @@
 //   `Metric.update`): steps that change no outcome and call no operation,
 //   their arguments not read.
 //
-// Pinned to effect 4.0.6. What it does not name (`forEach`, concurrency,
+// Pinned to effect 4.1.2. What it does not name (`forEach`, concurrency,
 // resources, schedules) is refused by the core where the code uses it, naming
 // the function.
 import ts from "typescript"
