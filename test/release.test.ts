@@ -664,7 +664,12 @@ describe("release.ts pr, tag and publish, one release from its first labelled me
 
   it("REFUSED: a stage the trusted publisher may not make, naming where to remake it and the box to leave unticked", () => {
     const at = path.join(w.dir, "publish-v0.8.0")
-    w.state({ ...w.now(), npm: [], staged: [], stageFails: "npm error code E403\nnpm error 403 Forbidden - POST https://registry.npmjs.org/-/stage/package/@emyann%2ftsverify\n" })
+    w.state({
+      ...w.now(),
+      npm: [],
+      staged: [],
+      stageFails: "npm error code E403\nnpm error 403 Forbidden - POST https://registry.npmjs.org/-/stage/package/@emyann%2ftsverify\n",
+    })
     const ran = publish(at)
     assert.equal(ran.status, 1)
     assert.ok(ran.out.includes("https://www.npmjs.com/package/@emyann/tsverify/access"), "names where it is configured")
@@ -673,7 +678,10 @@ describe("release.ts pr, tag and publish, one release from its first labelled me
 
   it("REFUSED: a stage that fails for another reason, another 409 too, is read neither as staged nor as the trusted publisher", () => {
     const at = path.join(w.dir, "publish-v0.8.0")
-    for (const failure of ["npm error code E500\nnpm error 500 Internal Server Error\n", "npm error code E409\nnpm error 409 Conflict - something else\n"]) {
+    for (const failure of [
+      "npm error code E500\nnpm error 500 Internal Server Error\n",
+      "npm error code E409\nnpm error 409 Conflict - something else\n",
+    ]) {
       w.state({ ...w.now(), npm: [], staged: [], stageFails: failure })
       const ran = publish(at)
       assert.equal(ran.status, 1, failure)
