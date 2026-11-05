@@ -119,6 +119,35 @@ describe("the cover", () => {
   })
 })
 
+describe("a lemma's verdict kept", () => {
+  it("adds none of its earlier run's queries to the contract that leans on it", async () => {
+    // `areaNonNegative` leans on the lemma `productNonNegative` (fixtures/loops.ts). Its own verdict is not kept where the
+    // solver left it unknown, while its lemma's may be: verified again, it reads the lemma from the cache.
+    const file = path.join(root, "fixtures/loops.ts")
+    const project = loadProject([file], path.join(root, "tsconfig.json"))
+    const kept = new Map<string, Verification>()
+    const order: Array<string> = []
+    const cache: Cache = {
+      get: (key) => kept.get(key),
+      set: (key, v) => {
+        kept.set(key, v)
+        order.push(key)
+      },
+    }
+    const obligationQueries = (v: Verification) =>
+      (v.asked ?? []).filter((a) => a.question === "obligation").reduce((n, a) => n + a.queries, 0)
+    const cold = await verify(z3, project, file, "areaNonNegative", { cache })
+    // The lemma's verdict is kept first, then the contract's: the contract's alone is let go.
+    assert.equal(order.length, 2)
+    kept.delete(order[1]!)
+    const lemma = kept.get(order[0]!)!
+    const lemmaQueries = [...(lemma.asked ?? []), ...lemma.laws.flatMap((l) => l.asked ?? [])].reduce((n, a) => n + a.queries, 0)
+    assert.ok(lemmaQueries > 0)
+    const warm = await verify(z3, project, file, "areaNonNegative", { cache })
+    assert.equal(obligationQueries(warm), obligationQueries(cold) - lemmaQueries)
+  })
+})
+
 describe("a folder of answers", () => {
   it("answers a run again from the folder; a change verifies again only what reads it, and gives its counterexample", async () => {
     const dir = project(FILES)

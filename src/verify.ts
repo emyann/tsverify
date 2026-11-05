@@ -612,19 +612,29 @@ const undecidedOf = async (
  * contract is verified in a Z3 context of its own (`ownContext`), deleted once its verdicts are read, so no contract
  * verified before it changes them.
  */
-export const verify = async (z3: Ctx, project: Project, file: string, name: string, opts: Options = {}): Promise<Verification> => {
+export const verify = async (z3: Ctx, project: Project, file: string, name: string, opts: Options = {}): Promise<Verification> =>
+  (await verifyOrKept(z3, project, file, name, opts)).v
+
+/** `verify`, and whether its verdict was kept from an earlier run (`kept`): its times are then that run's, not this one's. */
+const verifyOrKept = async (
+  z3: Ctx,
+  project: Project,
+  file: string,
+  name: string,
+  opts: Options,
+): Promise<{ readonly v: Verification; readonly kept: boolean }> => {
   const timed = async (): Promise<Verification> => {
     const started = performance.now()
     const v = await ownContext(z3, (own) => verified(own, project, file, name, opts))
     return { ...v, ms: performance.now() - started }
   }
-  if (opts.cache === undefined) return timed()
+  if (opts.cache === undefined) return { v: await timed(), kept: false }
   const key = contractKey(project, file, name, opts)
   const kept = opts.cache.get(key)
-  if (kept !== undefined) return kept
+  if (kept !== undefined) return { v: kept, kept: true }
   const v = await timed()
   opts.cache.set(key, v)
-  return v
+  return { v, kept: false }
 }
 
 const verified = async (z3: Ctx, project: Project, file: string, name: string, opts: Options): Promise<Verification> => {
@@ -1171,9 +1181,10 @@ const obligationsOf = async (
   )
   const lemmas = new Map([...proof.L.lemmas, ...search.L.lemmas])
   for (const [key, lem] of lemmas) {
-    const v = await verify(z3, project, lem.file, lem.name, opts)
-    // A lemma's own queries are this contract's, as an obligation, and so is what it left without an answer.
-    ledger?.addAll([...(v.asked ?? []), ...v.laws.flatMap((l) => l.asked ?? [])], "obligation")
+    const { v, kept } = await verifyOrKept(z3, project, lem.file, lem.name, opts)
+    // A lemma's own queries are this contract's, as an obligation, and so is what it left without an answer; a verdict
+    // kept from an earlier run asked nothing now, and its times are not this run's.
+    if (!kept) ledger?.addAll([...(v.asked ?? []), ...v.laws.flatMap((l) => l.asked ?? [])], "obligation")
     for (const n of [...(v.unanswered ?? []), ...v.laws.flatMap((l) => l.unanswered ?? [])])
       unanswered.push({ ...n, reason: `lemma ${lem.name}: ${n.reason}` })
     const status: ObligationResult["status"] =
