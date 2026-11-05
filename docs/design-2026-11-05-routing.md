@@ -377,40 +377,42 @@ USERPROFILE, and NODE_OPTIONS when set; never the parent's whole one, which on t
 
 ### Measured: Nemia's 64 notes, and the five contracts' times
 
-**How.** This checkout's CLI, `--json`, no `--cache`, one file at a time, from Nemia's own checkout at e0ec8e67f. Phase 1
+**How.** This checkout's CLI, `--json`, no `--cache`, one file at a time, from Nemia's own checkout at 498a2cef3. Phase 1
 read a frozen ab395d4, and Nemia has moved since: `standing` has 18 laws now, not 14, and `holdsOpen` is new. Same
 machine, shared, as Phase 1. The child loaded Nemia's modules, `effect` and `xstate` among them (58 to 77 modules for an
 orchestrator contract, 12 for the runtime's), each named in the report.
 
-**Notes.** Of the 64 says-anything notes, 62 are answered, each by a run or by Z3's query of the spec alone:
+**Notes.** Of the 64 says-anything notes, 61 are answered, each by a run or by Z3's query of the spec alone:
 
 | Contract | Notes in Phase 1 | Left | Answered by run / by Z3 (of its laws) | Inputs meeting `requires` |
 |---|---|---|---|---|
 | `observe` | 24 | 0 | 19 / 12 | 289 of 10,000 draws |
-| `standing` | 13 | 0 | 11 / 7 | 1,000 of 1,795 |
-| `approvalRefusal` | 12 | 2 | 8 / 3 | 1,000 of 1,865 |
+| `standing` | 13 | 0 | 11 / 7 | 1,000 of 1,812 |
+| `approvalRefusal` | 12 | 2 | 9 / 2 | 1,000 of 1,809 |
 | `wiringRefusal` | 11 | 0 | 0 / 11: not run, it calls `hireRefusal`, declared `pure: false` | — |
-| `rewired` | 4 | 0 | 6 / 2 | 1,000 of 2,184 |
+| `rewired` | 4 | 1 | 6 / 1 | 1,000 of 2,153 |
 
-The two left, `approvalRefusal.takenAtItsGate` and `anEndingAlreadyLanded`, are laws no generated free result broke at
+The three left, `approvalRefusal.takenAtItsGate` and `anEndingAlreadyLanded` and `rewired.hireNames`, are laws no generated free result broke at
 the first 100 inputs `requires` met, and whose spec-alone query runs out at a tenth: they keep the note, worded "of the
 spec alone". The spec-alone query alone, before any run was possible, answered 53 of the 64 (a first pass, where every
 contract was still refused a run, on its types or its purity): the code's facts were most of what the old query paid for.
 
 **Verdicts.** Every law of the five contracts is `proved`, as in Phase 1. No run broke a law, so no counterexample by run
 needed examining. A run of `observe` first stopped at the 60 s clock: drawing a free result for every law at every draw
-cost 27 ms a draw. The free results are now drawn at the first 100 inputs `requires` met, and its run takes 5 s.
+cost 27 ms a draw. The free results are now drawn at the first 100 inputs `requires` met, and its run takes 6 s. The
+says-anything questions are asked once every law's proof is decided: asked between proofs, their capped queries cost
+`fixtures/maps.ts`'s `leftOutNamesEachRun` its proof at a third of the work.
 
 **By contract** (seconds, less cover, which is what CI pays):
 
 | Contract | Phase 1, after | This card | Its run |
 |---|---|---|---|
-| `observe` | 52.3 | 29.4 | 5.0 |
-| `wiringRefusal` | 30.7 | 2.5 | not run |
-| `rewired` | 19.7 | 4.0 | 0.2 |
-| `approvalRefusal` | 32.9 | 32.7 | 1.4 |
-| `standing` | 43.6 | 26.5 (18 laws) | 1.7 |
-| `decide` | 8.5 | 5.8 | 3.9 |
+| `observe` | 52.3 | 34.5 | 5.9 |
+| `wiringRefusal` | 30.7 | 2.1 | not run |
+| `rewired` | 19.7 | 3.4 | 0.3 |
+| `approvalRefusal` | 32.9 | 31.6 | 1.3 |
+| `standing` | 43.6 | 18.9 (18 laws) | 1.9 |
+| `decide` | 8.5 | 7.7 | 4.1 |
 
 A run adds the child's start and its modules' loading, under 2 s for each orchestrator contract. `decide` meets `requires`
 at 170 of 10,000 draws, and `observe` at 289: the risk named above, measured. Their runs still answer most of their
