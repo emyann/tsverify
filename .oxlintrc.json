@@ -35,9 +35,48 @@
   },
   "overrides": [
     {
-      // Effect is an adapter's, never the core's: the verifier reads every other library through TypeScript's checker alone.
+      // Effect is an adapter's, never the core's: the verifier reads every other library through TypeScript's checker alone. And
+      // fast-check is a run's, in its child process: the verifier's own never generates nor runs the code it reads.
       "files": ["src/**"],
-      "excludeFiles": ["src/adapters/effect/**"],
+      "excludeFiles": ["src/adapters/effect/**", "src/run/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": ["effect", "effect/**"],
+                "message": "Only src/adapters/effect imports effect: read what you need of it there, and hand the core what the adapter makes"
+              },
+              {
+                "group": ["fast-check", "fast-check/**"],
+                "message": "Only src/run imports fast-check: the verifier's process never generates nor runs code"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      // A setting of an override replaces the one before it: each folder that may import one of the two keeps the other out.
+      "files": ["src/adapters/effect/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": ["fast-check", "fast-check/**"],
+                "message": "Only src/run imports fast-check: the verifier's process never generates nor runs code"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      // The run's modules: fast-check, never effect.
+      "files": ["src/run/**"],
       "rules": {
         "no-restricted-imports": [
           "error",
