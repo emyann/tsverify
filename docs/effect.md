@@ -112,12 +112,20 @@ build, and its fields. `out.error._tag === "NotFound" && out.error.id === id` re
 with any value of its type, or fails with what its `catch` makes of what was thrown. What was thrown is `unknown`, so a
 `catch` that passes it on gives the program an error no law can read:
 
+<!-- file: src/bad-amount.ts -->
+```ts
+import { Data } from "effect"
+
+/** What a person typed that is no amount: a module of its own, which the spec and the code both import. */
+export class BadAmount extends Data.TaggedError("BadAmount")<{ readonly text: string }> {}
+```
+
 <!-- file: src/amount.contract.ts -->
 ```ts
 import type { Effect } from "effect"
 import type { Implementation } from "@emyann/tsverify"
 import { spec } from "@emyann/tsverify/effect"
-import type { BadAmount } from "./amount.ts"
+import type { BadAmount } from "./bad-amount.ts"
 
 const amountSpec = spec<(text: string) => Effect.Effect<bigint, BadAmount>>({
   ensures: {
@@ -136,10 +144,9 @@ export type LooseAmountOf = Implementation<typeof looseAmountSpec>
 
 <!-- file: src/amount.ts -->
 ```ts
-import { Data, Effect } from "effect"
+import { Effect } from "effect"
 import type { AmountOf, LooseAmountOf } from "./amount.contract.ts"
-
-export class BadAmount extends Data.TaggedError("BadAmount")<{ readonly text: string }> {}
+import { BadAmount } from "./bad-amount.ts"
 
 /** The amount a person typed: its error says what they typed. */
 export const amountOf: AmountOf = (text) => Effect.try({ try: () => BigInt(text), catch: () => new BadAmount({ text }) })
