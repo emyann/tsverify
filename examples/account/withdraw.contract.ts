@@ -11,8 +11,8 @@ import {
   refusedExactlyWhenTheGuardSays,
   refusedWritesNothing,
 } from "./laws.ts"
-import type { Ledger, LedgerError, WithdrawalRefused } from "./withdraw.ts"
-import type * as Async from "./withdraw.async.ts"
+import type { Ledger, LedgerError, WithdrawalRefused } from "./ledger.ts"
+import type * as Async from "./ledger.async.ts"
 
 /**
  * The ledger's fold, pure, which the verifier checks from its source, and nothing else: the laws hold whatever account it

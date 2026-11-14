@@ -29,6 +29,8 @@ const dev = (name: string) => `${name}@${manifest.devDependencies[name]}`
 const FILES = [
   "account/account.contract.ts",
   "account/account.ts",
+  "account/ledger.ts",
+  "account/ledger.async.ts",
   "account/withdraw.contract.ts",
   "account/withdraw.ts",
   "account/withdraw.async.ts",
