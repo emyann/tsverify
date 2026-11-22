@@ -31,7 +31,13 @@ A parcel's status, from a record with two dates that may be missing:
 <!-- file: src/parcel.contract.ts -->
 ```ts
 import { type Implementation, spec } from "@emyann/tsverify"
-import type { Parcel, Status } from "./parcel.ts"
+
+export interface Parcel {
+  readonly shippedAt: bigint | null
+  readonly deliveredAt: bigint | null
+  readonly lost: boolean
+}
+export type Status = "waiting" | "in-transit" | "delivered" | "lost"
 
 const statusSpec = spec<(parcel: Parcel) => Status>({
   requires: ({ input: [parcel] }) => (parcel.deliveredAt !== null ? parcel.shippedAt !== null && parcel.deliveredAt >= parcel.shippedAt : true),
@@ -45,18 +51,16 @@ export type StatusOf = Implementation<typeof statusSpec>
 ```
 
 The code takes the type the spec's module gives it, `StatusOf`, so `tsc` holds it to `F`, and it imports nothing of
-tsverify. Both files import only the other's types, so nothing of the spec is in what runs:
+tsverify. It imports only types, so nothing of the spec is in what runs.
+
+**A spec's module imports nothing from the code that implements it.** The types its signature needs are declared in the
+spec's module, as `Parcel` and `Status` are here, and the code takes them from it; a value both need, an error class or a
+service, lives in a module of its own that both import (`users.ts`, below). The spec then stands, and type-checks, before
+the code exists: it is what the code is written from, by a person or by an agent handed it.
 
 <!-- file: src/parcel.ts -->
 ```ts
 import type { StatusOf } from "./parcel.contract.ts"
-
-export interface Parcel {
-  readonly shippedAt: bigint | null
-  readonly deliveredAt: bigint | null
-  readonly lost: boolean
-}
-export type Status = "waiting" | "in-transit" | "delivered" | "lost"
 
 export const statusOf: StatusOf = (parcel) => {
   if (parcel.deliveredAt !== null) return "delivered"
