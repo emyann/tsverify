@@ -68,7 +68,7 @@ describe("verdicts the verifier once got wrong", () => {
     assert.equal(law?.status, "proved", shown(law))
   })
 
-  it("an element of the given list pushed past the bound is found: a law that holds is not refuted", async () => {
+  it("an element of the given list pushed past the bound is found: a law that holds is proved", async () => {
     const v = await verify(z3, project, file, "prependedKeepsTheLast")
     assert.equal(v.unsupported, undefined)
     const [law] = v.laws

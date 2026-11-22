@@ -82,8 +82,9 @@ Each contract is lowered twice:
 - The **proof side** keeps arrays of any length and real quantifiers. It may over-approximate: a filtered array is known
   element by element, but its length only as "none or some", and numbers as reals. Its `unsat` is a proof. Its models aren't trusted once an
   approximation was used.
-- The **search side** holds arrays to 4 elements, writes quantifiers out element by element, counts filtered elements
-  exactly, and keeps numbers to values a double holds exactly. Every model it finds is a real input.
+- The **search side** holds the arrays a contract is given to 4 elements, and an array the code makes from them to as
+  many as it can hold (`[...xs, x]`, five), writes quantifiers out element by element over all of them, counts filtered
+  elements exactly, and keeps numbers to values a double holds exactly. Every model it finds is a real input.
 
 A law the proof side can't settle in time, and the search side can't break, is reported as `bounded`, never as `proved`. A
 law proved that no result could break is reported as `vacuous`, and a law broken at an input where no result keeps every

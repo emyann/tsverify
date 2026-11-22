@@ -129,7 +129,9 @@ export type Val =
     }
   /**
    * An array: its length, and its element at an index (built on demand; may refuse). `size` is its length when
-   * known exactly; `maxSize` bounds it, so a quantifier over it can be written out element by element.
+   * known exactly; `maxSize` bounds it, so a quantifier over it can be written out element by element. On the search
+   * side an array with no `maxSize` is taken to be at most the bound long, as an input is (`symbolicOf`), and a reader
+   * writes out `maxSize ?? bound` elements: so an array the code makes that may be longer must carry its `maxSize`.
    */
   | {
       readonly kind: "array"
