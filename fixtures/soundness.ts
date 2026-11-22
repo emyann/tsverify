@@ -1,4 +1,4 @@
-// Two wrong verdicts the verifier once gave, kept so it never gives them
+// Wrong verdicts the verifier once gave, kept so it never gives them
 // again; `test/soundness.test.ts` asks each.
 import { computation, contract } from "../src/contract.ts"
 
@@ -38,3 +38,23 @@ export function second(a: ReadonlyArray<{ readonly v: bigint }>): bigint | undef
 }
 /** Once proved: an element borrowed at a literal index was read as there, past the end too. */
 export const secondAlwaysThere = contract(second, { ensures: { always: ({ output }) => output !== undefined } })
+
+/** `xs` with `x` appended, when `add`. */
+export const appended = (xs: ReadonlyArray<string>, x: string, add: boolean): ReadonlyArray<string> => (add ? [...xs, x] : xs)
+/**
+ * Once inconsistent: a list grown past the search bound, merged with one it was not, was searched at the bound's length
+ * only, so the element appended to a list already that long was never seen.
+ */
+export const appendedHoldsIt = contract(appended, {
+  ensures: { holdsIt: ({ input: [, x, add], output }) => !add || output.includes(x) },
+})
+
+/** `xs` with `x` put first, when `add`. */
+export const prepended = (xs: ReadonlyArray<string>, x: string, add: boolean): ReadonlyArray<string> => (add ? [x, ...xs] : xs)
+/**
+ * Once a false counterexample: the same merge, the last element of a list already as long as the search bound pushed
+ * past it, and missed.
+ */
+export const prependedKeepsTheLast = contract(prepended, {
+  ensures: { keepsTheLast: ({ input: [xs, , add], output }) => !add || xs.length === 0 || output.includes(xs.at(-1) ?? "") },
+})

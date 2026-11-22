@@ -363,7 +363,14 @@ export const ite = (u: Universe, c: Bool, a: Val, b: Val, at: ts.Node): Val => {
     )
   }
   if (a.kind === "array" && b.kind === "array") {
-    const maxSize = a.maxSize !== undefined && b.maxSize !== undefined ? Math.max(a.maxSize, b.maxSize) : undefined
+    // On the search side an array with no `maxSize` is at most the bound long, so the merge of one with an array that may
+    // be longer (`add ? [...xs, x] : xs`) holds the longer: dropping its `maxSize` would search it at the bound's length only.
+    const maxSize =
+      a.maxSize !== undefined && b.maxSize !== undefined
+        ? Math.max(a.maxSize, b.maxSize)
+        : u.bound !== undefined && (a.maxSize !== undefined || b.maxSize !== undefined)
+          ? Math.max(a.maxSize ?? u.bound, b.maxSize ?? u.bound)
+          : undefined
     return {
       kind: "array",
       length: z3.If(c, a.length, b.length),

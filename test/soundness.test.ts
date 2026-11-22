@@ -1,7 +1,8 @@
 // Wrong verdicts the verifier once gave (fixtures/soundness.ts): a proof that a
 // plain promise never rejects, a counterexample no double makes, a proof that a
-// write past an array's end keeps its length, and one that an element past the
-// end is there.
+// write past an array's end keeps its length, one that an element past the end
+// is there, and an `inconsistent` and a counterexample of laws over a list grown
+// past the search bound by a conditional.
 import assert from "node:assert/strict"
 import path from "node:path"
 import { after, before, describe, it } from "node:test"
@@ -9,6 +10,7 @@ import { diagnostics, loadProject } from "../src/project.ts"
 import type { Ctx } from "../src/value.ts"
 import { openZ3, verify } from "../src/verify.ts"
 
+const shown = (x: unknown): string => JSON.stringify(x, (_, v) => (typeof v === "bigint" ? `${v}n` : v))
 const root = path.resolve(import.meta.dirname, "..")
 const file = path.join(root, "fixtures/soundness.ts")
 const project = loadProject([file], path.join(root, "tsconfig.json"))
@@ -57,5 +59,19 @@ describe("verdicts the verifier once got wrong", () => {
       v.laws.map((l) => [l.status, l.args]),
       [["counterexample", [[]]]],
     )
+  })
+
+  it("a list grown past the search bound, merged with one it was not, is searched whole: a law that holds is proved", async () => {
+    const v = await verify(z3, project, file, "appendedHoldsIt")
+    assert.equal(v.unsupported, undefined)
+    const [law] = v.laws
+    assert.equal(law?.status, "proved", shown(law))
+  })
+
+  it("an element of the given list pushed past the bound is found: a law that holds is proved", async () => {
+    const v = await verify(z3, project, file, "prependedKeepsTheLast")
+    assert.equal(v.unsupported, undefined)
+    const [law] = v.laws
+    assert.equal(law?.status, "proved", shown(law))
   })
 })
